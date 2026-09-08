@@ -27,6 +27,18 @@ media, applications, Shortcuts, shell commands and workflows.
 That indirection is the whole product. It is what lets a pad mean "open Cursor"
 on one page and "run the release workflow" on another, without a line of Rust.
 
+![The Push 2 display: a workspace and page in the status bar, eight labelled
+columns matching the buttons above and below the screen, and a message
+line](docs/images/display.png)
+
+The eight columns line up with the eight buttons directly above the display and
+the eight directly below it, so each column says what its two buttons do. Render
+one yourself without any hardware:
+
+```bash
+cargo run -p pushos-ui --example preview -- frame.ppm overlay
+```
+
 ## What works today
 
 ```bash
