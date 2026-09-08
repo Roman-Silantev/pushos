@@ -50,6 +50,9 @@ jobs:
         run: >
           cargo test
           -p pushos-domain
+          -p pushos-acp
+          -p pushos-agents
+          -p pushos-api
           -p pushos-bindings
           -p pushos-actions
           -p pushos-config
