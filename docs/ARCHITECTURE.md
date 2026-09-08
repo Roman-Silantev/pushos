@@ -98,6 +98,23 @@ stays correct across a configuration reload.
 The recogniser never reads a clock. Time arrives as an argument, which is why
 its tests run instantly and never flake.
 
+## One thing animates, and it stops
+
+A still screen is drawn once and left alone. The waiting screen is the single
+exception: it redraws at the specification's ceiling of thirty frames a second
+while it is up, and stops the moment it goes away. An end-to-end test asserts
+both halves, because an animation that never ends would keep an idle machine
+awake for nothing.
+
+The frame counter lives in the render task rather than in the snapshot. If time
+passing republished state, the input pipeline would be woken thirty times a
+second to be told that nothing had happened.
+
+The mascot itself is drawn as geometry. It is written in quadrant block
+characters, and every one of those is a rectangle, so PushOS draws the
+rectangles directly: crisp at any size, no dependency on the typeface carrying
+those glyphs, and each quadrant separately addressable for the sweep.
+
 ## Configuration is replaced, never edited
 
 A reload parses, validates and builds a complete new configuration before

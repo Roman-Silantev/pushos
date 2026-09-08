@@ -39,6 +39,17 @@ one yourself without any hardware:
 cargo run -p pushos-ui --example preview -- frame.ppm overlay
 ```
 
+While PushOS is waiting for the surface, and for a moment when it arrives, the
+panel shows an animated mascot in Claude's orange. It is drawn as geometry
+rather than as text, because the block characters it is written in are just
+rectangles, so it stays crisp at any size.
+
+![The Push 2 display showing an animated orange block-character mascot above the
+word PushOS](docs/images/splash.png)
+
+It is the only thing in PushOS that redraws on a timer, it stops on its own, and
+a test holds it to that.
+
 ## What works today
 
 ```bash

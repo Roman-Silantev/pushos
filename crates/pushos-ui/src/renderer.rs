@@ -8,10 +8,11 @@
 use pushos_domain::ports::DisplayFrame;
 
 use crate::canvas::Canvas;
+use crate::mascot::Mascot;
 use crate::snapshot::UiSnapshot;
 use crate::text::{FontUnavailable, TextRenderer};
 use crate::theme::Theme;
-use crate::widgets::{Layout, draw_footer, draw_overlay, draw_slots, draw_status};
+use crate::widgets::{Layout, draw_footer, draw_overlay, draw_slots, draw_splash, draw_status};
 
 /// Draws the Push 2 display.
 #[derive(Debug)]
@@ -20,6 +21,7 @@ pub struct PushRenderer {
     text: TextRenderer,
     theme: Theme,
     layout: Layout,
+    mascot: Mascot,
     last: Option<UiSnapshot>,
 }
 
@@ -36,6 +38,7 @@ impl PushRenderer {
             text: TextRenderer::embedded()?,
             theme,
             layout: Layout::standard(),
+            mascot: Mascot::new(),
             last: None,
         })
     }
@@ -75,6 +78,17 @@ impl PushRenderer {
 
     fn draw(&mut self, snapshot: &UiSnapshot) {
         self.canvas.clear(self.theme.background);
+
+        if let Some(splash) = &snapshot.splash {
+            draw_splash(
+                &mut self.canvas,
+                &mut self.text,
+                &self.theme,
+                &self.mascot,
+                splash,
+            );
+            return;
+        }
 
         if let Some(overlay) = &snapshot.overlay {
             draw_overlay(&mut self.canvas, &mut self.text, &self.theme, overlay);
@@ -148,6 +162,7 @@ mod tests {
             footer: Some("ready".to_owned()),
             notice: None,
             overlay: None,
+            splash: None,
         }
     }
 
@@ -340,6 +355,62 @@ mod tests {
 
         assert_ne!(connected.pixels(), offline.pixels());
         assert!(ink(&offline) > 500, "an offline surface still shows why");
+    }
+
+    #[test]
+    fn a_splash_takes_over_the_whole_display() {
+        let mut renderer = renderer();
+        let mut normal = DisplayFrame::blank();
+        let mut waiting = DisplayFrame::blank();
+
+        renderer.render(&populated(), &mut normal);
+
+        let mut snapshot = populated();
+        snapshot.splash = Some(crate::snapshot::Splash::new("PushOS", 0));
+        renderer.render(&snapshot, &mut waiting);
+
+        // The status bar is the top of the normal layout; the splash replaces it.
+        assert_ne!(normal.pixel(10, 10), waiting.pixel(10, 10));
+    }
+
+    #[test]
+    fn advancing_the_animation_is_a_reason_to_redraw() {
+        let mut renderer = renderer();
+        let mut frame = DisplayFrame::blank();
+
+        let mut snapshot = UiSnapshot::disconnected();
+        assert!(renderer.render(&snapshot, &mut frame));
+        assert!(!renderer.render(&snapshot, &mut frame), "nothing moved yet");
+
+        snapshot.splash = snapshot.splash.map(crate::snapshot::Splash::advanced);
+        assert!(
+            renderer.render(&snapshot, &mut frame),
+            "the animation advanced"
+        );
+    }
+
+    #[test]
+    fn the_mascot_is_actually_drawn_in_its_own_colour() {
+        let mut renderer = renderer();
+        let mut frame = DisplayFrame::blank();
+        renderer.render(&UiSnapshot::disconnected(), &mut frame);
+
+        // Every quadrant is a dimmed shade of one hue, so at least one pixel
+        // should be more red than blue by a wide margin.
+        let warm = frame
+            .pixels()
+            .iter()
+            .filter(|pixel| {
+                let red = *pixel & 0x1F;
+                let blue = (*pixel >> 11) & 0x1F;
+                red > blue + 4
+            })
+            .count();
+
+        assert!(
+            warm > 200,
+            "the mascot should be visibly warm, found {warm} pixels"
+        );
     }
 
     #[test]

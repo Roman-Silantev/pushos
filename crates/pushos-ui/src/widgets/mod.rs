@@ -7,10 +7,12 @@ mod footer;
 mod layout;
 mod overlay;
 mod slots;
+mod splash;
 mod status;
 
 pub(crate) use footer::draw_footer;
 pub use layout::Layout;
 pub(crate) use overlay::draw_overlay;
 pub(crate) use slots::draw_slots;
+pub(crate) use splash::draw_splash;
 pub(crate) use status::draw_status;

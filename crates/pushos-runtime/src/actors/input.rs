@@ -92,7 +92,7 @@ impl InputTask {
 
     /// Runs until the surface goes away or shutdown begins.
     pub async fn run(mut self, shutdown: Shutdown) {
-        self.surface.set_connected(true);
+        self.surface.set_connected(true, Instant::now());
         self.publish();
         self.bus.publish(EventEnvelope::root(
             EventSource::Push,
@@ -132,7 +132,7 @@ impl InputTask {
             }
         }
 
-        self.surface.set_connected(false);
+        self.surface.set_connected(false, Instant::now());
         self.recognizer.reset();
         self.publish();
     }

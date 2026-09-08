@@ -29,6 +29,8 @@ pub struct UiSnapshot {
     pub notice: Option<Notice>,
     /// A panel that takes over the whole display.
     pub overlay: Option<Overlay>,
+    /// The waiting screen, which takes over everything and animates.
+    pub splash: Option<Splash>,
 }
 
 impl UiSnapshot {
@@ -37,9 +39,17 @@ impl UiSnapshot {
         Self {
             page: PageView::default(),
             connected: false,
-            footer: Some("waiting for Push 2".to_owned()),
+            splash: Some(Splash::new("PushOS", 0).with_detail("waiting for Push 2")),
             ..Self::default()
         }
+    }
+
+    /// Whether anything on screen moves on its own.
+    ///
+    /// The renderer uses this to decide whether to keep drawing when nothing
+    /// has changed, which is the only reason PushOS ever does.
+    pub const fn is_animated(&self) -> bool {
+        self.splash.is_some()
     }
 
     /// Whether anything visible differs from another snapshot.
@@ -214,6 +224,45 @@ impl Overlay {
     }
 }
 
+/// The waiting screen.
+///
+/// Carries its own frame counter rather than reading a clock, so a snapshot
+/// still describes exactly one image and the renderer stays deterministic.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Splash {
+    /// The headline beneath the artwork.
+    pub title: String,
+    /// The supporting line.
+    pub detail: Option<String>,
+    /// Where the animation has got to.
+    pub frame: u32,
+}
+
+impl Splash {
+    /// Builds a splash at a point in its animation.
+    pub fn new(title: impl Into<String>, frame: u32) -> Self {
+        Self {
+            title: title.into(),
+            detail: None,
+            frame,
+        }
+    }
+
+    /// Adds the supporting line.
+    #[must_use]
+    pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
+
+    /// Advances the animation by one frame.
+    #[must_use]
+    pub const fn advanced(mut self) -> Self {
+        self.frame = self.frame.wrapping_add(1);
+        self
+    }
+}
+
 /// The lights the surface should show, alongside the display.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct LedPlan {
@@ -349,6 +398,31 @@ mod tests {
         let mut plan = LedPlan::new();
         plan.set(pad(0), LedState::solid(Rgb::WHITE));
         assert!(plan.changes_from(&plan.clone()).is_empty());
+    }
+
+    #[test]
+    fn only_the_splash_animates() {
+        let still = UiSnapshot {
+            page: PageView::new("home", "Home"),
+            ..UiSnapshot::default()
+        };
+        assert!(!still.is_animated());
+        assert!(UiSnapshot::disconnected().is_animated());
+    }
+
+    #[test]
+    fn advancing_a_splash_changes_only_its_frame() {
+        let splash = Splash::new("PushOS", 0).with_detail("waiting");
+        let next = splash.clone().advanced();
+
+        assert_eq!(next.frame, 1);
+        assert_eq!(next.title, splash.title);
+        assert_eq!(next.detail, splash.detail);
+    }
+
+    #[test]
+    fn a_splash_frame_wraps_rather_than_overflowing() {
+        assert_eq!(Splash::new("PushOS", u32::MAX).advanced().frame, 0);
     }
 
     #[test]

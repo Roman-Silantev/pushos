@@ -12,12 +12,17 @@ use pushos_domain::action::DisplayIntent;
 use pushos_domain::context::SurfaceContext;
 use pushos_domain::ids::{PageId, WorkspaceId};
 use pushos_domain::page::PageTarget;
-use pushos_ui::{Notice, Overlay, PageView, Tone, UiSnapshot};
+use pushos_ui::{Notice, Overlay, PageView, Splash, Tone, UiSnapshot};
 
 /// How long a transient message stays on screen.
 pub(crate) const NOTICE_LIFETIME: Duration = Duration::from_secs(4);
 /// How long an overlay stays before the previous view returns.
 pub(crate) const OVERLAY_LIFETIME: Duration = Duration::from_secs(6);
+/// How long the waiting screen stays when the surface first appears.
+///
+/// Long enough to see, short enough that it never stands between the operator
+/// and their pads.
+pub(crate) const SPLASH_LIFETIME: Duration = Duration::from_millis(2_600);
 
 /// Where the operator is, and what the display is currently saying.
 #[derive(Debug)]
@@ -29,6 +34,7 @@ pub struct SurfaceState {
     connected: bool,
     notice: Option<Timed<Notice>>,
     overlay: Option<Timed<Overlay>>,
+    splash_until: Option<Instant>,
 }
 
 /// Something that goes away on its own.
@@ -53,6 +59,7 @@ impl SurfaceState {
             connected: false,
             notice: None,
             overlay: None,
+            splash_until: None,
         }
     }
 
@@ -92,7 +99,16 @@ impl SurfaceState {
     }
 
     /// Records whether the surface is attached.
-    pub fn set_connected(&mut self, connected: bool) {
+    ///
+    /// Arriving raises the waiting screen for a moment, which is the one time
+    /// the display has nothing more useful to say.
+    pub fn set_connected(&mut self, connected: bool, now: Instant) {
+        if connected && !self.connected {
+            self.splash_until = Some(now + SPLASH_LIFETIME);
+        }
+        if !connected {
+            self.splash_until = None;
+        }
         self.connected = connected;
     }
 
@@ -149,23 +165,34 @@ impl SurfaceState {
     ///
     /// Returns whether anything went away, so the caller knows a redraw is due.
     pub fn expire(&mut self, now: Instant) -> bool {
-        let had_notice = self.notice.is_some();
-        let had_overlay = self.overlay.is_some();
+        let before = (
+            self.notice.is_some(),
+            self.overlay.is_some(),
+            self.splash_until.is_some(),
+        );
 
         self.notice.take_if(|notice| now >= notice.expires_at);
         self.overlay.take_if(|overlay| now >= overlay.expires_at);
+        self.splash_until.take_if(|until| now >= *until);
 
-        had_notice != self.notice.is_some() || had_overlay != self.overlay.is_some()
+        before
+            != (
+                self.notice.is_some(),
+                self.overlay.is_some(),
+                self.splash_until.is_some(),
+            )
     }
 
     /// When the next thing expires, if anything will.
     pub fn next_expiry(&self) -> Option<Instant> {
-        let notice = self.notice.as_ref().map(|timed| timed.expires_at);
-        let overlay = self.overlay.as_ref().map(|timed| timed.expires_at);
-        match (notice, overlay) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (found, None) | (None, found) => found,
-        }
+        [
+            self.notice.as_ref().map(|timed| timed.expires_at),
+            self.overlay.as_ref().map(|timed| timed.expires_at),
+            self.splash_until,
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
     /// Builds the display's view of the current state.
@@ -193,6 +220,14 @@ impl SurfaceState {
             footer: page.and_then(|page| page.description.clone()),
             notice: self.notice.as_ref().map(|timed| timed.value.clone()),
             overlay: self.overlay.as_ref().map(|timed| timed.value.clone()),
+            // The frame is left at zero: the renderer owns the animation, so a
+            // snapshot never has to be republished just because time passed.
+            splash: self.splash_until.map(|_| {
+                Splash::new("PushOS", 0).with_detail(match &self.workspace {
+                    Some(workspace) => workspace.to_string(),
+                    None => "ready".to_owned(),
+                })
+            }),
         }
     }
 

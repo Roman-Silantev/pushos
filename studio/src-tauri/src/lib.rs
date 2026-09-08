@@ -125,6 +125,17 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             status, describe, bindings, bind, unbind, test
         ])
+        // A window that shows nothing is the hardest kind of failure to report,
+        // because there is nowhere on screen to report it. Recording what the
+        // webview actually loaded means the answer is in the log instead.
+        .on_page_load(|window, payload| {
+            eprintln!(
+                "studio: webview {:?} {} in {}",
+                payload.event(),
+                payload.url(),
+                window.label()
+            );
+        })
         .run(tauri::generate_context!())
         .expect("PushOS Studio could not open a window");
 }

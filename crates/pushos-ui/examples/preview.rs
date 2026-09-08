@@ -2,13 +2,13 @@
 //! a Push 2 attached.
 //!
 //! ```text
-//! cargo run -p pushos-ui --example preview -- /tmp/pushos.ppm [page|overlay|offline]
+//! cargo run -p pushos-ui --example preview -- /tmp/pushos.ppm [page|overlay|splash|offline]
 //! ```
 
 use std::io::Write as _;
 
 use pushos_domain::ports::{DISPLAY_HEIGHT, DISPLAY_WIDTH, DisplayFrame};
-use pushos_ui::{Notice, Overlay, PageView, PushRenderer, Slot, Tone, UiSnapshot};
+use pushos_ui::{Notice, Overlay, PageView, PushRenderer, Slot, Splash, Tone, UiSnapshot};
 
 fn main() -> std::io::Result<()> {
     let path = std::env::args()
@@ -18,6 +18,7 @@ fn main() -> std::io::Result<()> {
 
     let snapshot = match mode.as_str() {
         "overlay" => overlay(),
+        "splash" => splash(),
         "offline" => UiSnapshot::disconnected(),
         _ => page(),
     };
@@ -75,10 +76,19 @@ fn page() -> UiSnapshot {
         ],
         footer: Some("Projects, editors and test runs".to_owned()),
         notice: Some(Notice::new(
-            "cargo test finished: 413 passing",
+            "cargo test finished: 464 passing",
             Tone::Normal,
         )),
         overlay: None,
+        splash: None,
+    }
+}
+
+/// The waiting screen, part way through its animation.
+fn splash() -> UiSnapshot {
+    UiSnapshot {
+        splash: Some(Splash::new("PushOS", 34).with_detail("waiting for Push 2")),
+        ..page()
     }
 }
 

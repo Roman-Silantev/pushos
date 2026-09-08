@@ -418,6 +418,30 @@ async fn reloading_configuration_changes_what_the_running_surface_does() {
     let _ = tokio::time::timeout(Duration::from_secs(5), finished).await;
 }
 
+/// The waiting screen is the only thing in PushOS that redraws on a timer, and
+/// it has to stop on its own. An animation that never ends would keep an idle
+/// machine awake for nothing.
+#[tokio::test]
+async fn the_startup_animation_runs_and_then_stops() {
+    let harness = Harness::start(CONFIG);
+
+    // While the splash is up the display is redrawn repeatedly.
+    settle_async(|| async { harness.surface.state().await.frame_count() > 5 }).await;
+    let during = harness.surface.state().await.frame_count();
+
+    // Well past the splash's lifetime, drawing has stopped.
+    tokio::time::sleep(Duration::from_millis(3_200)).await;
+    let after = harness.surface.state().await.frame_count();
+
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    let later = harness.surface.state().await.frame_count();
+
+    assert!(after > during, "the animation should have kept drawing");
+    assert_eq!(later, after, "a still screen must not redraw on a timer");
+
+    harness.stop().await;
+}
+
 #[tokio::test]
 async fn losing_the_surface_stops_the_runtime_cleanly() {
     let (surface, input) = FakePush::new();

@@ -6,6 +6,7 @@
 #![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used, clippy::panic))]
 
 mod canvas;
+mod mascot;
 mod renderer;
 mod snapshot;
 mod text;
@@ -13,8 +14,11 @@ mod theme;
 mod widgets;
 
 pub use canvas::{Area, Canvas};
+pub use mascot::{MASCOT, Mascot};
 pub use renderer::{PushRenderer, RendererUnavailable};
-pub use snapshot::{LedPlan, Notice, Overlay, PageView, SLOT_COUNT, Slot, Tone, UiSnapshot};
+pub use snapshot::{
+    LedPlan, Notice, Overlay, PageView, SLOT_COUNT, Slot, Splash, Tone, UiSnapshot,
+};
 pub use text::{Align, FontUnavailable, TextRenderer, TextStyle};
 pub use theme::{Theme, TypeScale};
 pub use widgets::Layout;
