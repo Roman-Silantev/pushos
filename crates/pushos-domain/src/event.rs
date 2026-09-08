@@ -72,6 +72,68 @@ pub enum DomainEvent {
     },
 }
 
+impl DomainEvent {
+    /// A stable, dotted name for what happened.
+    ///
+    /// Lives here rather than in the persistence layer so that adding a variant
+    /// forces naming it, instead of quietly recording it as "unknown".
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::GestureRecognised { .. } => "gesture.recognised",
+            Self::BindingResolved { .. } => "binding.resolved",
+            Self::BindingUnmatched { .. } => "binding.unmatched",
+            Self::ActionProgressed { .. } => "action.progressed",
+            Self::PageChanged { .. } => "page.changed",
+            Self::WorkspaceChanged { .. } => "workspace.changed",
+            Self::PushConnected => "push.connected",
+            Self::PushDisconnected { .. } => "push.disconnected",
+            Self::ConfigUpdated { .. } => "config.updated",
+            Self::ConfigRejected { .. } => "config.rejected",
+        }
+    }
+
+    /// A short human-readable summary, when the event carries detail worth
+    /// keeping in the audit trail.
+    pub fn summary(&self) -> Option<String> {
+        match self {
+            Self::GestureRecognised { key } => Some(format!("{} {}", key.control, key.gesture)),
+            Self::BindingResolved { binding, selector } => Some(format!("{binding} -> {selector}")),
+            Self::BindingUnmatched { control, gesture } => Some(format!("{control} {gesture}")),
+            Self::ActionProgressed {
+                selector,
+                status,
+                message,
+            } => Some(match message {
+                Some(message) => format!("{selector} {status:?}: {message}"),
+                None => format!("{selector} {status:?}"),
+            }),
+            Self::PageChanged { page } => Some(page.to_string()),
+            Self::WorkspaceChanged { workspace } => Some(workspace.to_string()),
+            Self::PushDisconnected { reason } | Self::ConfigRejected { reason } => {
+                Some(reason.clone())
+            }
+            Self::ConfigUpdated { binding_count } => Some(format!("{binding_count} bindings")),
+            Self::PushConnected => None,
+        }
+    }
+}
+
+/// Which component emitted an event, as a stable lowercase name.
+impl EventSource {
+    /// The name used in logs and in the audit trail.
+    pub const fn slug(self) -> &'static str {
+        match self {
+            Self::Push => "push",
+            Self::Gestures => "gestures",
+            Self::Bindings => "bindings",
+            Self::Actions => "actions",
+            Self::Renderer => "renderer",
+            Self::Config => "config",
+            Self::Supervisor => "supervisor",
+        }
+    }
+}
+
 /// An event plus the metadata that makes it traceable.
 #[derive(Clone, Debug)]
 pub struct EventEnvelope {
@@ -155,6 +217,45 @@ mod tests {
         assert_eq!(child.correlation_id, correlation);
         assert_eq!(child.causation_id, Some(root.id));
         assert_ne!(child.id, root.id);
+    }
+
+    #[test]
+    fn every_event_has_a_dotted_lowercase_name() {
+        let events = [
+            DomainEvent::PushConnected,
+            DomainEvent::PushDisconnected {
+                reason: String::new(),
+            },
+            DomainEvent::PageChanged {
+                page: "home".into(),
+            },
+            DomainEvent::WorkspaceChanged {
+                workspace: "syd".into(),
+            },
+            DomainEvent::ConfigUpdated { binding_count: 0 },
+            DomainEvent::ConfigRejected {
+                reason: String::new(),
+            },
+        ];
+
+        for event in events {
+            let kind = event.kind();
+            assert!(kind.contains('.'), "`{kind}` should be a dotted name");
+            assert_eq!(kind, kind.to_lowercase());
+        }
+    }
+
+    #[test]
+    fn only_events_with_detail_carry_a_summary() {
+        assert!(DomainEvent::PushConnected.summary().is_none());
+        assert_eq!(
+            DomainEvent::PageChanged {
+                page: "music".into()
+            }
+            .summary()
+            .as_deref(),
+            Some("music")
+        );
     }
 
     #[test]
