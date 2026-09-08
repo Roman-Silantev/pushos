@@ -12,6 +12,7 @@ authors.workspace = true
 pushos-domain = { workspace = true }
 tiny-skia = { workspace = true }
 fontdue = { workspace = true }
+thiserror = { workspace = true }
 tracing = { workspace = true }
 
 [lints]
