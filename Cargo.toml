@@ -26,6 +26,7 @@ pushos-api = { path = "crates/pushos-api" }
 pushos-ui = { path = "crates/pushos-ui" }
 pushos-config = { path = "crates/pushos-config" }
 pushos-storage = { path = "crates/pushos-storage" }
+pushos-terminal = { path = "crates/pushos-terminal" }
 pushos-runtime = { path = "crates/pushos-runtime" }
 pushos-macos = { path = "crates/pushos-macos" }
 pushos-testkit = { path = "crates/pushos-testkit" }
@@ -52,6 +53,9 @@ time = { version = "0.3", features = ["formatting", "macros"] }
 # Hardware
 midir = "0.11"
 rusb = "0.9"
+# Pseudo-terminals. PushOS runs jobs itself rather than opening windows, so it
+# needs a real terminal a program will believe in.
+portable-pty = "0.9"
 
 # Rendering
 tiny-skia = "0.12"

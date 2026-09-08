@@ -32,6 +32,7 @@ pub mod input;
 pub mod page;
 pub mod permissions;
 pub mod ports;
+pub mod terminal;
 
 /// The types most callers need.
 pub mod prelude {

@@ -10,10 +10,12 @@ mod clock;
 mod fake_agent;
 mod fake_push;
 mod fake_system;
+mod fake_terminal;
 mod recording_provider;
 
 pub use clock::ManualClock;
 pub use fake_agent::{AgentCall, FakeAgent};
 pub use fake_push::{FakePush, FakePushInput, SurfaceState};
 pub use fake_system::{FakeApplications, FakeMedia, FakeProcesses, FakeShortcuts, MediaCall};
+pub use fake_terminal::{FakeTerminal, RecordingTerminalObserver};
 pub use recording_provider::{RecordingProvider, ScriptedOutcome};

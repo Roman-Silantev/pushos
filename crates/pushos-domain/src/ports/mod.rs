@@ -8,6 +8,7 @@ mod agent;
 mod clock;
 mod push;
 mod system;
+mod terminal;
 
 pub use action_provider::{ActionProvider, ProviderCapabilities};
 pub use agent::{
@@ -22,4 +23,8 @@ pub use push::{
 pub use system::{
     ApplicationLauncher, ApplicationTarget, MediaController, MediaSnapshot, ProcessOutcome,
     ProcessRunner, ProcessSpec, ShortcutRunner,
+};
+pub use terminal::{
+    TerminalError, TerminalEvent, TerminalHandle, TerminalHost, TerminalObserver, TerminalSize,
+    TerminalSpec, TerminalStatus,
 };
