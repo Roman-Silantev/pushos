@@ -18,11 +18,12 @@ pushos-ui = { workspace = true }
 async-trait = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt", "time", "macros"] }
-tokio-util = { workspace = true }
+tokio-util = { workspace = true, features = ["rt"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
 pushos-testkit = { workspace = true }
+toml = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 
 [lints]

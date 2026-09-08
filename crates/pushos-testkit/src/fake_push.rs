@@ -21,11 +21,14 @@ use tokio::sync::{Mutex, mpsc};
 const INPUT_CAPACITY: usize = 256;
 
 /// The observable state of a fake surface.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct SurfaceState {
     leds: HashMap<ControlId, LedState>,
     frames: Vec<DisplayFrame>,
     connected: bool,
+    /// Held here rather than on the handle so that unplugging ends input for
+    /// every clone at once, the way pulling a cable does.
+    input: Option<mpsc::Sender<ControlEvent>>,
 }
 
 impl SurfaceState {
@@ -57,7 +60,6 @@ impl SurfaceState {
 #[derive(Debug, Clone)]
 pub struct FakePush {
     state: Arc<Mutex<SurfaceState>>,
-    input: mpsc::Sender<ControlEvent>,
 }
 
 impl FakePush {
@@ -65,16 +67,12 @@ impl FakePush {
     pub fn new() -> (Self, FakePushInput) {
         let (input, events) = mpsc::channel(INPUT_CAPACITY);
         let state = Arc::new(Mutex::new(SurfaceState {
+            leds: HashMap::new(),
+            frames: Vec::new(),
             connected: true,
-            ..Default::default()
+            input: Some(input),
         }));
-        (
-            Self {
-                state: Arc::clone(&state),
-                input,
-            },
-            FakePushInput { events },
-        )
+        (Self { state }, FakePushInput { events })
     }
 
     /// Reads the surface state.
@@ -84,9 +82,12 @@ impl FakePush {
 
     /// Injects one normalised input event, as the hardware would produce it.
     pub async fn inject(&self, event: ControlEvent) {
-        // A closed receiver means the test dropped the consumer; that is the
-        // test's business, not a surface fault.
-        let _ = self.input.send(event).await;
+        let sender = self.state.lock().await.input.clone();
+        // A closed receiver means the test dropped the consumer, and an absent
+        // sender means the surface was unplugged. Neither is a surface fault.
+        if let Some(sender) = sender {
+            let _ = sender.send(event).await;
+        }
     }
 
     /// Injects a pad strike.
@@ -107,13 +108,21 @@ impl FakePush {
 
     /// Simulates the cable being pulled out.
     ///
-    /// Subsequent output calls fail with [`PushSurfaceError::Disconnected`],
-    /// exactly as the real adapter reports it.
+    /// Input ends and subsequent output calls fail with
+    /// [`PushSurfaceError::Disconnected`], which is what the real adapter
+    /// reports. Both halves go at once, because a cable does not come out
+    /// halfway.
     pub async fn disconnect(&self) {
-        self.state.lock().await.connected = false;
+        let mut state = self.state.lock().await;
+        state.connected = false;
+        state.input = None;
     }
 
-    /// Simulates the cable being plugged back in.
+    /// Simulates the panel becoming reachable again.
+    ///
+    /// Output works once more and the lights come back blank, so the renderer
+    /// must redraw. Input does not resume: the real adapter builds a fresh
+    /// input stream when it reconnects, and so should a test.
     pub async fn reconnect(&self) {
         let mut state = self.state.lock().await;
         state.connected = true;
@@ -223,6 +232,20 @@ mod tests {
             surface.state().await.lit_count(),
             0,
             "the batch must be all or nothing"
+        );
+    }
+
+    #[tokio::test]
+    async fn unplugging_ends_input_as_well_as_output() {
+        let (surface, mut input) = FakePush::new();
+        surface.press_pad(pad(0), Instant::now()).await;
+        surface.disconnect().await;
+
+        // The event sent before the unplug still arrives; nothing after it does.
+        assert!(input.next_event().await.is_some());
+        assert!(
+            input.next_event().await.is_none(),
+            "a surface that is gone must stop producing input"
         );
     }
 
