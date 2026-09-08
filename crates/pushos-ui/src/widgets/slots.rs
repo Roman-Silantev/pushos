@@ -14,6 +14,8 @@ const CORNER: f32 = 4.0;
 const MARKER_WIDTH: f32 = 3.0;
 /// Vertical gap between a slot's label and its value.
 const VALUE_GAP: f32 = 6.0;
+/// Width of the mark standing in for an unassigned column.
+const EMPTY_MARK_WIDTH: f32 = 18.0;
 
 /// Draws every column.
 pub(crate) fn draw_slots(
@@ -25,16 +27,35 @@ pub(crate) fn draw_slots(
 ) {
     for (index, slot) in snapshot.slots.iter().enumerate() {
         let area = layout.slot(index);
-        match slot {
-            Some(slot) => draw_slot(canvas, text, theme, area, slot),
-            // An unassigned column keeps a baseline rule rather than going
-            // blank, so the operator can still see the grid is eight wide.
-            None => canvas.fill(
-                Area::new(area.x, area.bottom() - 1.0, area.width, 1.0),
+        if let Some(slot) = slot {
+            draw_slot(canvas, text, theme, area, slot);
+        } else {
+            // An unassigned column keeps a short mark rather than going blank,
+            // so the operator can still see the grid is eight wide. It sits on
+            // the same line as its neighbours' labels rather than at the foot
+            // of the column, where it would read as a stray rule.
+            let inner = area.inset(SLOT_PADDING);
+            canvas.fill(
+                Area::new(
+                    inner.x,
+                    label_baseline(theme, inner) - 5.0,
+                    EMPTY_MARK_WIDTH,
+                    2.0,
+                ),
                 theme.divider,
-            ),
+            );
         }
     }
+}
+
+/// The baseline of a column's label.
+///
+/// The label and value are centred as a block in the column rather than pinned
+/// to the top, so a row of columns reads as one line of text rather than as
+/// content that has slipped upwards.
+fn label_baseline(theme: &Theme, inner: Area) -> f32 {
+    let block = theme.sizes.body + VALUE_GAP + theme.sizes.caption;
+    inner.y + ((inner.height - block) / 2.0).max(0.0) + theme.sizes.body
 }
 
 fn draw_slot(canvas: &mut Canvas, text: &mut TextRenderer, theme: &Theme, area: Area, slot: &Slot) {
@@ -43,11 +64,11 @@ fn draw_slot(canvas: &mut Canvas, text: &mut TextRenderer, theme: &Theme, area: 
     }
 
     let inner = area.inset(SLOT_PADDING);
-    let label_baseline = inner.y + theme.sizes.body;
+    let baseline = label_baseline(theme, inner);
     text.draw(
         canvas,
         &slot.label,
-        (inner.x, label_baseline),
+        (inner.x, baseline),
         TextStyle::left(theme.sizes.body, tone_color(theme, slot.tone), inner.width),
     );
 
@@ -55,7 +76,7 @@ fn draw_slot(canvas: &mut Canvas, text: &mut TextRenderer, theme: &Theme, area: 
         text.draw(
             canvas,
             value,
-            (inner.x, label_baseline + theme.sizes.caption + VALUE_GAP),
+            (inner.x, baseline + theme.sizes.caption + VALUE_GAP),
             TextStyle::left(theme.sizes.caption, theme.muted, inner.width),
         );
     }

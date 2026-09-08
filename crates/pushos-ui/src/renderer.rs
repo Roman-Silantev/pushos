@@ -262,6 +262,73 @@ mod tests {
         );
     }
 
+    /// Regression: the progress bar was positioned from the top and the choice
+    /// row from the bottom, so on a 160-pixel panel an overlay carrying both
+    /// drew one over the other.
+    #[test]
+    fn an_overlay_carrying_everything_does_not_draw_its_progress_over_its_choices() {
+        let mut renderer = renderer();
+        let mut frame = DisplayFrame::blank();
+
+        let mut snapshot = populated();
+        snapshot.overlay = Some(
+            Overlay::new("Deployment", "Preview build failed")
+                .with_detail("3 of 4 checks passed, tests timed out after 12m")
+                .with_progress(0.75)
+                .asking([
+                    "OPEN INCIDENT".to_owned(),
+                    "RETRY".to_owned(),
+                    "IGNORE".to_owned(),
+                ]),
+        );
+        renderer.render(&snapshot, &mut frame);
+
+        // The choice row occupies the bottom of the panel. The progress bar is
+        // the only accent-coloured thing an overlay draws, so finding accent
+        // down there means the two collided.
+        let accent = Theme::DARK.accent.to_bgr565();
+        let mut collisions = 0;
+        for y in 115..155 {
+            for x in 0..960 {
+                if frame.pixel(x, y) == Some(accent) {
+                    collisions += 1;
+                }
+            }
+        }
+
+        assert_eq!(collisions, 0, "the progress bar overlapped the choice row");
+    }
+
+    #[test]
+    fn an_overlay_without_choices_still_shows_its_progress() {
+        let mut with_bar = DisplayFrame::blank();
+        let mut without = DisplayFrame::blank();
+        let mut renderer = renderer();
+
+        let base = Overlay::new("Deployment", "Deploying").with_detail("step 3 of 4");
+        let mut snapshot = populated();
+
+        snapshot.overlay = Some(base.clone());
+        renderer.render(&snapshot, &mut without);
+
+        renderer.invalidate();
+        snapshot.overlay = Some(base.with_progress(0.5));
+        renderer.render(&snapshot, &mut with_bar);
+
+        let accent = Theme::DARK.accent.to_bgr565();
+        let count = |frame: &DisplayFrame| {
+            frame
+                .pixels()
+                .iter()
+                .filter(|pixel| **pixel == accent)
+                .count()
+        };
+        assert!(
+            count(&with_bar) > count(&without),
+            "the progress bar should be drawn"
+        );
+    }
+
     #[test]
     fn a_disconnected_surface_says_so() {
         let mut renderer = renderer();

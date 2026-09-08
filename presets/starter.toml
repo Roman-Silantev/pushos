@@ -50,6 +50,44 @@ id = "music"
 name = "Music"
 description = "Playback and volume"
 
+# --- The display row ---------------------------------------------------------
+# The eight buttons above the display and the eight below it line up with the
+# eight columns on screen, so each column shows what its two buttons do. Only
+# bindings with a `label` are shown: an action selector is not a caption.
+
+[[bindings]]
+control = "button.upper_1"
+gesture = "press"
+action = "page.show"
+target = "home"
+label = "Home"
+
+[[bindings]]
+control = "button.upper_2"
+gesture = "press"
+action = "page.show"
+target = "development"
+label = "Develop"
+
+[[bindings]]
+control = "button.upper_3"
+gesture = "press"
+action = "page.show"
+target = "music"
+label = "Music"
+
+[[bindings]]
+control = "button.lower_1"
+gesture = "press"
+action = "media.play_pause"
+label = "Play/Pause"
+
+[[bindings]]
+control = "button.lower_3"
+gesture = "press"
+action = "media.now_playing"
+label = "Now playing"
+
 # --- Global bindings ---------------------------------------------------------
 # These apply on every page. Keep them few: they cost a control everywhere.
 
