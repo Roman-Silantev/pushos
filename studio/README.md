@@ -71,7 +71,10 @@ npm run check    # types
 ## The icon
 
 `icons/icon.png` is drawn by `icons/generate.py`, using only the standard
-library, so it can be changed without a graphics application.
+library, so it can be changed without a graphics application. The platform sizes
+are derived from it, and `tauri.conf.json` lists them under `bundle.icon`
+explicitly. Without that list the application bundles with no icon at all and
+gets the system's blank one.
 
 The artwork follows Apple's icon grid: the rounded body occupies 824 pixels of a
 1024 canvas, centred, with the rest transparent. Filling the whole canvas is
