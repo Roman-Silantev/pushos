@@ -14,7 +14,7 @@ use std::time::Duration;
 use pushos_domain::action::ActionDefinition;
 use pushos_domain::ports::{Microphone, Transcriber, VoiceError};
 use pushos_domain::voice::{Listening, Routing, Utterance};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, watch};
 use tracing::{debug, info, warn};
 
 use crate::router::VoiceRouter;
@@ -43,7 +43,10 @@ pub struct VoiceListener {
     microphone: Arc<dyn Microphone>,
     transcriber: Arc<dyn Transcriber>,
     router: VoiceRouter,
-    state: Mutex<Listening>,
+    /// Published rather than only held, so the display and the light under the
+    /// operator's finger follow it without asking. An operator must never be
+    /// unsure whether the microphone is on.
+    state: watch::Sender<Listening>,
     /// Something irreversible, waiting for a finger rather than a word.
     pending: Mutex<Option<Pending>>,
 }
@@ -59,7 +62,7 @@ impl VoiceListener {
             microphone,
             transcriber,
             router,
-            state: Mutex::new(Listening::Idle),
+            state: watch::channel(Listening::Idle).0,
             pending: Mutex::new(None),
         }
     }
@@ -70,8 +73,21 @@ impl VoiceListener {
     }
 
     /// Whether PushOS is listening, and what it is doing.
-    pub async fn state(&self) -> Listening {
-        *self.state.lock().await
+    pub fn state(&self) -> Listening {
+        *self.state.borrow()
+    }
+
+    /// Follows whether PushOS is listening.
+    ///
+    /// What the display and the lights watch. The latest answer is the only one
+    /// that matters, so this is a watch rather than a queue.
+    pub fn watch(&self) -> watch::Receiver<Listening> {
+        self.state.subscribe()
+    }
+
+    /// Says where it has got to, to everything following.
+    fn now(&self, state: Listening) {
+        self.state.send_replace(state);
     }
 
     /// The phrases it knows.
@@ -85,7 +101,7 @@ impl VoiceListener {
     /// two presses is an operator changing their mind, not a fault.
     pub async fn listen(&self) -> Result<(), VoiceError> {
         self.microphone.start().await?;
-        *self.state.lock().await = Listening::Recording;
+        self.now(Listening::Recording);
         debug!(engine = self.transcriber.name(), "listening");
         Ok(())
     }
@@ -99,13 +115,13 @@ impl VoiceListener {
         let recorded = match self.microphone.stop().await {
             Ok(recorded) => recorded,
             Err(error) => {
-                *self.state.lock().await = Listening::Idle;
+                self.now(Listening::Idle);
                 return Err(error);
             }
         };
 
         let Some(recording) = recorded else {
-            *self.state.lock().await = Listening::Idle;
+            self.now(Listening::Idle);
             return Ok(Heard {
                 routing: Routing::Nothing,
                 said: None,
@@ -117,16 +133,16 @@ impl VoiceListener {
                 held = ?recording.duration,
                 "the control was held but nothing was said"
             );
-            *self.state.lock().await = Listening::Idle;
+            self.now(Listening::Idle);
             return Ok(Heard {
                 routing: Routing::Nothing,
                 said: None,
             });
         }
 
-        *self.state.lock().await = Listening::Transcribing;
+        self.now(Listening::Transcribing);
         let said = self.transcriber.transcribe(&recording).await;
-        *self.state.lock().await = Listening::Idle;
+        self.now(Listening::Idle);
 
         let said = said.inspect_err(|error| {
             warn!(%error, engine = self.transcriber.name(), "could not work out what was said");
@@ -153,7 +169,7 @@ impl VoiceListener {
     /// Stops listening and throws away what was heard.
     pub async fn cancel(&self) {
         self.microphone.discard().await;
-        *self.state.lock().await = Listening::Idle;
+        self.now(Listening::Idle);
         self.forget().await;
     }
 
@@ -232,14 +248,14 @@ mod tests {
     #[tokio::test]
     async fn holding_the_control_is_what_starts_listening() {
         let fixture = Fixture::new();
-        assert_eq!(fixture.listener.state().await, Listening::Idle);
+        assert_eq!(fixture.listener.state(), Listening::Idle);
 
         fixture
             .listener
             .listen()
             .await
             .expect("the fake permits it");
-        assert_eq!(fixture.listener.state().await, Listening::Recording);
+        assert_eq!(fixture.listener.state(), Listening::Recording);
         assert!(fixture.microphone.is_recording().await);
     }
 
@@ -250,7 +266,7 @@ mod tests {
         let fixture = Fixture::new();
         fixture.says("approve").await;
 
-        assert_eq!(fixture.listener.state().await, Listening::Idle);
+        assert_eq!(fixture.listener.state(), Listening::Idle);
         assert!(!fixture.microphone.is_recording().await);
     }
 
@@ -327,7 +343,7 @@ mod tests {
         fixture.listener.listen().await.expect("permitted");
         fixture.listener.cancel().await;
 
-        assert_eq!(fixture.listener.state().await, Listening::Idle);
+        assert_eq!(fixture.listener.state(), Listening::Idle);
         assert_eq!(fixture.microphone.discards(), 1);
         assert!(fixture.transcriber.heard().is_empty());
     }
@@ -349,7 +365,7 @@ mod tests {
 
         let error = fixture.listener.listen().await.expect_err("it was refused");
         assert_eq!(error.class(), pushos_domain::error::ErrorClass::Permission);
-        assert_eq!(fixture.listener.state().await, Listening::Idle);
+        assert_eq!(fixture.listener.state(), Listening::Idle);
     }
 
     #[tokio::test]
@@ -359,7 +375,7 @@ mod tests {
 
         fixture.listener.listen().await.expect("permitted");
         assert!(fixture.listener.transcribe().await.is_err());
-        assert_eq!(fixture.listener.state().await, Listening::Idle);
+        assert_eq!(fixture.listener.state(), Listening::Idle);
     }
 
     #[tokio::test]
@@ -369,7 +385,7 @@ mod tests {
         fixture.listener.listen().await.expect("permitted");
 
         assert_eq!(fixture.microphone.starts(), 2);
-        assert_eq!(fixture.listener.state().await, Listening::Recording);
+        assert_eq!(fixture.listener.state(), Listening::Recording);
     }
 
     #[tokio::test]

@@ -11,5 +11,6 @@ pub mod page;
 pub mod shell;
 pub mod shortcut;
 pub mod terminal;
+pub mod voice;
 pub mod workflow;
 pub mod workspace;

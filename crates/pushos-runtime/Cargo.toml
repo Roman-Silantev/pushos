@@ -28,6 +28,7 @@ tracing = { workspace = true }
 
 [dev-dependencies]
 pushos-testkit = { workspace = true }
+pushos-voice = { workspace = true }
 toml = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util", "net", "io-util"] }
 

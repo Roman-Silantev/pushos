@@ -48,26 +48,32 @@ impl Utterance {
     }
 
     /// The words, reduced to what matching cares about.
-    ///
-    /// Lower case, no punctuation, single spaces. "Approve." and "approve"
-    /// are the same instruction, and an operator should not have to know that
-    /// PushOS thinks otherwise.
     pub fn normalised(&self) -> String {
-        let mut words = String::with_capacity(self.text.len());
-        let mut spaced = true;
-
-        for character in self.text.chars() {
-            if character.is_alphanumeric() {
-                words.extend(character.to_lowercase());
-                spaced = false;
-            } else if !spaced {
-                words.push(' ');
-                spaced = true;
-            }
-        }
-
-        words.trim_end().to_owned()
+        normalise(&self.text)
     }
+}
+
+/// Reduces words to what matching cares about.
+///
+/// Lower case, no punctuation, single spaces. "Approve." and "approve" are the
+/// same instruction, and an operator should not have to know that PushOS thinks
+/// otherwise. Configured phrases go through this too, so a phrase written with
+/// a capital or a comma still matches what was heard.
+pub fn normalise(text: &str) -> String {
+    let mut words = String::with_capacity(text.len());
+    let mut spaced = true;
+
+    for character in text.chars() {
+        if character.is_alphanumeric() {
+            words.extend(character.to_lowercase());
+            spaced = false;
+        } else if !spaced {
+            words.push(' ');
+            spaced = true;
+        }
+    }
+
+    words.trim_end().to_owned()
 }
 
 /// A phrase that means exactly one thing.
@@ -125,10 +131,74 @@ impl fmt::Display for Routing {
     }
 }
 
+/// Which engine works out what was said.
+///
+/// Both run on this Mac and neither sends audio anywhere. They differ in what
+/// they cost the operator to set up: one is already installed, the other is a
+/// file they have to fetch.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum VoiceEngine {
+    /// macOS's own Speech framework, with on-device recognition required.
+    ///
+    /// The default because it is already there. Nothing to download, no model
+    /// to keep, and it knows sixty-odd languages out of the box.
+    #[default]
+    Apple,
+    /// Whisper, run locally through Metal.
+    ///
+    /// For an operator who wants a model they chose rather than the one Apple
+    /// ships. Costs a download and the disk to keep it on.
+    Whisper,
+}
+
+impl VoiceEngine {
+    /// How it is written in configuration.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Apple => "apple",
+            Self::Whisper => "whisper",
+        }
+    }
+
+    /// Whether it needs a model file the operator has to supply.
+    pub const fn needs_model(self) -> bool {
+        matches!(self, Self::Whisper)
+    }
+}
+
+impl fmt::Display for VoiceEngine {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for VoiceEngine {
+    type Err = UnknownEngine;
+
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        match text.trim().to_lowercase().as_str() {
+            "apple" | "macos" | "system" => Ok(Self::Apple),
+            "whisper" => Ok(Self::Whisper),
+            _ => Err(UnknownEngine {
+                named: text.to_owned(),
+            }),
+        }
+    }
+}
+
+/// A configuration named an engine PushOS does not have.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("`{named}` is not a speech engine; PushOS has `apple` and `whisper`")]
+pub struct UnknownEngine {
+    /// What the configuration said.
+    pub named: String,
+}
+
 /// Whether PushOS is listening.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Listening {
     /// Not listening. Nothing is being recorded.
+    #[default]
     Idle,
     /// The control is held and audio is being kept.
     Recording,
@@ -146,6 +216,18 @@ impl Listening {
             // the microphone is on.
             Self::Recording => StatusColor::Waiting,
             Self::Transcribing => StatusColor::Working,
+        }
+    }
+
+    /// How it reads in the status bar, where there is room for a word.
+    ///
+    /// Nothing when idle: a badge that was always there would stop being read,
+    /// and this is the one an operator has to notice.
+    pub const fn badge(self) -> Option<&'static str> {
+        match self {
+            Self::Idle => None,
+            Self::Recording => Some("LISTENING"),
+            Self::Transcribing => Some("HEARD YOU"),
         }
     }
 
@@ -211,6 +293,33 @@ mod tests {
         );
         assert!(!Listening::Recording.describe().is_empty());
         assert!(Listening::Idle.describe().is_empty());
+        assert!(Listening::Recording.badge().is_some());
+        assert!(
+            Listening::Idle.badge().is_none(),
+            "a badge that is always there stops being read"
+        );
+    }
+
+    #[test]
+    fn an_engine_survives_being_written_down_and_read_back() {
+        for engine in [VoiceEngine::Apple, VoiceEngine::Whisper] {
+            assert_eq!(engine.as_str().parse(), Ok(engine));
+        }
+    }
+
+    #[test]
+    fn the_engine_that_needs_no_setup_is_the_default() {
+        // An operator who writes nothing gets the one already installed.
+        assert_eq!(VoiceEngine::default(), VoiceEngine::Apple);
+        assert!(!VoiceEngine::default().needs_model());
+        assert!(VoiceEngine::Whisper.needs_model());
+    }
+
+    #[test]
+    fn an_engine_nobody_has_is_reported_by_name() {
+        let error = "vosk".parse::<VoiceEngine>().expect_err("not an engine");
+        assert!(error.to_string().contains("vosk"));
+        assert!(error.to_string().contains("whisper"));
     }
 
     #[test]

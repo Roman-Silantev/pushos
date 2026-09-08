@@ -93,6 +93,12 @@ pushos workspaces # list the projects it knows about
   review, with somewhere to go when the tests fail. A step is written down
   before the step after it runs, and a run waiting on a decision is still
   waiting when PushOS comes back.
+- **Push to talk**, on this Mac and nowhere else. Hold a control and PushOS
+  listens; let go and it works out what you said. There is no wake word: your
+  finger decides, and the display says so while it is down. A short phrase you
+  wrote means exactly one thing and runs it, and anything else goes to the agent
+  you were already working with. Anything irreversible waits for a press,
+  because transcription is not authorisation.
 - **Projects**, where one pad represents a whole coding project. Selecting it
   brings the project's bindings into force, starts agents and terminals in its
   directory with the providers it prefers, and puts you back on the page you
@@ -188,6 +194,32 @@ workspace = "sydclaw"
 action = "terminal.run"
 target = "name:tests"
 params = { text = "npm test" }
+
+# Push to talk. One control, bound twice: press to listen, release to stop.
+[voice]
+engine = "apple"
+request = "agent.prompt"
+
+[[voice.commands]]
+phrase = "stop"
+action = "agent.stop"
+
+# Held rather than run. Only a press releases it.
+[[voice.commands]]
+phrase = "ship it"
+action = "workflow.start"
+target = "ship"
+confirm = true
+
+[[bindings]]
+control = "button.select"
+gesture = "press"
+action = "voice.listen"
+
+[[bindings]]
+control = "button.select"
+gesture = "release"
+action = "voice.transcribe"
 ```
 
 Two rules the configuration enforces, both so that you can predict what a pad
@@ -196,7 +228,8 @@ does by reading the file:
 - **Ambiguity is refused.** Two bindings on the same control, gesture, scope and
   priority is an error, not a coin toss.
 - **Nothing is permitted unless it is listed.** There is no wildcard grant, and
-  `shell.execute` is off until you turn it on.
+  `shell.execute` is off until you turn it on. So is `microphone.listen`, and
+  macOS asks separately the first time you hold the control.
 
 Run `pushos check` after editing. Every problem is reported at once, each naming
 the binding it came from.
@@ -217,6 +250,7 @@ crates/
 ├── pushos-terminal    managed pseudo-terminals and what PushOS knows of them
 ├── pushos-workflows   work that runs itself, and what it remembers
 ├── pushos-workspaces  projects, what each restores, and its working trees
+├── pushos-voice       push to talk: capturing, recognising and routing speech
 ├── pushos-api         the local control socket and its protocol
 ├── pushos-runtime     the event bus, supervision and wiring
 ├── pushos-macos       the macOS half: processes, media, apps, Shortcuts
@@ -257,6 +291,16 @@ question is whether the operator's own git does what PushOS asks of it:
 cargo run -p pushos-workspaces --example isolate -- <repository> <where to put trees>
 ```
 
+Speech is the same: an engine that transcribes a fixture correctly in a unit
+test would prove nothing about the one macOS actually runs. Both are checked
+against real audio, which on a Mac you already have a way of making:
+
+```bash
+say -o /tmp/said.aiff "stop the build and show me the failing test"
+afconvert -f WAVE -d LEI16@16000 -c 1 /tmp/said.aiff /tmp/said.wav
+cargo run -p pushos-voice --example transcribe -- /tmp/said.wav
+```
+
 ## Where this is up to
 
 Built and tested:
@@ -272,9 +316,10 @@ Built and tested:
 | Phase 6 | Sessions and terminals, and assigning one to a control |
 | Phase 7 | Projects: one pad for a whole codebase, with isolated worktrees |
 | Phase 8 | Durable workflows that survive a restart |
+| Phase 9 | Push to talk, recognised on this Mac |
 
-Next, in order: voice, memory, presets and the wider ecosystem. `SPEC.md` holds
-the full plan.
+Next, in order: memory, presets and the wider ecosystem. `SPEC.md` holds the
+full plan.
 
 ## Contributing
 

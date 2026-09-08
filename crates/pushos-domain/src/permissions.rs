@@ -44,11 +44,17 @@ pub enum Permission {
     FinancialRead,
     /// Write financial data.
     FinancialWrite,
+    /// Turn the microphone on.
+    ///
+    /// Separate from what is done with what was heard, because listening is
+    /// itself the decision. macOS asks once for the whole application; this
+    /// asks per configuration, which is the finer of the two.
+    MicrophoneListen,
 }
 
 impl Permission {
     /// Every capability PushOS knows about.
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::FilesystemRead,
         Self::FilesystemWrite,
         Self::ShellExecute,
@@ -64,6 +70,7 @@ impl Permission {
         Self::ExternalSend,
         Self::FinancialRead,
         Self::FinancialWrite,
+        Self::MicrophoneListen,
     ];
 
     /// The dotted name used in configuration.
@@ -84,6 +91,7 @@ impl Permission {
             Self::ExternalSend => "external.send",
             Self::FinancialRead => "financial.read",
             Self::FinancialWrite => "financial.write",
+            Self::MicrophoneListen => "microphone.listen",
         }
     }
 

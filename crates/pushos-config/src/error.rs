@@ -225,6 +225,53 @@ pub enum Problem {
     #[error(transparent)]
     Workflow(#[from] pushos_domain::workflow::WorkflowProblem),
 
+    /// The `[voice]` section named an engine PushOS does not have.
+    #[error(transparent)]
+    VoiceEngine {
+        /// What it named.
+        #[from]
+        source: pushos_domain::voice::UnknownEngine,
+    },
+
+    /// An engine that needs a model file was not given one.
+    #[error("the `{engine}` speech engine needs `model` set to a model file")]
+    VoiceModelMissing {
+        /// The engine that wanted one.
+        engine: String,
+    },
+
+    /// The action for unrecognised speech is not written as `provider.verb`.
+    #[error("voice `request`: {source}")]
+    VoiceRequestAction {
+        /// Why it could not be read.
+        #[source]
+        source: pushos_domain::action::MalformedSelector,
+    },
+
+    /// A spoken phrase's action is not written as `provider.verb`.
+    #[error("voice phrase `{phrase}`: {source}")]
+    VoiceAction {
+        /// The phrase that had it.
+        phrase: String,
+        /// Why it could not be read.
+        #[source]
+        source: pushos_domain::action::MalformedSelector,
+    },
+
+    /// A phrase has no words in it.
+    #[error("voice phrase `{written}` has no words in it")]
+    VoicePhraseEmpty {
+        /// What was written.
+        written: String,
+    },
+
+    /// Two phrases reduce to the same words.
+    #[error("voice phrase `{phrase}` is declared more than once")]
+    DuplicateVoicePhrase {
+        /// The contested phrase, as PushOS matches it.
+        phrase: String,
+    },
+
     /// Two bindings share an identity.
     #[error("binding id `{id}` is used more than once")]
     DuplicateBindingId {

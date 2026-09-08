@@ -9,8 +9,13 @@
 #![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used, clippy::panic))]
 #![doc(html_no_source)]
 
+mod engines;
 mod listener;
+#[cfg(feature = "whisper")]
+mod mel;
 mod router;
+#[cfg(feature = "whisper")]
+mod whisper;
 
 /// Speaking to macOS's own frameworks, which means speaking Objective-C.
 ///
@@ -25,8 +30,11 @@ mod apple;
 #[cfg(target_os = "macos")]
 mod recorder;
 
+pub use engines::{microphone, transcriber};
 pub use listener::{Heard, Pending, VoiceListener};
 pub use router::VoiceRouter;
+#[cfg(feature = "whisper")]
+pub use whisper::WhisperSpeech;
 
 #[cfg(target_os = "macos")]
 pub use apple::{AppleSpeech, Readiness};

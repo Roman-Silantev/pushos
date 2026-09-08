@@ -57,12 +57,16 @@ time = { version = "0.3", features = ["formatting", "macros"] }
 midir = "0.11"
 rusb = "0.9"
 # Audio capture, for push to talk.
+candle-core = "0.11"
+candle-nn = "0.11"
+candle-transformers = "0.11"
 cpal = "0.18"
 
 # macOS frameworks, reached without writing Objective-C.
 objc2 = "0.6"
 objc2-foundation = "0.3"
 objc2-speech = "0.3"
+tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
 objc2-avf-audio = "0.3"
 block2 = "0.6"
 # Pseudo-terminals. PushOS runs jobs itself rather than opening windows, so it

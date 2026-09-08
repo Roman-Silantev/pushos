@@ -140,13 +140,27 @@ pub enum VoiceError {
 }
 
 impl VoiceError {
-    /// Classifies the failure.
+    /// How a caller should react.
     pub const fn class(&self) -> crate::error::ErrorClass {
         use crate::error::ErrorClass;
         match self {
+            // The only one the operator can do something about, and the
+            // message already says what.
             Self::NotPermitted { .. } => ErrorClass::Permission,
             Self::Unavailable { .. } => ErrorClass::Validation,
             Self::Backend { class, .. } => *class,
+        }
+    }
+
+    /// Reports that the operator has not allowed something.
+    pub fn not_permitted(what: impl Into<String>) -> Self {
+        Self::NotPermitted { what: what.into() }
+    }
+
+    /// Reports that there is nothing available to do the work.
+    pub fn unavailable(context: impl Into<String>) -> Self {
+        Self::Unavailable {
+            context: context.into(),
         }
     }
 

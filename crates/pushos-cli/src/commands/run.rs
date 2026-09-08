@@ -165,6 +165,14 @@ fn build_runtime(
         runtime = runtime.with_workflows(Arc::clone(engine), run_updates);
     }
 
+    // Push to talk. Built before the providers, because one of them is the
+    // namespace that holds it, and after the rest, because what it hears is
+    // carried out through the same dispatcher a finger uses.
+    let listening = host::voice(&current);
+    if let Some(listener) = &listening {
+        runtime = runtime.with_voice(Arc::clone(listener));
+    }
+
     // Without a socket PushOS still runs; it simply cannot be configured from
     // Studio. That is worth saying rather than refusing to start over.
     match open_control_socket() {
@@ -178,6 +186,7 @@ fn build_runtime(
         &terminals,
         &workspaces,
         workflows.as_ref(),
+        listening.as_ref(),
     ) {
         let name = provider.name();
         match runtime.with_provider(provider) {

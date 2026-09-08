@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleIdentifier</key>
+	<string>dev.pushos.cli</string>
+	<key>CFBundleName</key>
+	<string>PushOS</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>PushOS listens only while you hold a control on the Push 2, and only on this Mac.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>PushOS works out what you said on this Mac. Nothing is sent anywhere.</string>
+</dict>
+</plist>

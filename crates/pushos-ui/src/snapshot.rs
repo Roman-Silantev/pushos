@@ -33,6 +33,11 @@ pub struct UiSnapshot {
     pub splash: Option<Splash>,
     /// The agent sessions worth showing, most recently active first.
     pub sessions: Vec<SessionLine>,
+    /// Whether PushOS is listening.
+    ///
+    /// Its own field rather than a notice, because a notice can be replaced by
+    /// the next thing that happens, and this one must not be.
+    pub listening: pushos_domain::voice::Listening,
 }
 
 impl UiSnapshot {

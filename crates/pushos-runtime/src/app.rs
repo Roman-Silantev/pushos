@@ -33,6 +33,7 @@ pub struct Runtime {
     terminals: Option<TerminalWiring>,
     workspaces: Option<Arc<pushos_workspaces::WorkspaceManager>>,
     workflows: Option<WorkflowWiring>,
+    voice: Option<Arc<pushos_actions::providers::voice::VoiceProvider>>,
     bus: EventBus,
 }
 
@@ -81,6 +82,7 @@ impl Runtime {
             terminals: None,
             workspaces: None,
             workflows: None,
+            voice: None,
             bus: EventBus::new(),
         }
     }
@@ -146,6 +148,21 @@ impl Runtime {
         self
     }
 
+    /// Listens when a control is held, and puts what it hears on the surface.
+    ///
+    /// Optional: PushOS runs without voice, it simply does not listen. Takes
+    /// the provider rather than the listener, because what speech runs has to
+    /// go through the same dispatcher a finger uses, and the runtime is what
+    /// gives it that.
+    #[must_use]
+    pub fn with_voice(
+        mut self,
+        provider: Arc<pushos_actions::providers::voice::VoiceProvider>,
+    ) -> Self {
+        self.voice = Some(provider);
+        self
+    }
+
     /// Installs an action provider.
     pub fn with_provider(
         mut self,
@@ -194,9 +211,14 @@ impl Runtime {
 
         // Given after construction, because the dispatcher this points at
         // contains the provider that points back at the engine.
-        if let Some(wiring) = &self.workflows {
+        if self.workflows.is_some() || self.voice.is_some() {
             let runner: Arc<dyn pushos_domain::ports::ActionRunner> = Arc::clone(&dispatcher) as _;
-            wiring.engine.use_actions(&runner).await;
+            if let Some(wiring) = &self.workflows {
+                wiring.engine.use_actions(&runner).await;
+            }
+            if let Some(provider) = &self.voice {
+                provider.use_actions(&runner).await;
+            }
         }
 
         // Created once, for the life of the process. A surface publishes into
@@ -306,6 +328,7 @@ impl Runtime {
             view,
             watching,
             lines,
+            listening: self.voice.map(|provider| provider.listener().watch()),
             bus: self.bus,
         }
     }
@@ -338,6 +361,8 @@ pub struct RunningRuntime {
     view: watch::Sender<SurfaceView>,
     watching: watch::Receiver<SurfaceView>,
     lines: watch::Receiver<Vec<pushos_ui::SessionLine>>,
+    /// Whether the microphone is on, when voice is configured.
+    listening: Option<watch::Receiver<pushos_domain::voice::Listening>>,
     bus: EventBus,
 }
 
@@ -376,6 +401,13 @@ impl RunningRuntime {
         // so the two can never disagree about where the operator is.
         let pipeline = match &self.workspaces {
             Some(manager) => pipeline.following(manager.subscribe()),
+            None => pipeline,
+        };
+
+        // A surface plugged in mid-phrase shows that PushOS is listening,
+        // rather than waiting for the operator to let go and press again.
+        let pipeline = match &self.listening {
+            Some(listening) => pipeline.hearing(listening.clone()),
             None => pipeline,
         };
         let render = RenderTask::new(output, renderer, self.watching.clone());

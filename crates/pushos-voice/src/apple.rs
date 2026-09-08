@@ -17,7 +17,7 @@ use block2::RcBlock;
 use objc2::AnyThread as _;
 use objc2::rc::Retained;
 use objc2_avf_audio::{AVAudioCommonFormat, AVAudioFormat, AVAudioPCMBuffer};
-use objc2_foundation::NSError;
+use objc2_foundation::{NSError, NSOperationQueue};
 use objc2_speech::{
     SFSpeechAudioBufferRecognitionRequest, SFSpeechRecognitionResult, SFSpeechRecognizer,
     SFSpeechRecognizerAuthorizationStatus,
@@ -197,6 +197,12 @@ fn work_out(samples: &[f32], held: Duration) -> Result<Utterance, VoiceError> {
         request.appendAudioPCMBuffer(&buffer);
         request.endAudio();
     }
+
+    // The recogniser answers on the main queue unless told otherwise, and
+    // PushOS never drains it: the main thread is running the runtime. Its own
+    // queue is what makes the answer arrive at all.
+    let queue = NSOperationQueue::new();
+    unsafe { recognizer.setQueue(&queue) };
 
     let (finished, result) = mpsc::channel();
     let handler = RcBlock::new(

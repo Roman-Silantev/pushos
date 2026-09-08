@@ -56,6 +56,7 @@ impl Finding {
 pub(crate) async fn execute(requested: Option<&Path>) -> Result<(), String> {
     let root = paths::config_root(requested)?;
     let mut findings = vec![check_configuration(&root), check_database(), check_push()];
+    findings.extend(check_voice(&root));
     findings.extend(check_host_tools().await);
 
     for finding in &findings {
@@ -131,6 +132,84 @@ fn check_push() -> Finding {
             "push 2",
             format!("{error}; check nothing else is holding the device"),
         ),
+    }
+}
+
+/// Reports whether PushOS could listen, when the operator has asked it to.
+///
+/// Nothing at all when voice is not configured: a report full of lines about
+/// something the operator did not ask for is a report nobody reads.
+fn check_voice(root: &Path) -> Vec<Finding> {
+    let Ok(config) = pushos_config::load(root).and_then(|file| RuntimeConfig::build(&file)) else {
+        // Already reported as blocking by the configuration check; saying it
+        // twice adds nothing.
+        return Vec::new();
+    };
+    let Some(settings) = &config.voice else {
+        return Vec::new();
+    };
+
+    let mut findings = vec![Finding::new(
+        if settings.is_useful() {
+            Verdict::Good
+        } else {
+            Verdict::Optional
+        },
+        "voice",
+        format!(
+            "{} engine, {} phrase(s){}",
+            settings.engine,
+            settings.commands.len(),
+            if settings.is_useful() {
+                String::new()
+            } else {
+                "; nothing is configured for it to do".to_owned()
+            }
+        ),
+    )];
+
+    findings.push(check_microphone());
+    findings.extend(check_speech(settings));
+    findings
+}
+
+/// Whether macOS will let PushOS hear anything.
+fn check_microphone() -> Finding {
+    match pushos_voice::microphone() {
+        Ok(_) => Finding::new(
+            Verdict::Good,
+            "microphone",
+            "available; macOS asks the first time a voice control is held",
+        ),
+        Err(error) => Finding::new(Verdict::Blocking, "microphone", error.to_string()),
+    }
+}
+
+/// Whether the chosen engine can actually work out what was said.
+fn check_speech(settings: &pushos_config::VoiceSettings) -> Vec<Finding> {
+    #[cfg(target_os = "macos")]
+    if settings.engine == pushos_domain::voice::VoiceEngine::Apple {
+        let readiness = pushos_voice::AppleSpeech::readiness();
+        return vec![Finding::new(
+            if readiness.is_ready() {
+                Verdict::Good
+            } else if readiness.asked && !readiness.permitted {
+                Verdict::Blocking
+            } else {
+                Verdict::Optional
+            },
+            "speech",
+            readiness.explain(),
+        )];
+    }
+
+    match pushos_voice::transcriber(settings.engine, settings.model.as_deref()) {
+        Ok(engine) => vec![Finding::new(
+            Verdict::Good,
+            "speech",
+            format!("{} is loaded and on this machine", engine.name()),
+        )],
+        Err(error) => vec![Finding::new(Verdict::Blocking, "speech", error.to_string())],
     }
 }
 

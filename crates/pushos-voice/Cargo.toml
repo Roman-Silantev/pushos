@@ -15,6 +15,12 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt", "time"] }
 tracing = { workspace = true }
 
+candle-core = { workspace = true, optional = true }
+candle-nn = { workspace = true, optional = true }
+candle-transformers = { workspace = true, optional = true }
+tokenizers = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+
 [target.'cfg(target_os = "macos")'.dependencies]
 cpal = { workspace = true }
 objc2 = { workspace = true }
@@ -22,6 +28,18 @@ objc2-foundation = { workspace = true }
 objc2-speech = { workspace = true }
 objc2-avf-audio = { workspace = true }
 block2 = { workspace = true }
+
+[features]
+# Whisper, run locally through Metal. Off by default: macOS already has an
+# engine that needs no download, and this one adds a hundred-odd crates and a
+# model file the operator has to fetch themselves.
+whisper = [
+    "dep:candle-core",
+    "dep:candle-nn",
+    "dep:candle-transformers",
+    "dep:tokenizers",
+    "dep:serde_json",
+]
 
 [dev-dependencies]
 pushos-testkit = { workspace = true }

@@ -46,6 +46,14 @@ pub(crate) fn draw_status(
     text.draw(canvas, &snapshot.page.name, (left, baseline), caption);
 
     let right = area.x + area.width - SLOT_PADDING;
+
+    // Ahead of everything else on this side. Whether the microphone is on
+    // outranks which page you are on and what the surface is.
+    if let Some(badge) = snapshot.listening.badge() {
+        draw_listening(canvas, text, theme, area, right, badge);
+        return;
+    }
+
     if let Some(label) = snapshot.surface.caption() {
         text.draw(
             canvas,
@@ -70,6 +78,41 @@ pub(crate) fn draw_status(
             },
         );
     }
+}
+
+/// How far the dot sits from the word beside it.
+const DOT_GAP: f32 = 5.0;
+
+/// How big the dot is.
+const DOT_SIZE: f32 = 6.0;
+
+/// Draws the one thing on this display an operator must never miss.
+///
+/// A word alone would read as another label. The block beside it is what makes
+/// it register from across a desk.
+fn draw_listening(
+    canvas: &mut Canvas,
+    text: &mut TextRenderer,
+    theme: &Theme,
+    area: Area,
+    right: f32,
+    badge: &str,
+) {
+    let baseline = area.bottom() - BASELINE_INSET;
+    let style = TextStyle {
+        max_width: area.width / 2.0,
+        ..TextStyle::left(theme.sizes.caption, theme.failure, area.width / 2.0)
+            .aligned(Align::Right)
+    };
+    let width = text.draw(canvas, badge, (right, baseline), style);
+
+    let dot = Area::new(
+        right - width - DOT_GAP - DOT_SIZE,
+        area.y + (area.height - DOT_SIZE) / 2.0,
+        DOT_SIZE,
+        DOT_SIZE,
+    );
+    canvas.fill_rounded(dot, DOT_SIZE / 2.0, theme.failure);
 }
 
 /// The colour a tone resolves to.

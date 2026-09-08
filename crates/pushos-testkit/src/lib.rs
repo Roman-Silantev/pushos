@@ -7,6 +7,7 @@
 #![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used, clippy::panic))]
 
 mod clock;
+mod fake_actions;
 mod fake_agent;
 mod fake_push;
 mod fake_runs;
@@ -17,6 +18,7 @@ mod fake_workspace;
 mod recording_provider;
 
 pub use clock::ManualClock;
+pub use fake_actions::FakeActions;
 pub use fake_agent::{AgentCall, FakeAgent};
 pub use fake_push::{FakePush, FakePushInput, SurfaceState};
 pub use fake_runs::FakeRunStore;

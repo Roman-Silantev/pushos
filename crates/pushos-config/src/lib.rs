@@ -15,13 +15,15 @@ pub mod model;
 pub mod paths;
 mod spec;
 mod store;
+mod voice;
 mod watcher;
 
 pub use build::RuntimeConfig;
 pub use editor::{BindingEdit, ConfigDocuments, PageRemoval};
 pub use error::{ConfigError, Problem};
 pub use loader::load;
-pub use model::{BindingEntry, ConfigFile, PageEntry};
+pub use model::{BindingEntry, ConfigFile, PageEntry, VoiceCommandEntry, VoiceSection};
 pub use spec::{BindingAddress, BindingSpec, PageSpec};
 pub use store::ConfigStore;
+pub use voice::VoiceSettings;
 pub use watcher::{ConfigWatcher, DEBOUNCE, WatchError};

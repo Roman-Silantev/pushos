@@ -41,6 +41,9 @@ pub struct ConfigFile {
     /// The workflows that exist.
     #[serde(default)]
     pub workflows: Vec<WorkflowEntry>,
+    /// Push to talk.
+    #[serde(default)]
+    pub voice: VoiceSection,
 }
 
 impl ConfigFile {
@@ -60,6 +63,7 @@ impl ConfigFile {
         self.providers.extend(other.providers);
         self.workspaces.extend(other.workspaces);
         self.workflows.extend(other.workflows);
+        self.voice.merge(other.voice);
     }
 }
 
@@ -96,6 +100,67 @@ impl RuntimeSection {
             self.shell = other.shell;
         }
     }
+}
+
+/// Push to talk.
+///
+/// Absent means voice is off. There is no wake word here and there will not be
+/// one: PushOS listens while a control is held and at no other time.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VoiceSection {
+    /// Which engine works out what was said: `apple` or `whisper`.
+    ///
+    /// Defaults to `apple`, which is already installed.
+    pub engine: Option<String>,
+    /// The model file, for engines that need one.
+    ///
+    /// A leading `~` is expanded. Only `whisper` uses this.
+    pub model: Option<String>,
+    /// What a phrase that is not a configured command runs.
+    ///
+    /// Written as `provider.verb`. The words go to it as `prompt`. Absent
+    /// means anything unrecognised is reported and nothing else.
+    pub request: Option<String>,
+    /// The phrases that mean exactly one thing.
+    #[serde(default)]
+    pub commands: Vec<VoiceCommandEntry>,
+}
+
+impl VoiceSection {
+    fn merge(&mut self, other: Self) {
+        if other.engine.is_some() {
+            self.engine = other.engine;
+        }
+        if other.model.is_some() {
+            self.model = other.model;
+        }
+        if other.request.is_some() {
+            self.request = other.request;
+        }
+        self.commands.extend(other.commands);
+    }
+}
+
+/// One spoken phrase and what it runs.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct VoiceCommandEntry {
+    /// What the operator says.
+    pub phrase: String,
+    /// What it runs, written as `provider.verb`.
+    pub action: String,
+    /// What the action acts on.
+    pub target: Option<String>,
+    /// Anything else the action needs.
+    #[serde(default)]
+    pub params: BTreeMap<String, ParamValue>,
+    /// Whether it waits for a deliberate press before it happens.
+    ///
+    /// Transcription is not authorisation. Anything that deploys, merges,
+    /// deletes or sends belongs here.
+    #[serde(default)]
+    pub confirm: bool,
 }
 
 /// Gesture timing, in milliseconds.

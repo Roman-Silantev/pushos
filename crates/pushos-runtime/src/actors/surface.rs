@@ -40,6 +40,8 @@ pub struct SurfaceState {
     /// Kept here rather than read from the supervisor when drawing: the
     /// renderer takes an immutable snapshot and must never wait on a lock.
     sessions: Vec<pushos_ui::SessionLine>,
+    /// Whether the microphone is on.
+    listening: pushos_domain::voice::Listening,
 }
 
 /// Something that goes away on its own.
@@ -66,12 +68,18 @@ impl SurfaceState {
             overlay: None,
             splash_until: None,
             sessions: Vec::new(),
+            listening: pushos_domain::voice::Listening::Idle,
         }
     }
 
     /// Records what the sessions are doing.
     pub fn set_sessions(&mut self, sessions: Vec<pushos_ui::SessionLine>) {
         self.sessions = sessions;
+    }
+
+    /// Records whether the microphone is on.
+    pub fn set_listening(&mut self, listening: pushos_domain::voice::Listening) {
+        self.listening = listening;
     }
 
     /// Adopts a new configuration.
@@ -245,6 +253,7 @@ impl SurfaceState {
             // The frame is left at zero: the renderer owns the animation, so a
             // snapshot never has to be republished just because time passed.
             sessions: self.sessions.clone(),
+            listening: self.listening,
             splash: self.splash_until.map(|_| {
                 Splash::new("PushOS", 0).with_detail(match &self.workspace {
                     Some(workspace) => workspace.to_string(),

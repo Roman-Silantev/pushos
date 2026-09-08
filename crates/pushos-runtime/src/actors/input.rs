@@ -72,6 +72,11 @@ pub struct InputTask {
     /// Followed rather than tracked: the surface keeping its own answer is how
     /// two parts of PushOS come to disagree about where the operator is.
     projects: Option<watch::Receiver<Option<pushos_domain::ids::WorkspaceId>>>,
+    /// Whether the microphone is on, published by the listener.
+    ///
+    /// Followed here rather than asked for when drawing, because the answer has
+    /// to reach the display within the press that changed it.
+    listening: Option<watch::Receiver<pushos_domain::voice::Listening>>,
     /// What the sessions are doing, published by whoever is watching them.
     ///
     /// The latest list is the only one that matters, and a pipeline built for
@@ -120,6 +125,7 @@ impl InputTask {
             dispatcher,
             reloads: config.subscribe(),
             projects: None,
+            listening: None,
             config,
             bus,
             view,
@@ -138,6 +144,13 @@ impl InputTask {
         self
     }
 
+    /// Follows whether PushOS is listening.
+    #[must_use]
+    pub fn hearing(mut self, listening: watch::Receiver<pushos_domain::voice::Listening>) -> Self {
+        self.listening = Some(listening);
+        self
+    }
+
     /// Runs until the surface goes away or shutdown begins.
     pub async fn run(mut self, shutdown: Shutdown) {
         self.surface.set_surface(self.surface_kind, Instant::now());
@@ -146,6 +159,7 @@ impl InputTask {
         // project is selected and agents are working should show that, not an
         // empty display until the next thing happens.
         self.follow_project();
+        self.follow_listening();
         let lines = self.sessions.borrow_and_update().clone();
         self.surface.set_sessions(lines);
         self.publish();
@@ -193,11 +207,15 @@ impl InputTask {
                     self.on_deadline(Instant::now()).await;
                 }
 
-                changed = self.sessions.changed() => {
-                    if changed.is_ok() {
-                        let lines = self.sessions.borrow_and_update().clone();
-                        self.surface.set_sessions(lines);
-                        self.publish();
+                () = wait_for_sessions(&mut self.sessions) => {
+                    let lines = self.sessions.borrow_and_update().clone();
+                    self.surface.set_sessions(lines);
+                    self.publish();
+                }
+
+                heard = wait_for_listening(self.listening.as_mut()) => {
+                    if heard {
+                        self.follow_listening();
                     }
                 }
             }
@@ -217,6 +235,16 @@ impl InputTask {
         self.recognizer
             .set_interest(config.bindings.gesture_interest().clone());
         self.surface.adopt(config);
+        self.publish();
+    }
+
+    /// Takes whether the microphone is on.
+    fn follow_listening(&mut self) {
+        let Some(listening) = self.listening.as_mut() else {
+            return;
+        };
+        let state = *listening.borrow_and_update();
+        self.surface.set_listening(state);
         self.publish();
     }
 
@@ -400,6 +428,28 @@ async fn wait_for_project(
 ) -> bool {
     match projects {
         Some(projects) => projects.changed().await.is_ok(),
+        None => std::future::pending().await,
+    }
+}
+
+/// Waits for the sessions to change, and for ever once nothing can publish.
+///
+/// A closed channel is what a PushOS with no agents, terminals or workflows
+/// has: the publisher was dropped because there was nothing for it to watch.
+/// Returning from that immediately, as `changed` does, would spin this loop at
+/// the speed of the processor and starve every arm below it.
+async fn wait_for_sessions(sessions: &mut watch::Receiver<Vec<pushos_ui::SessionLine>>) {
+    if sessions.changed().await.is_err() {
+        std::future::pending::<()>().await;
+    }
+}
+
+/// Waits for the microphone to go on or off, or forever when voice is off.
+async fn wait_for_listening(
+    listening: Option<&mut watch::Receiver<pushos_domain::voice::Listening>>,
+) -> bool {
+    match listening {
+        Some(listening) => listening.changed().await.is_ok(),
         None => std::future::pending().await,
     }
 }

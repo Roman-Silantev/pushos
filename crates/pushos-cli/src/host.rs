@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use pushos_acp::{AcpBackend, AgentCommand};
 use pushos_actions::providers::{
-    agent, application, media, page, shell, shortcut, terminal, workflow, workspace,
+    agent, application, media, page, shell, shortcut, terminal, voice, workflow, workspace,
 };
 use pushos_agents::{AgentRoster, AgentSupervisor};
 use pushos_config::RuntimeConfig;
@@ -17,6 +17,7 @@ use pushos_domain::ports::{
 };
 use pushos_macos::{AppleScriptMedia, OpenLauncher, ShortcutsCli, SystemProcessRunner};
 use pushos_terminal::{PtyTerminals, TerminalSupervisor};
+use pushos_voice::{VoiceListener, VoiceRouter};
 use pushos_workflows::{WorkflowCatalogue, WorkflowEngine};
 use pushos_workspaces::{GitRepository, WorkspaceManager, WorkspaceRegistry, warn_if_missing};
 use tracing::{info, warn};
@@ -153,6 +154,44 @@ pub(crate) fn workflows(
     Some(Arc::new(engine))
 }
 
+/// Builds push to talk from configuration.
+///
+/// Returns `None` when voice is not configured, because a surface that cannot
+/// listen should not carry a namespace that refuses every binding. A configured
+/// section that cannot be built is reported and left out: PushOS still runs,
+/// it simply does not listen.
+pub(crate) fn voice(config: &RuntimeConfig) -> Option<Arc<voice::VoiceProvider>> {
+    let settings = config.voice.as_ref()?;
+
+    if !settings.is_useful() {
+        warn!(
+            "voice is configured with no phrases and no request action; nothing could come of speaking"
+        );
+    }
+
+    let microphone = pushos_voice::microphone()
+        .inspect_err(|error| warn!(%error, "PushOS will not listen"))
+        .ok()?;
+    let transcriber = pushos_voice::transcriber(settings.engine, settings.model.as_deref())
+        .inspect_err(|error| warn!(%error, engine = %settings.engine, "PushOS will not listen"))
+        .ok()?;
+
+    info!(
+        engine = transcriber.name(),
+        phrases = settings.commands.len(),
+        "push to talk available"
+    );
+    let listener = Arc::new(VoiceListener::new(
+        microphone,
+        transcriber,
+        VoiceRouter::new(settings.commands.clone()),
+    ));
+    Some(Arc::new(voice::VoiceProvider::new(
+        listener,
+        settings.request.clone(),
+    )))
+}
+
 /// The command that starts a configured provider.
 fn command_for(entry: &pushos_config::model::ProviderEntry) -> Option<AgentCommand> {
     let command = match &entry.program {
@@ -176,6 +215,7 @@ pub(crate) fn providers(
     terminals: &Arc<TerminalSupervisor>,
     workspaces: &Arc<WorkspaceManager>,
     workflows: Option<&Arc<WorkflowEngine>>,
+    listening: Option<&Arc<voice::VoiceProvider>>,
 ) -> Vec<Arc<dyn ActionProvider>> {
     let processes: Arc<dyn ProcessRunner> = Arc::new(SystemProcessRunner::new());
     let launcher: Arc<dyn pushos_domain::ports::ApplicationLauncher> =
@@ -207,6 +247,12 @@ pub(crate) fn providers(
         providers.push(Arc::new(workflow::WorkflowProvider::new(Arc::clone(
             engine,
         ))));
+    }
+
+    // Voice is offered only when it can actually listen, so a binding fails
+    // with "no provider" rather than with a microphone that is not there.
+    if let Some(provider) = listening {
+        providers.push(Arc::clone(provider) as Arc<dyn ActionProvider>);
     }
 
     if let Some(controller) = media_controller(config, &processes) {
@@ -257,6 +303,7 @@ pub(crate) fn shipped_namespaces(
         &terminals,
         &manager,
         engine.as_ref(),
+        voice(config).as_ref(),
     )
     .into_iter()
     .map(|provider| {
@@ -335,6 +382,7 @@ mod tests {
             &idle_terminals(&settings),
             &manager(&settings),
             engine(&settings, &idle_terminals(&settings)).as_ref(),
+            voice(&settings).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -357,6 +405,7 @@ mod tests {
             &idle_terminals(&settings),
             &manager(&settings),
             engine(&settings, &idle_terminals(&settings)).as_ref(),
+            voice(&settings).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -378,6 +427,7 @@ mod tests {
             &idle_terminals(&settings),
             &manager(&settings),
             engine(&settings, &idle_terminals(&settings)).as_ref(),
+            voice(&settings).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -495,6 +545,7 @@ mod tests {
             &idle_terminals(&settings),
             &manager(&settings),
             engine(&settings, &idle_terminals(&settings)).as_ref(),
+            voice(&settings).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -521,6 +572,7 @@ mod tests {
             &idle_terminals(&unusable),
             &manager(&unusable),
             engine(&unusable, &idle_terminals(&unusable)).as_ref(),
+            voice(&unusable).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())

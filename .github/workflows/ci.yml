@@ -59,6 +59,7 @@ jobs:
           -p pushos-storage
           -p pushos-ui
           -p pushos-runtime
+          -p pushos-voice
           -p pushos-testkit
 
   # Studio is a separate application with its own toolchain, kept out of the

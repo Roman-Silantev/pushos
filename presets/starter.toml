@@ -37,6 +37,9 @@ granted = [
     "media.control",
     "application.launch",
     "shortcuts.execute",
+    # Turning the microphone on. Needed only if you uncomment push to talk
+    # below; macOS asks separately, the first time you hold the control.
+    # "microphone.listen",
 ]
 
 # --- Agents ------------------------------------------------------------------
@@ -290,6 +293,69 @@ granted = [
 # gesture = "press"
 # action = "workflow.approve"
 # label = "Approve"
+
+# --- Push to talk ------------------------------------------------------------
+# PushOS listens while you hold a control and at no other time. There is no
+# wake word and there will not be one: your finger decides, and the display
+# says LISTENING while it is down.
+#
+# Everything happens on this Mac. `apple` is macOS's own recogniser, which is
+# already installed and needs no download. `whisper` runs a model you fetched
+# yourself, and needs a build with `--features whisper`.
+#
+# Uncomment the block, add "microphone.listen" to the permissions above, and
+# bind one control twice: press to listen, release to stop.
+#
+# [voice]
+# engine = "apple"
+# # Where the words go when they are not one of the phrases below. The words
+# # arrive as `prompt`. Leave it out and an unrecognised phrase is shown and
+# # nothing else, which is the safe default.
+# request = "agent.prompt"
+# # Only `whisper` uses this. Point it at a directory holding model.safetensors,
+# # tokenizer.json and config.json.
+# model = "~/.pushos/models/whisper-small.en"
+#
+# A phrase means exactly one thing and never reaches an agent: "stop" must stop
+# whatever is going on. Phrases match on a word boundary and the longest one
+# wins, so "stop the music" is never taken for "stop".
+#
+# [[voice.commands]]
+# phrase = "stop"
+# action = "agent.stop"
+#
+# [[voice.commands]]
+# phrase = "next page"
+# action = "page.next"
+#
+# Transcription is not authorisation. Anything that deploys, merges, deletes or
+# sends belongs behind `confirm`, which holds it until a finger releases it.
+#
+# [[voice.commands]]
+# phrase = "ship it"
+# action = "workflow.start"
+# target = "ship"
+# confirm = true
+#
+# [[bindings]]
+# control = "button.select"
+# gesture = "press"
+# action = "voice.listen"
+# label = "Hold to talk"
+#
+# [[bindings]]
+# control = "button.select"
+# gesture = "release"
+# action = "voice.transcribe"
+#
+# What a confirmed phrase waits for. A different control from the one that
+# approves an agent: pressing the wrong one should never be how something ships.
+#
+# [[bindings]]
+# control = "button.lower_8"
+# gesture = "press"
+# action = "voice.confirm"
+# label = "Confirm"
 
 # --- Pages -------------------------------------------------------------------
 # A page changes what the controls mean. Bindings reference a page by id.

@@ -338,6 +338,50 @@ Limits are not optional. A graph with a loop in it can loop for ever, and an
 agent that costs money on every turn is not something to leave unbounded, so
 every workflow has a step count and a deadline whether or not it names them.
 
+## Voice is a control being held, not a machine listening
+
+There is no wake word in PushOS and there will not be one. A control is held,
+which is what starts listening, and released, which is what stops it. The
+operator's finger is the switch, and they can see it is down. Nothing decides
+on their behalf that they have finished speaking, and nothing is recorded when
+they are not asking for it.
+
+Everything happens on this Mac. The macOS engine is asked with on-device
+recognition required rather than merely preferred, and refuses rather than
+falling back to Apple's servers; the Whisper engine is a file the operator
+fetched. An implementation that sent audio anywhere would be the wrong
+implementation, not a configuration mistake.
+
+What comes back is routed in two layers, and the order matters:
+
+- **A configured phrase means exactly one thing and runs it.** These are short,
+  they are written down, and they never reach an agent, because "stop" must stop
+  whatever is going on rather than becoming something to reason about.
+- **Anything else is a request**, and goes wherever the operator configured.
+  With nowhere configured it is shown and nothing else. PushOS does not invent a
+  destination for words.
+
+Phrases match on a word boundary and the longest one wins. A transcriber adds
+words, so "stop." and "stop it" have to reach "stop"; but "approve" must not
+match "approved the plan", which is an operator describing something rather than
+asking for it, and "stop the music" must never be taken for "stop".
+
+Three decisions worth stating:
+
+- **Transcription is not authorisation.** A phrase marked `confirm` is held
+  rather than run, and a press is what finally releases it. Taken rather than
+  read, so a leaning finger cannot deploy three times.
+- **Speech goes through the same dispatcher a finger does**, so it can never do
+  something a control could not, and every permission is checked again on the
+  way.
+- **Turning the microphone on is itself a capability.** `microphone.listen`
+  gates the verb that listens and nothing else: an operator must never need a
+  permission in order to stop.
+
+The two engines are not a fallback pair. An operator who chose one and silently
+got the other would have no way of telling, and the two do not hear the same
+things, so a missing engine is an error.
+
 ## Failures are classified, not stringified
 
 Every error carries a class: retryable, validation, permission,
@@ -377,6 +421,15 @@ answer, and it comes back as a failed action with the exit code.
   permission a shell action does.
 - **Terminals PushOS started, PushOS stops.** Leaving them running when the
   runtime exits would be a leak the operator has to clean up by hand.
+- **The one `unsafe` in PushOS is asking macOS what was said.** It is scoped to
+  a single module, everything it touches is made and dropped inside one
+  function, and what leaves is a `String` and an error. Widening it would need a
+  reason as good as "there is no other way to ask macOS this". The Whisper
+  engine reads its weights rather than mapping them for the same reason: mapping
+  is faster and needs `unsafe`, and a model is loaded once.
+- **A held control that produced nothing does nothing.** Silence and a brushed
+  control both end in no action and no message, because running something on an
+  empty transcript would be the worst possible answer to a mis-press.
 
 ## What is deliberately absent
 

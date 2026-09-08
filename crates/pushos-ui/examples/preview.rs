@@ -8,6 +8,7 @@
 use std::io::Write as _;
 
 use pushos_domain::ports::{DISPLAY_HEIGHT, DISPLAY_WIDTH, DisplayFrame};
+use pushos_domain::voice::Listening;
 use pushos_ui::{
     Notice, Overlay, PageView, PushRenderer, SessionLine, Slot, Splash, SurfacePresence, Tone,
     UiSnapshot,
@@ -86,6 +87,7 @@ fn page() -> UiSnapshot {
         overlay: None,
         splash: None,
         sessions: Vec::new(),
+        listening: Listening::Recording,
     }
 }
 
