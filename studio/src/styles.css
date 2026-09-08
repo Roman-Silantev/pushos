@@ -214,12 +214,417 @@ body {
 /* --- The virtual surface ------------------------------------------------ */
 
 .surface {
-  padding: 18px;
-  overflow-y: auto;
+  padding: 20px;
+  overflow: auto;
 }
 
-.group + .group {
-  margin-top: 18px;
+/* --- The instrument ------------------------------------------------------ */
+
+/*
+ * Laid out as a Push 2 is laid out. The column tracks run the whole height, so
+ * the encoders line up with the buttons under them, the display lines up with
+ * the pads, and the touch strip sits beside the pads where it belongs.
+ */
+.push {
+  --key: #1b1e28;
+  --key-edge: #2b3040;
+  --body: #0f1117;
+  display: grid;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr);
+  grid-template-areas:
+    "tempo       tempo  knobs   master-knob master-knob"
+    "edit        edit   display add         add"
+    "track-state track-state columns navigate navigate"
+    "workflow    strip  pads    scenes      modes";
+  gap: 12px;
+  /* Below this the pads stop being usable targets, so the surface scrolls
+     rather than shrinking the instrument into something nobody can click. */
+  min-width: 760px;
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 16px;
+  background: var(--body);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.zone {
+  display: flex;
+  gap: 8px;
+  min-width: 0;
+}
+
+.zone.flow-column {
+  flex-direction: column;
+}
+
+/* Side by side means beside each other, not stretched to the tallest thing in
+   the row: the Master button is a button, whatever is next to it. */
+.zone.flow-row {
+  align-items: center;
+}
+
+/* The buttons either side of the display hug the display, as they do on the
+   instrument, rather than floating in the middle of the band. */
+.zone-columns,
+.zone-track-state {
+  align-self: start;
+}
+
+.zone-workflow,
+.zone-modes,
+.zone-scenes,
+.zone-strip {
+  align-self: stretch;
+}
+
+.cluster {
+  display: grid;
+  grid-template-columns: repeat(var(--columns, 1), minmax(0, 1fr));
+  gap: 6px;
+  min-width: 0;
+}
+
+/* The eight scene buttons run the full height of the pad grid beside them. */
+.cluster.scenes,
+.zone-workflow .cluster {
+  align-content: stretch;
+  flex: 1;
+  grid-auto-rows: minmax(0, 1fr);
+  height: 100%;
+}
+
+.cluster.knobs {
+  justify-items: center;
+}
+
+.cluster.bars {
+  --columns: 8;
+}
+
+.cluster.bars {
+  gap: 8px;
+}
+
+/* --- Controls ------------------------------------------------------------ */
+
+.control {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  gap: 2px;
+  padding: 5px 6px;
+  border: 1px solid var(--key-edge);
+  border-radius: 5px;
+  background: var(--key);
+  color: var(--muted);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1.15;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.1s ease, background 0.1s ease, color 0.1s ease;
+}
+
+.control:hover {
+  border-color: var(--muted);
+  color: var(--ink);
+}
+
+.control.bound {
+  background: color-mix(in srgb, var(--accent) 12%, var(--key));
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--key-edge));
+  color: var(--ink);
+}
+
+.control.selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+  color: var(--ink);
+}
+
+/* Reported by the layout but not by PushOS: shown in place, not as a hole. */
+.control.absent {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.control .caption {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.control.symbolic .caption {
+  font-size: 13px;
+}
+
+/* The caption the operator gave it, which is what the display would show. */
+.assigned {
+  color: var(--accent);
+  font-size: 9px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The count is the part that does not depend on colour. */
+.count {
+  position: absolute;
+  top: 2px;
+  right: 3px;
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* --- Encoders ------------------------------------------------------------ */
+
+.knob {
+  /* Capped, so a knob in a wide region stays a knob rather than growing into
+     the space beside it. */
+  width: 100%;
+  max-width: 46px;
+  border: 0;
+  background: none;
+  padding: 0;
+  gap: 3px;
+}
+
+.knob-face {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid var(--key-edge);
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 32%, #2a2f3d, #12141b 70%);
+}
+
+/* The notch, so a knob reads as a knob rather than as a circle. */
+.knob-face::after {
+  content: "";
+  position: absolute;
+  top: 12%;
+  left: 50%;
+  width: 2px;
+  height: 26%;
+  transform: translateX(-50%);
+  border-radius: 1px;
+  background: var(--muted);
+}
+
+.knob.bound .knob-face {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--key-edge));
+}
+
+.knob.bound .knob-face::after,
+.knob.selected .knob-face::after {
+  background: var(--accent);
+}
+
+.knob.selected .knob-face {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.knob .knob-caption {
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.knob .count {
+  top: -2px;
+  right: -2px;
+}
+
+/* --- The buttons either side of the display ------------------------------ */
+
+/*
+ * Thin bars, as on the instrument, where they read as parts of the display
+ * rather than as keys of their own.
+ */
+.bars .control {
+  min-height: 26px;
+  padding: 3px 4px;
+  border-radius: 3px;
+}
+
+/* --- The display --------------------------------------------------------- */
+
+.screen {
+  display: flex;
+  flex-direction: column;
+  aspect-ratio: 6 / 1;
+  padding: 6px 8px;
+  border: 1px solid var(--key-edge);
+  border-radius: 4px;
+  background: #05060a;
+  min-width: 0;
+}
+
+.screen-header {
+  color: var(--muted);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.screen-columns {
+  display: grid;
+  flex: 1;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 4px;
+  align-items: center;
+}
+
+.screen-column {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.screen-top,
+.screen-bottom,
+.screen-empty {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 10px;
+}
+
+.screen-top {
+  color: var(--ink);
+}
+
+.screen-bottom {
+  color: var(--accent);
+}
+
+.screen-empty {
+  color: #262b38;
+}
+
+/* --- The touch strip ----------------------------------------------------- */
+
+.zone-strip .cluster {
+  height: 100%;
+}
+
+.touch {
+  width: 34px;
+  height: 100%;
+  gap: 6px;
+  padding: 10px 4px;
+}
+
+.touch-track {
+  position: relative;
+  flex: 1;
+  width: 10px;
+  border-radius: 5px;
+  border: 1px solid var(--key-edge);
+  background: linear-gradient(to bottom, #191d27, #232838 50%, #191d27);
+}
+
+/* The dotted scale printed beside the ribbon on the instrument. */
+.touch-track::after {
+  content: "";
+  position: absolute;
+  inset: 6px 0;
+  background-image: radial-gradient(circle, var(--muted) 0.8px, transparent 1px);
+  background-size: 100% 11%;
+  opacity: 0.5;
+}
+
+.touch.bound .touch-track {
+  border-color: var(--accent);
+  background: linear-gradient(
+    to bottom,
+    #191d27,
+    color-mix(in srgb, var(--accent) 55%, #191d27) 50%,
+    #191d27
+  );
+}
+
+.touch-caption {
+  flex: 0 0 auto;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+/* --- The cursor diamond -------------------------------------------------- */
+
+.cluster.arrows {
+  display: grid;
+  grid-template-areas:
+    ".    up    ."
+    "left .     right"
+    ".    down  .";
+  grid-template-columns: repeat(3, 28px);
+  grid-template-rows: repeat(3, 24px);
+  gap: 3px;
+  align-content: center;
+}
+
+.arrow-up {
+  grid-area: up;
+}
+.arrow-down {
+  grid-area: down;
+}
+.arrow-left {
+  grid-area: left;
+}
+.arrow-right {
+  grid-area: right;
+}
+
+/* --- Pads ---------------------------------------------------------------- */
+
+.pad-grid {
+  --columns: 8;
+  gap: 5px;
+  align-content: start;
+}
+
+.pad-grid .control {
+  aspect-ratio: 1;
+  border-radius: 6px;
+  font-size: 9px;
+}
+
+/* A bound pad is lit, the way it would be on the hardware. */
+.pad-grid .control.bound {
+  background: color-mix(in srgb, var(--accent) 26%, var(--key));
+  box-shadow: 0 0 10px -2px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+
+/* --- Anything the diagram does not place --------------------------------- */
+
+.unplaced {
+  max-width: 880px;
+  margin: 16px auto 0;
+}
+
+.unplaced-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.unplaced-row .control {
+  min-width: 76px;
+  min-height: 34px;
 }
 
 .group-title {
@@ -229,77 +634,6 @@ body {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted);
-}
-
-.controls {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-
-.controls.column {
-  flex-direction: column;
-  width: max-content;
-}
-
-.pad-grid {
-  display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
-  gap: 6px;
-  max-width: 640px;
-}
-
-.control {
-  position: relative;
-  min-width: 62px;
-  min-height: 44px;
-  padding: 6px 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--panel);
-  color: var(--muted);
-  font: inherit;
-  font-size: 12px;
-  cursor: pointer;
-  transition: border-color 0.1s ease, background 0.1s ease;
-}
-
-.pad-grid .control {
-  aspect-ratio: 1;
-  min-width: 0;
-}
-
-.control:hover {
-  border-color: var(--muted);
-}
-
-.control.bound {
-  background: var(--raised);
-  color: var(--ink);
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
-}
-
-.control.selected {
-  border-color: var(--accent);
-  box-shadow: inset 0 0 0 1px var(--accent);
-  color: var(--ink);
-}
-
-.caption {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* The count is the part that does not depend on colour. */
-.count {
-  position: absolute;
-  top: 3px;
-  right: 5px;
-  font-size: 10px;
-  font-weight: 600;
-  color: var(--accent);
 }
 
 /* --- The inspector ------------------------------------------------------ */
