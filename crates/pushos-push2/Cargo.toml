@@ -1,0 +1,24 @@
+[package]
+name = "pushos-push2"
+description = "The Ableton Push 2 hardware adapter: MIDI, USB display and LEDs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+pushos-domain = { workspace = true }
+async-trait = { workspace = true }
+midir = { workspace = true }
+rusb = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync", "rt", "time"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,18 @@
+[package]
+name = "pushos-ui"
+description = "Deterministic rendering for the Push 2 display and lights."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+pushos-domain = { workspace = true }
+tiny-skia = { workspace = true }
+fontdue = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

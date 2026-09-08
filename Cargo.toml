@@ -1,0 +1,83 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.90"
+license = "Apache-2.0"
+repository = "https://github.com/Roman-Silantev/pushos"
+authors = ["Roman Silantev"]
+
+[workspace.dependencies]
+# Internal
+pushos-domain = { path = "crates/pushos-domain" }
+pushos-push2 = { path = "crates/pushos-push2" }
+pushos-bindings = { path = "crates/pushos-bindings" }
+pushos-actions = { path = "crates/pushos-actions" }
+pushos-ui = { path = "crates/pushos-ui" }
+pushos-config = { path = "crates/pushos-config" }
+pushos-storage = { path = "crates/pushos-storage" }
+pushos-runtime = { path = "crates/pushos-runtime" }
+pushos-testkit = { path = "crates/pushos-testkit" }
+
+# Async
+tokio = { version = "1.53", default-features = false }
+tokio-util = { version = "0.7", default-features = false }
+async-trait = "0.1.92"
+futures-util = { version = "0.3", default-features = false }
+
+# Data
+# `rc` lets typed ids share one allocation; ids are values, so loss of
+# reference identity across a serialisation round trip is intended.
+serde = { version = "1.0.229", features = ["derive", "rc"] }
+toml = "1.1"
+rusqlite = { version = "0.40", features = ["bundled"] }
+uuid = { version = "1.26", features = ["v4", "v7", "serde"] }
+time = { version = "0.3", features = ["formatting", "macros"] }
+
+# Hardware
+midir = "0.11"
+rusb = "0.9"
+
+# Rendering
+tiny-skia = "0.12"
+fontdue = "0.9"
+
+# Observability + errors
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+thiserror = "2.0"
+
+# Tooling
+clap = { version = "4.6", features = ["derive"] }
+notify = { version = "8.2", default-features = false, features = ["macos_fsevent"] }
+arc-swap = "1.9"
+
+[workspace.lints.rust]
+unsafe_code = "deny"
+missing_debug_implementations = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+unreachable_pub = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+must_use_candidate = "allow"
+# Architectural guardrails from AGENTS.md
+unwrap_used = "warn"
+expect_used = "warn"
+panic = "warn"
+todo = "deny"
+dbg_macro = "deny"
+large_enum_variant = "warn"
+mutex_atomic = "warn"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = "symbols"

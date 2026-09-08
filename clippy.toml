@@ -1,0 +1,5 @@
+# Product and protocol names that are not code identifiers.
+doc-valid-idents = ["PushOS", "FakePush", "PushOS Studio", "SQLite", "MIDI", ".."]
+
+# AGENTS.md section 5: review anything past 400 non-test lines.
+too-many-lines-threshold = 250

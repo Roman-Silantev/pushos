@@ -1,0 +1,17 @@
+[package]
+name = "pushos-testkit"
+description = "Hardware-free fakes for every port, including FakePush."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+pushos-domain = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true, features = ["sync", "rt"] }
+
+[lints]
+workspace = true

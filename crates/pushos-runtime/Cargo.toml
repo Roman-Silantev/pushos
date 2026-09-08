@@ -1,0 +1,29 @@
+[package]
+name = "pushos-runtime"
+description = "Actor supervision, the event bus and runtime wiring."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+pushos-domain = { workspace = true }
+pushos-actions = { workspace = true }
+pushos-bindings = { workspace = true }
+pushos-config = { workspace = true }
+pushos-storage = { workspace = true }
+pushos-ui = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync", "rt", "time", "macros"] }
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+pushos-testkit = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
+
+[lints]
+workspace = true
