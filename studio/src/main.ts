@@ -180,6 +180,13 @@ function test(address: BindingAddress): void {
   })();
 }
 
+/** Puts the editing panel away. */
+function closeInspector(): void {
+  if (state.selected === null) return;
+  state.selected = null;
+  draw();
+}
+
 function draw(): void {
   if (root === null) return;
   // Clears the static starting message along with the previous frame.
@@ -205,7 +212,9 @@ function draw(): void {
         selected: state.selected,
       },
       (control) => {
-        state.selected = control;
+        // Clicking the chosen control again puts the panel away, so the same
+        // gesture that opened it closes it.
+        state.selected = state.selected === control ? null : control;
         draw();
       },
     ),
@@ -220,7 +229,7 @@ function draw(): void {
         bindings: state.bindings,
         sessions: state.sessions,
       },
-      { save, remove, test },
+      { save, remove, test, close: closeInspector },
     ),
   );
 
@@ -462,6 +471,13 @@ function reportFatal(detail: string): void {
   panel.append(element("pre", "command", detail));
   root.append(panel);
 }
+
+// Escape closes the panel, unless something inside it has a menu open that
+// wants the key first.
+window.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || event.defaultPrevented) return;
+  closeInspector();
+});
 
 window.addEventListener("error", (event) => reportFatal(String(event.message)));
 window.addEventListener("unhandledrejection", (event) =>

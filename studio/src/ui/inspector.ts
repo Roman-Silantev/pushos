@@ -32,6 +32,8 @@ export interface InspectorActions {
   save: (spec: BindingSpec) => void;
   remove: (address: BindingAddress) => void;
   test: (address: BindingAddress) => void;
+  /** Puts the panel away and gives the surface its room back. */
+  close: () => void;
 }
 
 /** The gestures offered for a control, given what kind of control it is. */
@@ -74,7 +76,22 @@ export function renderInspector(
   }
 
   const header = element("div", "inspector-header");
-  header.append(element("h2", "inspector-title", model.control));
+
+  const heading = element("div", "inspector-heading");
+  heading.append(element("h2", "inspector-title", model.control));
+
+  // The panel takes nearly half the height, so there has to be an obvious way
+  // to put it away and see the whole instrument again.
+  const close = document.createElement("button");
+  close.type = "button";
+  close.className = "inspector-close";
+  close.textContent = "\u00d7";
+  close.title = "Close (Escape)";
+  close.setAttribute("aria-label", "Close the panel");
+  close.addEventListener("click", () => actions.close());
+  heading.append(close);
+
+  header.append(heading);
   header.append(element("p", "inspector-scope", describeScope(model)));
   panel.append(header);
 

@@ -922,3 +922,26 @@ body {
   font-size: 0.75rem;
   margin: 0.25rem 0 0.5rem;
 }
+
+.inspector-heading {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.inspector-close {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+  padding: 2px 9px 4px;
+}
+
+.inspector-close:hover {
+  border-color: var(--muted);
+  color: var(--ink);
+}
