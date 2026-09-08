@@ -82,7 +82,11 @@ async fn bindings() -> Result<BindingList, StudioError> {
 /// Writes a binding and makes it take effect.
 #[tauri::command]
 async fn bind(spec: BindingSpec) -> Result<EditReport, StudioError> {
-    match ask(Request::Bind { spec: Box::new(spec) }).await? {
+    match ask(Request::Bind {
+        spec: Box::new(spec),
+    })
+    .await?
+    {
         Response::Edited(report) => Ok(report),
         Response::Failed(failure) => Err(ClientError::Refused(failure).into()),
         other => Err(StudioError::unexpected(&other)),
@@ -118,7 +122,9 @@ async fn test(address: BindingAddress) -> Result<TestReport, StudioError> {
 /// environment is unusable and there is nothing sensible to fall back to.
 pub fn run() {
     tauri::Builder::default()
-        .invoke_handler(tauri::generate_handler![status, describe, bindings, bind, unbind, test])
+        .invoke_handler(tauri::generate_handler![
+            status, describe, bindings, bind, unbind, test
+        ])
         .run(tauri::generate_context!())
         .expect("PushOS Studio could not open a window");
 }

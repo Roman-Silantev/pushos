@@ -1,0 +1,5 @@
+# Studio is outside the workspace, so it needs its own copy of the formatting
+# rules rather than inheriting the ones at the repository root.
+edition = "2024"
+max_width = 100
+use_field_init_shorthand = true
