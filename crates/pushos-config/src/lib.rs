@@ -18,10 +18,10 @@ mod store;
 mod watcher;
 
 pub use build::RuntimeConfig;
-pub use editor::{BindingEdit, ConfigDocuments};
+pub use editor::{BindingEdit, ConfigDocuments, PageRemoval};
 pub use error::{ConfigError, Problem};
 pub use loader::load;
 pub use model::{BindingEntry, ConfigFile, PageEntry};
-pub use spec::{BindingAddress, BindingSpec};
+pub use spec::{BindingAddress, BindingSpec, PageSpec};
 pub use store::ConfigStore;
 pub use watcher::{ConfigWatcher, DEBOUNCE, WatchError};

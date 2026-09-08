@@ -10,7 +10,7 @@ use pushos_api::protocol::{
     WorkspaceList,
 };
 use pushos_api::{ClientError, ControlClient};
-use pushos_config::{BindingAddress, BindingSpec};
+use pushos_config::{BindingAddress, BindingSpec, PageSpec};
 use serde::Serialize;
 
 /// What a command reports when it cannot reach PushOS or is refused.
@@ -127,6 +127,26 @@ async fn workspaces() -> Result<WorkspaceList, StudioError> {
     }
 }
 
+/// Writes a page, or replaces the one already using that identity.
+#[tauri::command]
+async fn add_page(spec: PageSpec) -> Result<EditReport, StudioError> {
+    match ask(Request::AddPage { spec }).await? {
+        Response::Edited(report) => Ok(report),
+        Response::Failed(failure) => Err(ClientError::Refused(failure).into()),
+        other => Err(StudioError::unexpected(&other)),
+    }
+}
+
+/// Removes a page, and everything bound on it.
+#[tauri::command]
+async fn remove_page(page: String) -> Result<EditReport, StudioError> {
+    match ask(Request::RemovePage { page }).await? {
+        Response::Edited(report) => Ok(report),
+        Response::Failed(failure) => Err(ClientError::Refused(failure).into()),
+        other => Err(StudioError::unexpected(&other)),
+    }
+}
+
 /// Runs a configured binding once, so its effect can be seen before committing
 /// to it on the hardware.
 #[tauri::command]
@@ -150,7 +170,16 @@ pub fn run() {
 
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            status, describe, bindings, bind, unbind, test, sessions, workspaces
+            status,
+            describe,
+            bindings,
+            bind,
+            unbind,
+            test,
+            sessions,
+            workspaces,
+            add_page,
+            remove_page
         ])
         // A window that shows nothing is the hardest kind of failure to report,
         // because there is nowhere on screen to report it. Recording what the

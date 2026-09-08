@@ -9,7 +9,7 @@
 
 use std::path::PathBuf;
 
-use pushos_config::{BindingAddress, BindingSpec, ConfigDocuments};
+use pushos_config::{BindingAddress, BindingSpec, ConfigDocuments, PageSpec};
 use pushos_domain::ids::ExecutionId;
 
 /// A configuration directory that cleans up after itself.
@@ -429,4 +429,108 @@ fn saving_twice_writes_only_what_changed_the_second_time() {
 
     documents.save().expect("nothing to do");
     assert!(!documents.is_dirty());
+}
+
+// --- Pages ------------------------------------------------------------------
+
+#[test]
+fn a_new_page_is_added_and_the_file_is_still_the_one_its_author_wrote() {
+    let scratch = Scratch::new();
+    scratch.write("pushos.toml", HANDWRITTEN);
+
+    let mut documents = ConfigDocuments::load(&scratch.0).expect("it loads");
+    let edit = documents.upsert_page(&PageSpec::new("develop", "Development"));
+    assert!(!edit.replaced);
+    documents.save().expect("the configuration is still valid");
+
+    let text = scratch.read("pushos.toml");
+    assert!(text.contains("# My PushOS setup."), "the comments survive");
+    assert!(text.contains("# start here"), "so do the inline ones");
+    assert!(text.contains(r#"id = "develop""#), "{text}");
+    assert!(text.contains(r#"name = "Development""#), "{text}");
+}
+
+#[test]
+fn adding_a_page_that_already_exists_edits_it_rather_than_repeating_it() {
+    // Two pages with one identity is the ambiguity the validator refuses, so
+    // this must never produce one.
+    let scratch = Scratch::new();
+    scratch.write("pushos.toml", HANDWRITTEN);
+
+    let mut documents = ConfigDocuments::load(&scratch.0).expect("it loads");
+    let mut renamed = PageSpec::new("music", "Sound");
+    renamed.description = Some("Playback and volume".to_owned());
+
+    let edit = documents.upsert_page(&renamed);
+    assert!(edit.replaced);
+    documents.save().expect("the configuration is still valid");
+
+    let text = scratch.read("pushos.toml");
+    assert_eq!(text.matches(r#"id = "music""#).count(), 1, "{text}");
+    assert!(text.contains(r#"name = "Sound""#), "{text}");
+    assert!(text.contains("Playback and volume"), "{text}");
+}
+
+#[test]
+fn removing_a_page_takes_what_was_on_it() {
+    // Leaving the bindings behind would produce a configuration that refuses
+    // to load, and the operator asked to remove a page rather than to be told
+    // afterwards that they cannot.
+    let scratch = Scratch::new();
+    scratch.write("pushos.toml", HANDWRITTEN);
+
+    let mut documents = ConfigDocuments::load(&scratch.0).expect("it loads");
+    let on_music = documents.bindings_on_page("music");
+    assert!(on_music > 0, "the fixture should have some");
+
+    let removal = documents.remove_page("music").expect("the page is there");
+    assert_eq!(removal.bindings_removed, on_music);
+    documents.save().expect("the configuration is still valid");
+
+    let text = scratch.read("pushos.toml");
+    assert!(!text.contains(r#"id = "music""#), "{text}");
+    assert!(!text.contains(r#"page = "music""#), "{text}");
+    assert!(text.contains(r#"id = "home""#), "the other pages stay");
+}
+
+#[test]
+fn removing_a_page_leaves_bindings_that_apply_everywhere_alone() {
+    // A global binding is not on any page, so removing a page is not a reason
+    // to lose it.
+    let scratch = Scratch::new();
+    scratch.write("pushos.toml", HANDWRITTEN);
+
+    let mut documents = ConfigDocuments::load(&scratch.0).expect("it loads");
+    documents.remove_page("music").expect("the page is there");
+    documents.save().expect("valid");
+
+    assert!(scratch.read("pushos.toml").contains("button.play"));
+}
+
+#[test]
+fn removing_a_page_that_is_not_there_changes_nothing() {
+    let scratch = Scratch::new();
+    scratch.write("pushos.toml", HANDWRITTEN);
+
+    let mut documents = ConfigDocuments::load(&scratch.0).expect("it loads");
+    assert!(documents.remove_page("nowhere").is_none());
+    assert!(!documents.is_dirty());
+}
+
+#[test]
+fn removing_the_home_page_is_refused_before_anything_is_written() {
+    // The runtime setting would then name a page that does not exist, which is
+    // exactly what validation is for.
+    let scratch = Scratch::new();
+    scratch.write("pushos.toml", HANDWRITTEN);
+
+    let mut documents = ConfigDocuments::load(&scratch.0).expect("it loads");
+    documents.remove_page("home").expect("the page is there");
+
+    assert!(documents.save().is_err(), "it should refuse");
+    let text = scratch.read("pushos.toml");
+    assert!(
+        text.contains(r#"id = "home""#),
+        "nothing was written: {text}"
+    );
 }

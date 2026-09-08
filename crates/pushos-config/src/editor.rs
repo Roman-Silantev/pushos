@@ -17,10 +17,13 @@ use crate::build::RuntimeConfig;
 use crate::error::ConfigError;
 use crate::model::ConfigFile;
 use crate::paths;
-use crate::spec::{BindingAddress, BindingSpec};
+use crate::spec::{BindingAddress, BindingSpec, PageSpec};
 
 /// The array of tables bindings live in.
 const BINDINGS: &str = "bindings";
+
+/// The array of tables pages live in.
+const PAGES: &str = "pages";
 
 /// Every configuration file under a root, parsed but not interpreted.
 #[derive(Debug)]
@@ -44,6 +47,15 @@ pub struct BindingEdit {
     pub file: PathBuf,
     /// Whether an existing binding was replaced rather than one added.
     pub replaced: bool,
+}
+
+/// What removing a page did.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PageRemoval {
+    /// The file the page was removed from.
+    pub file: PathBuf,
+    /// How many bindings went with it.
+    pub bindings_removed: usize,
 }
 
 impl ConfigDocuments {
@@ -129,6 +141,105 @@ impl ConfigDocuments {
         }
     }
 
+    /// Adds a page, or replaces the one already using that identity.
+    ///
+    /// An existing page is edited in the file it was written in, so a
+    /// configuration split across several files stays organised the way its
+    /// author organised it. A new page goes in the main file.
+    pub fn upsert_page(&mut self, spec: &PageSpec) -> BindingEdit {
+        if let Some(index) = self.locate_page(&spec.id) {
+            let file = &mut self.files[index.file];
+            if let Some(table) =
+                tables_mut(&mut file.document, PAGES).and_then(|a| a.get_mut(index.entry))
+            {
+                write_page(table, spec);
+                file.dirty = true;
+                return BindingEdit {
+                    file: file.path.clone(),
+                    replaced: true,
+                };
+            }
+        }
+
+        let index = self.main_file_index();
+        let file = &mut self.files[index];
+        let mut table = Table::new();
+        table.set_implicit(false);
+        write_page(&mut table, spec);
+
+        if let Some(pages) = tables_mut(&mut file.document, PAGES) {
+            pages.push(table);
+            file.dirty = true;
+        }
+
+        BindingEdit {
+            file: file.path.clone(),
+            replaced: false,
+        }
+    }
+
+    /// How many bindings are written against a page.
+    ///
+    /// Asked before removing one, because removing a page takes whatever was
+    /// on it, and how much that is should be said before it happens.
+    pub fn bindings_on_page(&self, page: &str) -> usize {
+        self.files
+            .iter()
+            .filter_map(|file| tables(&file.document, BINDINGS))
+            .flat_map(toml_edit::ArrayOfTables::iter)
+            .filter(|entry| entry.get("page").and_then(Item::as_str) == Some(page))
+            .count()
+    }
+
+    /// Removes a page and everything written against it.
+    ///
+    /// The bindings go too. Leaving them would produce a configuration that
+    /// refuses to load, and the operator asked to remove a page, not to be told
+    /// afterwards that they cannot.
+    pub fn remove_page(&mut self, page: &str) -> Option<PageRemoval> {
+        let index = self.locate_page(page)?;
+        let removed = self.remove_bindings_on_page(page);
+
+        let file = &mut self.files[index.file];
+        tables_mut(&mut file.document, PAGES)?.remove(index.entry);
+        file.dirty = true;
+
+        Some(PageRemoval {
+            file: file.path.clone(),
+            bindings_removed: removed,
+        })
+    }
+
+    /// Drops every binding written against a page, wherever it was written.
+    fn remove_bindings_on_page(&mut self, page: &str) -> usize {
+        let mut removed = 0;
+
+        for file in &mut self.files {
+            let Some(bindings) = tables_mut(&mut file.document, BINDINGS) else {
+                continue;
+            };
+            let before = bindings.len();
+            bindings.retain(|entry| entry.get("page").and_then(Item::as_str) != Some(page));
+            let went = before - bindings.len();
+            if went > 0 {
+                removed += went;
+                file.dirty = true;
+            }
+        }
+
+        removed
+    }
+
+    /// Finds where a page lives.
+    fn locate_page(&self, page: &str) -> Option<Located> {
+        self.files.iter().enumerate().find_map(|(file, document)| {
+            tables(&document.document, PAGES)?
+                .iter()
+                .position(|entry| entry.get("id").and_then(Item::as_str) == Some(page))
+                .map(|entry| Located { file, entry })
+        })
+    }
+
     /// Removes the binding at an address.
     ///
     /// Returns the file it was removed from, or `None` when nothing was there.
@@ -212,21 +323,36 @@ struct Located {
 }
 
 fn binding_tables(document: &DocumentMut) -> Option<&toml_edit::ArrayOfTables> {
-    document.get(BINDINGS)?.as_array_of_tables()
+    tables(document, BINDINGS)
 }
 
 fn binding_tables_mut(document: &mut DocumentMut) -> Option<&mut toml_edit::ArrayOfTables> {
-    ensure_bindings_array(document);
-    document.get_mut(BINDINGS)?.as_array_of_tables_mut()
+    tables_mut(document, BINDINGS)
+}
+
+fn tables<'doc>(document: &'doc DocumentMut, key: &str) -> Option<&'doc toml_edit::ArrayOfTables> {
+    document.get(key)?.as_array_of_tables()
+}
+
+fn tables_mut<'doc>(
+    document: &'doc mut DocumentMut,
+    key: &str,
+) -> Option<&'doc mut toml_edit::ArrayOfTables> {
+    ensure_array(document, key);
+    document.get_mut(key)?.as_array_of_tables_mut()
 }
 
 fn ensure_bindings_array(document: &mut DocumentMut) {
+    ensure_array(document, BINDINGS);
+}
+
+fn ensure_array(document: &mut DocumentMut, key: &str) {
     if document
-        .get(BINDINGS)
+        .get(key)
         .and_then(Item::as_array_of_tables)
         .is_none()
     {
-        document[BINDINGS] = Item::ArrayOfTables(toml_edit::ArrayOfTables::new());
+        document[key] = Item::ArrayOfTables(toml_edit::ArrayOfTables::new());
     }
 }
 
@@ -244,6 +370,13 @@ fn entry_address(entry: &Table) -> Option<BindingAddress> {
             .and_then(Item::as_str)
             .map(ToOwned::to_owned),
     })
+}
+
+/// Writes a page into a table, leaving unrelated keys alone.
+fn write_page(table: &mut Table, spec: &PageSpec) {
+    table["id"] = value(spec.id.as_str());
+    table["name"] = value(spec.name.as_str());
+    set_or_remove(table, "description", spec.description.as_deref());
 }
 
 /// Writes a specification into a table, leaving unrelated keys alone.

@@ -121,10 +121,20 @@ export interface WorkspaceInfo {
   root_exists: boolean;
 }
 
+/** One page, as an editor writes it. */
+export interface PageSpec {
+  id: string;
+  name: string;
+  description?: string;
+}
+
 export interface EditReport {
   file: string;
   replaced: boolean;
   binding_count: number;
+  page_count: number;
+  /** How many bindings the edit took with it, when it took any. */
+  bindings_removed?: number;
 }
 
 export interface TestReport {
@@ -169,6 +179,8 @@ const live = {
   test: (address: BindingAddress) => invoke<TestReport>("test", { address }),
   sessions: () => invoke<{ sessions: SessionInfo[] }>("sessions"),
   workspaces: () => invoke<{ workspaces: WorkspaceInfo[] }>("workspaces"),
+  addPage: (spec: PageSpec) => invoke<EditReport>("add_page", { spec }),
+  removePage: (page: string) => invoke<EditReport>("remove_page", { page }),
 };
 
 /** What Studio talks to. */

@@ -9,7 +9,7 @@ use crate::protocol::{
     BindingList, EditReport, Failure, SessionList, StatusReport, TestReport, Vocabulary,
     WorkspaceList,
 };
-use pushos_config::{BindingAddress, BindingSpec};
+use pushos_config::{BindingAddress, BindingSpec, PageSpec};
 
 /// The operations a control client can ask for.
 #[async_trait]
@@ -28,6 +28,12 @@ pub trait ControlPlane: Send + Sync + std::fmt::Debug {
 
     /// Removes the binding at an address.
     async fn unbind(&self, address: BindingAddress) -> Result<EditReport, Failure>;
+
+    /// Adds a page, or replaces the one already using that identity.
+    async fn add_page(&self, spec: PageSpec) -> Result<EditReport, Failure>;
+
+    /// Removes a page, and everything bound on it.
+    async fn remove_page(&self, page: &str) -> Result<EditReport, Failure>;
 
     /// Runs a configured binding's action once.
     async fn test(&self, address: BindingAddress) -> Result<TestReport, Failure>;

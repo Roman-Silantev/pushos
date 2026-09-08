@@ -9,6 +9,29 @@ use std::collections::BTreeMap;
 use pushos_domain::action::ParamValue;
 use serde::{Deserialize, Serialize};
 
+/// One page, as an editor writes it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PageSpec {
+    /// Stable identity, referenced by bindings.
+    pub id: String,
+    /// The name shown on the display.
+    pub name: String,
+    /// What the page is for, when a name is not enough.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+}
+
+impl PageSpec {
+    /// Builds a page with no description.
+    pub fn new(id: impl Into<String>, name: impl Into<String>) -> Self {
+        Self {
+            id: id.into(),
+            name: name.into(),
+            description: None,
+        }
+    }
+}
+
 /// Identifies a binding the way a person would point at one.
 ///
 /// Control, gesture and scope together are exactly what precedence considers,

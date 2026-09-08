@@ -13,6 +13,7 @@ import {
   type EditReport,
   type SessionInfo,
   type StatusReport,
+  type PageSpec,
   type Vocabulary,
   type WorkspaceInfo,
 } from "./api";
@@ -33,6 +34,10 @@ interface State {
   workspaces: WorkspaceInfo[];
   selected: string | null;
   notice: Notice | null;
+  /** The page whose removal is waiting to be confirmed. */
+  removing: string | null;
+  /** Whether the form for a new page is open. */
+  adding: boolean;
   /** What is running now. Refreshed on its own, because it changes while the
    *  rest of the screen is being edited. */
   sessions: SessionInfo[];
@@ -53,6 +58,8 @@ const state: State = {
   workspaces: [],
   selected: null,
   notice: null,
+  removing: null,
+  adding: false,
   sessions: [],
 };
 
@@ -160,6 +167,32 @@ function remove(address: BindingAddress): void {
       `Removed ${address.control} ${address.gesture} — ${report.binding_count} bindings in force`,
     async () => (await client()).unbind(address),
   );
+}
+
+function addPage(spec: PageSpec): void {
+  state.adding = false;
+  void edit(
+    (report) =>
+      `${report.replaced ? "Replaced" : "Added"} the ${spec.name} page \u2014 ${
+        report.page_count
+      } pages`,
+    async () => (await client()).addPage(spec),
+  );
+}
+
+function removePage(id: string): void {
+  state.removing = null;
+  // The page being edited is about to stop existing, so the sidebar moves back
+  // to the bindings that apply everywhere rather than to a page that is gone.
+  if (state.page === id) state.page = null;
+
+  void edit((report) => {
+    const took =
+      report.bindings_removed === undefined || report.bindings_removed === 0
+        ? ""
+        : ` and ${report.bindings_removed} binding(s)`;
+    return `Removed the ${id} page${took} \u2014 ${report.page_count} pages`;
+  }, async () => (await client()).removePage(id));
 }
 
 function test(address: BindingAddress): void {
@@ -297,14 +330,28 @@ function sidebar(vocabulary: Vocabulary): HTMLElement {
 
   if (state.workspaces.length > 0) aside.append(projects());
 
-  aside.append(element("h2", "sidebar-title", "Pages"));
+  const heading = element("div", "sidebar-heading");
+  heading.append(element("h2", "sidebar-title", "Pages"));
+
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "sidebar-add";
+  add.textContent = state.adding ? "Cancel" : "New page";
+  add.addEventListener("click", () => {
+    state.adding = !state.adding;
+    draw();
+  });
+  heading.append(add);
+  aside.append(heading);
+
+  if (state.adding) aside.append(newPageForm());
 
   const list = element("nav", "pages");
   list.append(
     pageButton("Everywhere", "Bindings that apply on every page", null),
   );
   for (const page of vocabulary.pages) {
-    list.append(pageButton(page.name, page.description ?? "", page.id));
+    list.append(pageRow(page.id, page.name, page.description ?? ""));
   }
   aside.append(list);
 
@@ -352,11 +399,16 @@ function runningPanel(): HTMLElement {
   const list = element("ul", "session-list");
   for (const session of state.sessions) {
     const item = element("li", `session ${session.live ? "live" : "ended"}`);
-    if (session.selected) item.classList.add("chosen");
 
     const heading = element("div", "session-heading");
     heading.append(element("span", "session-name", session.name));
-    heading.append(element("span", "session-kind", session.kind));
+    heading.append(
+      element(
+        "span",
+        session.selected ? "session-chosen" : "session-kind",
+        session.selected ? "selected" : session.kind,
+      ),
+    );
     item.append(heading);
 
     item.append(element("p", "session-status", session.status));
@@ -437,6 +489,101 @@ function scopeButton(
   return button;
 }
 
+/**
+ * A page, with the way to remove it.
+ *
+ * The remove button asks once, in place, rather than opening a dialog: taking
+ * a page takes everything bound on it, and the count is the thing the operator
+ * needs to see before deciding.
+ */
+function pageRow(id: string, name: string, detail: string): HTMLElement {
+  const row = element("div", "page-row");
+  row.append(pageButton(name, detail, id));
+
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "page-remove";
+
+  if (state.removing === id) {
+    const count = state.bindings.filter((binding) => binding.page === id).length;
+    remove.classList.add("confirming");
+    remove.textContent = count === 0 ? "Remove?" : `Remove and ${count}?`;
+    remove.title = `Remove the ${name} page and the ${count} binding(s) on it`;
+    remove.addEventListener("click", () => removePage(id));
+  } else {
+    remove.textContent = "\u00d7";
+    remove.title = `Remove the ${name} page`;
+    remove.setAttribute("aria-label", `Remove the ${name} page`);
+    remove.addEventListener("click", () => {
+      state.removing = id;
+      draw();
+    });
+  }
+
+  row.append(remove);
+  return row;
+}
+
+/** The form for a page that does not exist yet. */
+function newPageForm(): HTMLElement {
+  const form = document.createElement("form");
+  form.className = "new-page";
+
+  const name = field("Name", "Development");
+  const id = field("Id", "development");
+  form.append(name.field, id.field);
+
+  // A name is what a person types; the identity follows from it unless they
+  // say otherwise, because one of the two is enough to ask for.
+  let touched = false;
+  id.input.addEventListener("input", () => {
+    touched = true;
+  });
+  name.input.addEventListener("input", () => {
+    if (!touched) id.input.value = slug(name.input.value);
+  });
+
+  const save = document.createElement("button");
+  save.type = "submit";
+  save.className = "button primary";
+  save.textContent = "Add";
+  form.append(save);
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const chosen = id.input.value.trim() || slug(name.input.value);
+    if (chosen === "" || name.input.value.trim() === "") return;
+    addPage({ id: chosen, name: name.input.value.trim() });
+  });
+
+  return form;
+}
+
+function field(caption: string, placeholder: string): {
+  field: HTMLElement;
+  input: HTMLInputElement;
+} {
+  const wrapper = element("label", "field");
+  wrapper.append(element("span", "field-name", caption));
+
+  const input = document.createElement("input");
+  input.className = "field-input";
+  input.type = "text";
+  input.placeholder = placeholder;
+  input.autocomplete = "off";
+  wrapper.append(input);
+
+  return { field: wrapper, input };
+}
+
+/** The identity a name suggests. */
+function slug(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+}
+
 function pageButton(name: string, detail: string, id: string | null): HTMLElement {
   const button = document.createElement("button");
   button.type = "button";
@@ -449,6 +596,8 @@ function pageButton(name: string, detail: string, id: string | null): HTMLElemen
 
   button.addEventListener("click", () => {
     state.page = id;
+    // Asking to remove one page and then clicking another is not confirming.
+    state.removing = null;
     draw();
   });
   return button;
@@ -476,6 +625,14 @@ function reportFatal(detail: string): void {
 // wants the key first.
 window.addEventListener("keydown", (event) => {
   if (event.key !== "Escape" || event.defaultPrevented) return;
+
+  // Escape backs out of whatever is open, innermost first.
+  if (state.removing !== null || state.adding) {
+    state.removing = null;
+    state.adding = false;
+    draw();
+    return;
+  }
   closeInspector();
 });
 

@@ -16,7 +16,7 @@ use pushos_api::protocol::{
 };
 use pushos_api::{ControlPlane, SessionSource};
 use pushos_config::{
-    BindingAddress, BindingSpec, ConfigDocuments, ConfigError, ConfigStore, RuntimeConfig,
+    BindingAddress, BindingSpec, ConfigDocuments, ConfigError, ConfigStore, PageSpec, RuntimeConfig,
 };
 use pushos_domain::binding::{Binding, BindingScope};
 use pushos_domain::context::SurfaceContext;
@@ -103,10 +103,14 @@ impl RuntimeControl {
     ///
     /// The reload is what puts the change on the surface; without it Studio
     /// would report success while the operator's pads carried on unchanged.
-    fn commit(&self, mut documents: ConfigDocuments) -> Result<usize, Failure> {
+    /// Writes what changed and re-reads it, reporting what is now in force.
+    fn commit(&self, mut documents: ConfigDocuments) -> Result<Counts, Failure> {
         documents.save().map_err(|error| rejected(&error))?;
         let config = self.config.reload().map_err(|error| rejected(&error))?;
-        Ok(config.bindings.len())
+        Ok(Counts {
+            bindings: config.bindings.len(),
+            pages: config.pages.len(),
+        })
     }
 }
 
@@ -179,14 +183,10 @@ impl ControlPlane for RuntimeControl {
     async fn bind(&self, spec: BindingSpec) -> Result<EditReport, Failure> {
         let mut documents = self.documents()?;
         let edit = documents.upsert_binding(&spec);
-        let binding_count = self.commit(documents)?;
+        let counts = self.commit(documents)?;
 
         info!(control = %spec.address.control, action = %spec.action, "binding written by a client");
-        Ok(EditReport {
-            file: edit.file.display().to_string(),
-            replaced: edit.replaced,
-            binding_count,
-        })
+        Ok(counts.report(edit.file.display().to_string(), edit.replaced, 0))
     }
 
     async fn unbind(&self, address: BindingAddress) -> Result<EditReport, Failure> {
@@ -201,12 +201,39 @@ impl ControlPlane for RuntimeControl {
             ));
         };
 
-        let binding_count = self.commit(documents)?;
-        Ok(EditReport {
-            file: file.display().to_string(),
-            replaced: true,
-            binding_count,
-        })
+        let counts = self.commit(documents)?;
+        Ok(counts.report(file.display().to_string(), true, 0))
+    }
+
+    async fn add_page(&self, spec: PageSpec) -> Result<EditReport, Failure> {
+        let mut documents = self.documents()?;
+        let edit = documents.upsert_page(&spec);
+        let counts = self.commit(documents)?;
+
+        info!(page = %spec.id, name = %spec.name, "page written by a client");
+        Ok(counts.report(edit.file.display().to_string(), edit.replaced, 0))
+    }
+
+    async fn remove_page(&self, page: &str) -> Result<EditReport, Failure> {
+        let mut documents = self.documents()?;
+        let Some(removal) = documents.remove_page(page) else {
+            return Err(Failure::new(
+                FailureKind::NotFound,
+                format!("no page called `{page}` is configured"),
+            ));
+        };
+
+        let counts = self.commit(documents)?;
+        info!(
+            page,
+            bindings = removal.bindings_removed,
+            "page removed by a client"
+        );
+        Ok(counts.report(
+            removal.file.display().to_string(),
+            true,
+            removal.bindings_removed,
+        ))
     }
 
     async fn test(&self, address: BindingAddress) -> Result<TestReport, Failure> {
@@ -300,6 +327,24 @@ fn surface_for(scope: &BindingScope) -> SurfaceContext {
         BindingScope::WorkspacePage { workspace, page } => SurfaceContext::empty()
             .in_workspace(workspace.clone())
             .on_page(page.clone()),
+    }
+}
+
+/// What is in force after an edit.
+struct Counts {
+    bindings: usize,
+    pages: usize,
+}
+
+impl Counts {
+    fn report(&self, file: String, replaced: bool, bindings_removed: usize) -> EditReport {
+        EditReport {
+            file,
+            replaced,
+            binding_count: self.bindings,
+            page_count: self.pages,
+            bindings_removed,
+        }
     }
 }
 

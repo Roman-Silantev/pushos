@@ -4,7 +4,7 @@
 //! response per line. Small enough to drive by hand with `nc` when something is
 //! wrong, and it needs no framework to serve.
 
-use pushos_config::{BindingAddress, BindingSpec};
+use pushos_config::{BindingAddress, BindingSpec, PageSpec};
 use serde::{Deserialize, Serialize};
 
 /// What a running PushOS is driving.
@@ -66,6 +66,20 @@ pub enum Request {
     Unbind {
         /// Which binding to remove.
         address: BindingAddress,
+    },
+    /// Add a page, or replace the one already using that identity.
+    AddPage {
+        /// The page to write.
+        spec: PageSpec,
+    },
+    /// Remove a page, and everything bound on it.
+    ///
+    /// The bindings go too. Leaving them would produce a configuration that
+    /// refuses to load, and the operator asked to remove a page rather than to
+    /// be told afterwards that they cannot.
+    RemovePage {
+        /// Which page to remove.
+        page: String,
     },
     /// Run a configured binding's action once, without touching the hardware.
     ///
@@ -320,10 +334,25 @@ pub struct ProviderInfo {
 pub struct EditReport {
     /// The file that changed.
     pub file: String,
-    /// Whether an existing binding was replaced rather than one added.
+    /// Whether something already there was replaced rather than added.
     pub replaced: bool,
     /// How many bindings are in force now.
     pub binding_count: usize,
+    /// How many pages are configured now.
+    #[serde(default)]
+    pub page_count: usize,
+    /// How many bindings the edit took with it.
+    ///
+    /// Removing a page removes what was bound on it, and how much that was
+    /// should be reported rather than discovered.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub bindings_removed: usize,
+}
+
+/// Serde's predicate takes a reference; the lint would rather it did not.
+#[allow(clippy::trivially_copy_pass_by_ref)]
+const fn is_zero(count: &usize) -> bool {
+    *count == 0
 }
 
 /// The outcome of running a binding.
@@ -489,6 +518,8 @@ mod tests {
                 file: "/tmp/pushos.toml".to_owned(),
                 replaced: false,
                 binding_count: 4,
+                page_count: 3,
+                bindings_removed: 0,
             }),
             Response::Tested(TestReport {
                 action: "media.play_pause".to_owned(),

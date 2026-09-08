@@ -231,4 +231,6 @@ export const preview = {
   sessions: (): Promise<{ sessions: SessionInfo[] }> => Promise.resolve({ sessions }),
   workspaces: (): Promise<{ workspaces: WorkspaceInfo[] }> =>
     Promise.resolve({ workspaces }),
+  addPage: (): Promise<EditReport> => refused(),
+  removePage: (): Promise<EditReport> => refused(),
 };

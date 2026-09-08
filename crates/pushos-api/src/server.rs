@@ -174,6 +174,14 @@ async fn answer(request: Request, plane: &dyn ControlPlane) -> Response {
             Ok(report) => Response::Edited(report),
             Err(failure) => Response::Failed(failure),
         },
+        Request::AddPage { spec } => match plane.add_page(spec).await {
+            Ok(report) => Response::Edited(report),
+            Err(failure) => Response::Failed(failure),
+        },
+        Request::RemovePage { page } => match plane.remove_page(&page).await {
+            Ok(report) => Response::Edited(report),
+            Err(failure) => Response::Failed(failure),
+        },
         Request::Test { address } => match plane.test(address).await {
             Ok(report) => Response::Tested(report),
             Err(failure) => Response::Failed(failure),

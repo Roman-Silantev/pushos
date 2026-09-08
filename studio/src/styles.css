@@ -128,7 +128,8 @@ body {
   padding: 16px;
   background: var(--panel);
   border-right: 1px solid var(--line);
-  overflow-y: auto;
+  /* Never sideways. A long path belongs on two lines, not behind a scrollbar. */
+  overflow: hidden auto;
 }
 
 .sidebar-title {
@@ -177,6 +178,8 @@ body {
   color: var(--muted);
   font-size: 12px;
   line-height: 1.35;
+  /* A project root is a long path with no spaces in it. */
+  overflow-wrap: anywhere;
 }
 
 .source {
@@ -821,7 +824,6 @@ body {
 .session {
   background: var(--raised);
   border: 1px solid var(--line);
-  border-left: 3px solid var(--accent);
   border-radius: 6px;
   padding: 0.5rem 0.625rem;
 }
@@ -829,12 +831,7 @@ body {
 /* A session that has ended is still worth seeing; it is simply not something
    to point a control at any more. */
 .session.ended {
-  border-left-color: var(--line);
-  opacity: 0.62;
-}
-
-.session.chosen {
-  border-left-color: var(--good);
+  opacity: 0.55;
 }
 
 .session-heading {
@@ -853,6 +850,15 @@ body {
   color: var(--muted);
   font-size: 0.6875rem;
   letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+/* The one unqualified actions act on, said in words rather than with a bar. */
+.session-chosen {
+  color: var(--good);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
 }
 
@@ -944,4 +950,89 @@ body {
 .inspector-close:hover {
   border-color: var(--muted);
   color: var(--ink);
+}
+
+/* --- Pages, and adding or removing one ---------------------------------- */
+
+.sidebar-heading {
+  align-items: baseline;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.sidebar-add {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  margin-bottom: 8px;
+  padding: 2px 8px;
+}
+
+.sidebar-add:hover {
+  border-color: var(--muted);
+  color: var(--ink);
+}
+
+.new-page {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px;
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+/* The row holds the page and the way to remove it, so neither is nested in
+   the other. */
+.page-row {
+  align-items: stretch;
+  display: flex;
+  gap: 4px;
+}
+
+.page-row .page {
+  flex: 1;
+  min-width: 0;
+}
+
+.page-remove {
+  align-self: center;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  color: var(--muted);
+  cursor: pointer;
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1;
+  opacity: 0;
+  padding: 4px 8px;
+}
+
+/* Out of the way until the row is reached for, and always there for a keyboard. */
+.page-row:hover .page-remove,
+.page-remove:focus-visible,
+.page-remove.confirming {
+  opacity: 1;
+}
+
+.page-remove:hover {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+/* Once it has been asked, it says what it will take. */
+.page-remove.confirming {
+  border-color: var(--bad);
+  color: var(--bad);
+  font-size: 11px;
+  white-space: nowrap;
 }
