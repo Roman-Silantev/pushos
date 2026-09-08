@@ -81,6 +81,11 @@ impl FakeTerminal {
         lock(&self.open).len()
     }
 
+    /// Every terminal that is running, in no particular order.
+    pub fn open_ids(&self) -> Vec<SessionId> {
+        lock(&self.open).keys().cloned().collect()
+    }
+
     /// Pretends a terminal produced output.
     pub fn emit(&self, terminal: &SessionId, text: &str) {
         self.observer.observe(

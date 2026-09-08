@@ -16,6 +16,9 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }
+# Only to exercise the ports' async default methods. Nothing in the domain
+# itself depends on a runtime, and nothing here should.
+tokio = { workspace = true, features = ["rt", "macros"] }
 
 [lints]
 workspace = true

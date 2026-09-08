@@ -1,6 +1,6 @@
 [package]
-name = "pushos-storage"
-description = "Local SQLite persistence with a single write owner."
+name = "pushos-workspaces"
+description = "Projects: which one is in effect, what it restores, and the working trees inside it."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,12 +11,14 @@ authors.workspace = true
 [dependencies]
 pushos-domain = { workspace = true }
 async-trait = { workspace = true }
-rusqlite = { workspace = true }
 thiserror = { workspace = true }
-tracing = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt"] }
+tracing = { workspace = true }
 
 [dev-dependencies]
+pushos-testkit = { workspace = true }
+# Only for the example that proves isolation against the operator's own git.
+pushos-macos = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 
 [lints]

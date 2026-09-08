@@ -9,6 +9,7 @@ mod clock;
 mod push;
 mod system;
 mod terminal;
+mod workspace;
 
 pub use action_provider::{ActionProvider, ProviderCapabilities};
 pub use agent::{
@@ -27,4 +28,7 @@ pub use system::{
 pub use terminal::{
     TerminalError, TerminalEvent, TerminalHandle, TerminalHost, TerminalObserver, TerminalSize,
     TerminalSpec, TerminalStatus,
+};
+pub use workspace::{
+    ClaimError, Repository, RepositoryError, WorkspaceContext, WorkspaceMemoryStore, Worktree,
 };

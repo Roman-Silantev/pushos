@@ -7,6 +7,7 @@
 
 mod connection;
 mod error;
+mod memory;
 mod records;
 mod schema;
 mod writer;

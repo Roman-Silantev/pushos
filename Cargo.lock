@@ -1634,6 +1634,7 @@ dependencies = [
  "pushos-domain",
  "pushos-terminal",
  "pushos-testkit",
+ "pushos-workspaces",
  "thiserror 2.0.20",
  "tokio",
  "tracing",
@@ -1694,6 +1695,7 @@ dependencies = [
  "pushos-terminal",
  "pushos-testkit",
  "pushos-ui",
+ "pushos-workspaces",
  "tokio",
  "toml",
  "tracing",
@@ -1725,6 +1727,7 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror 2.0.20",
+ "tokio",
  "uuid",
 ]
 
@@ -1769,6 +1772,7 @@ dependencies = [
  "pushos-terminal",
  "pushos-testkit",
  "pushos-ui",
+ "pushos-workspaces",
  "thiserror 2.0.20",
  "tokio",
  "tokio-util",
@@ -1780,6 +1784,7 @@ dependencies = [
 name = "pushos-storage"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "pushos-domain",
  "rusqlite",
  "thiserror 2.0.20",
@@ -1816,6 +1821,19 @@ dependencies = [
  "pushos-domain",
  "thiserror 2.0.20",
  "tiny-skia",
+ "tracing",
+]
+
+[[package]]
+name = "pushos-workspaces"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "pushos-domain",
+ "pushos-macos",
+ "pushos-testkit",
+ "thiserror 2.0.20",
+ "tokio",
  "tracing",
 ]
 
