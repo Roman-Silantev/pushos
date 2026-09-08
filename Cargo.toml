@@ -20,6 +20,7 @@ pushos-ui = { path = "crates/pushos-ui" }
 pushos-config = { path = "crates/pushos-config" }
 pushos-storage = { path = "crates/pushos-storage" }
 pushos-runtime = { path = "crates/pushos-runtime" }
+pushos-macos = { path = "crates/pushos-macos" }
 pushos-testkit = { path = "crates/pushos-testkit" }
 
 # Async

@@ -41,7 +41,7 @@ impl ConfigWatcher {
 
         let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
             match event {
-                Ok(event) if is_content_change(event.kind) => {
+                Ok(event) if is_content_change(event.kind) && touches_config(&event.paths) => {
                     // A full channel already carries "something changed", which
                     // is the entire content of a second notification.
                     let _ = changes_tx.try_send(());
@@ -100,6 +100,18 @@ impl ConfigWatcher {
     }
 }
 
+/// Whether any of an event's paths is a configuration file.
+///
+/// Editors write lock files, swap files and backups beside the real one, and
+/// none of them are a reason to re-read the configuration.
+fn touches_config(paths: &[PathBuf]) -> bool {
+    paths.is_empty()
+        || paths.iter().any(|path| {
+            path.extension()
+                .is_some_and(|extension| extension == "toml")
+        })
+}
+
 /// Whether an event means the configuration's content may have changed.
 ///
 /// Access events fire when a file is merely read, which is not a reason to
@@ -136,6 +148,27 @@ mod tests {
 
         assert!(!is_content_change(EventKind::Access(AccessKind::Read)));
         assert!(!is_content_change(EventKind::Any));
+    }
+
+    #[test]
+    fn only_toml_paths_are_treated_as_configuration() {
+        assert!(touches_config(&[PathBuf::from("/config/pushos.toml")]));
+        assert!(touches_config(&[
+            PathBuf::from("/config/state.sqlite"),
+            PathBuf::from("/config/conf.d/music.toml"),
+        ]));
+
+        assert!(!touches_config(&[PathBuf::from("/config/state.sqlite")]));
+        assert!(!touches_config(&[PathBuf::from(
+            "/config/.pushos.toml.swp"
+        )]));
+    }
+
+    #[test]
+    fn an_event_with_no_paths_is_treated_as_a_change() {
+        // Some platforms report a change without naming what changed. Re-reading
+        // is cheap and validated; missing a real edit is not.
+        assert!(touches_config(&[]));
     }
 
     #[test]

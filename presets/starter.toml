@@ -1,0 +1,168 @@
+# PushOS starter configuration.
+#
+# This file is the source of truth. PushOS Studio edits it; nothing is hidden
+# in a database, and closing Studio changes nothing.
+#
+# Everything is written as:
+#
+#     control + gesture (+ page or workspace) -> action
+#
+# A control is a name, never a MIDI number. Run `pushos check` after editing.
+
+[runtime]
+# The page PushOS starts on, and the one `page.home` returns to.
+home_page = "home"
+
+# The application media actions control. Anything scriptable will do.
+media_player = "Music"
+
+[gestures]
+# A press held this long is a hold rather than a tap.
+hold_threshold_ms = 400
+# Two taps closer together than this are a double tap. Must be shorter than the
+# hold threshold, or a slow double tap would be indistinguishable from a hold.
+double_tap_window_ms = 280
+
+[permissions]
+# Nothing is permitted unless it is listed here. There is no wildcard.
+# Add "shell.execute" only when you have shell bindings you trust.
+granted = [
+    "media.control",
+    "application.launch",
+    "shortcuts.execute",
+]
+
+# --- Pages -------------------------------------------------------------------
+# A page changes what the controls mean. Bindings reference a page by id.
+
+[[pages]]
+id = "home"
+name = "Home"
+description = "Transport, pages and the things you reach for constantly"
+
+[[pages]]
+id = "development"
+name = "Development"
+description = "Projects, editors and test runs"
+
+[[pages]]
+id = "music"
+name = "Music"
+description = "Playback and volume"
+
+# --- Global bindings ---------------------------------------------------------
+# These apply on every page. Keep them few: they cost a control everywhere.
+
+[[bindings]]
+control = "button.play"
+gesture = "press"
+action = "media.play_pause"
+label = "Play/Pause"
+
+[[bindings]]
+control = "button.page_right"
+gesture = "press"
+action = "page.next"
+label = "Next page"
+
+[[bindings]]
+control = "button.page_left"
+gesture = "press"
+action = "page.previous"
+label = "Previous page"
+
+[[bindings]]
+control = "button.session"
+gesture = "press"
+action = "page.home"
+label = "Home"
+
+# --- Home page ---------------------------------------------------------------
+
+[[bindings]]
+control = "pad.0"
+gesture = "tap"
+page = "home"
+action = "page.show"
+target = "development"
+label = "Development"
+
+[[bindings]]
+control = "pad.1"
+gesture = "tap"
+page = "home"
+action = "page.show"
+target = "music"
+label = "Music"
+
+# --- Development page --------------------------------------------------------
+
+[[bindings]]
+control = "pad.0"
+gesture = "tap"
+page = "development"
+action = "app.launch"
+target = "Cursor"
+label = "Cursor"
+
+[[bindings]]
+control = "pad.1"
+gesture = "tap"
+page = "development"
+action = "app.launch"
+target = "Terminal"
+label = "Terminal"
+
+# A hold on the same pad can mean something else entirely. The recogniser
+# arms a timer only for controls that need one, so a tap stays immediate.
+[[bindings]]
+control = "pad.0"
+gesture = "hold"
+page = "development"
+action = "app.open_url"
+target = "https://github.com/Roman-Silantev/pushos"
+label = "Open the repository"
+
+# --- Music page --------------------------------------------------------------
+
+[[bindings]]
+control = "pad.0"
+gesture = "tap"
+page = "music"
+action = "media.play_pause"
+label = "Play/Pause"
+
+[[bindings]]
+control = "pad.1"
+gesture = "tap"
+page = "music"
+action = "media.previous_track"
+label = "Previous"
+
+[[bindings]]
+control = "pad.2"
+gesture = "tap"
+page = "music"
+action = "media.next_track"
+label = "Next"
+
+[[bindings]]
+control = "pad.3"
+gesture = "tap"
+page = "music"
+action = "media.now_playing"
+label = "Now playing"
+
+[[bindings]]
+control = "encoder.master"
+gesture = "turn_right"
+page = "music"
+action = "media.volume_up"
+label = "Volume up"
+
+[[bindings]]
+control = "encoder.master"
+gesture = "turn_left"
+page = "music"
+action = "media.volume_down"
+label = "Volume down"

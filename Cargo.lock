@@ -934,13 +934,18 @@ name = "pushos-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "pushos-actions",
+ "pushos-bindings",
  "pushos-config",
  "pushos-domain",
+ "pushos-macos",
  "pushos-push2",
  "pushos-runtime",
  "pushos-storage",
  "pushos-testkit",
+ "pushos-ui",
  "tokio",
+ "toml",
  "tracing",
  "tracing-subscriber",
 ]

@@ -9,8 +9,10 @@ mod actors;
 mod app;
 mod bus;
 mod shutdown;
+mod supervisor;
 
 pub use actors::{InputTask, RenderTask, SurfaceState, SurfaceView};
 pub use app::Runtime;
 pub use bus::{EventBus, EventSubscription};
 pub use shutdown::{SHUTDOWN_GRACE, Shutdown};
+pub use supervisor::{Backoff, INITIAL_BACKOFF, MAXIMUM_BACKOFF};

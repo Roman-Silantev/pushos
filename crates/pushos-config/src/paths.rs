@@ -23,6 +23,21 @@ pub fn default_directory() -> Option<PathBuf> {
     home_directory().map(|home| home.join(".config").join(APP_DIRECTORY))
 }
 
+/// The default directory for runtime state.
+///
+/// Deliberately not the configuration directory: the database is written
+/// constantly, and a configuration watcher pointed at it would reload on every
+/// write.
+pub fn default_state_directory() -> Option<PathBuf> {
+    if let Some(configured) = std::env::var_os("XDG_DATA_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+    {
+        return Some(configured.join(APP_DIRECTORY));
+    }
+    home_directory().map(|home| home.join(".local").join("share").join(APP_DIRECTORY))
+}
+
 /// The operator's home directory.
 pub fn home_directory() -> Option<PathBuf> {
     std::env::var_os("HOME")
@@ -80,6 +95,18 @@ pub fn files_for(root: &Path) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn state_does_not_live_inside_the_configuration_directory() {
+        let (Some(config), Some(state)) = (default_directory(), default_state_directory()) else {
+            return;
+        };
+        assert_ne!(config, state);
+        assert!(
+            !state.starts_with(&config),
+            "writing state must not look like a configuration change"
+        );
+    }
 
     #[test]
     fn a_path_without_a_tilde_is_left_alone() {

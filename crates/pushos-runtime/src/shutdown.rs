@@ -45,6 +45,15 @@ impl Shutdown {
         self.tasks.spawn(task)
     }
 
+    /// Begins shutdown without waiting for anything.
+    ///
+    /// This is what a signal handler calls. [`Self::stop`] waits for every
+    /// registered task, which a task registered with the same coordinator
+    /// cannot do without waiting for itself.
+    pub fn begin(&self) {
+        self.token.cancel();
+    }
+
     /// Whether shutdown has begun.
     pub fn is_cancelled(&self) -> bool {
         self.token.is_cancelled()
@@ -111,6 +120,25 @@ mod tests {
             "well-behaved tasks stop in time"
         );
         assert_eq!(stopped.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn a_registered_task_can_begin_shutdown_without_waiting_for_itself() {
+        let shutdown = Shutdown::new();
+
+        let trigger = shutdown.clone();
+        shutdown.spawn(async move {
+            trigger.begin();
+        });
+
+        let watcher = shutdown.clone();
+        let observed = shutdown.spawn(async move {
+            watcher.cancelled().await;
+            true
+        });
+
+        assert!(shutdown.clone().stop().await, "shutdown should complete");
+        assert!(observed.await.expect("the task finished"));
     }
 
     #[tokio::test]

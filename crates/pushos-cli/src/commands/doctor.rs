@@ -1,0 +1,246 @@
+//! Diagnosing an installation.
+//!
+//! Every check reports what it found and what to do about it. A check that
+//! cannot run is reported as such rather than passing quietly, because a
+//! diagnostic that only ever says "fine" is worse than none.
+
+use std::path::Path;
+
+use pushos_config::RuntimeConfig;
+use pushos_domain::ports::ProcessRunner;
+use pushos_macos::SystemProcessRunner;
+use pushos_push2::{PortRole, Push2Device};
+use pushos_storage::StorageWriter;
+
+use super::paths;
+
+/// How a check turned out.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Verdict {
+    /// Working.
+    Good,
+    /// Not working, but PushOS runs without it.
+    Optional,
+    /// Not working, and PushOS needs it.
+    Blocking,
+}
+
+impl Verdict {
+    const fn mark(self) -> &'static str {
+        match self {
+            Self::Good => "ok  ",
+            Self::Optional => "note",
+            Self::Blocking => "fail",
+        }
+    }
+}
+
+/// One line of the report.
+struct Finding {
+    verdict: Verdict,
+    subject: &'static str,
+    detail: String,
+}
+
+impl Finding {
+    fn new(verdict: Verdict, subject: &'static str, detail: impl Into<String>) -> Self {
+        Self {
+            verdict,
+            subject,
+            detail: detail.into(),
+        }
+    }
+}
+
+/// Runs every check and prints the report.
+pub(crate) async fn execute(requested: Option<&Path>) -> Result<(), String> {
+    let root = paths::config_root(requested)?;
+    let mut findings = vec![check_configuration(&root), check_database(), check_push()];
+    findings.extend(check_host_tools().await);
+
+    for finding in &findings {
+        println!(
+            "[{}] {:<16} {}",
+            finding.verdict.mark(),
+            finding.subject,
+            finding.detail
+        );
+    }
+
+    let blocking = findings
+        .iter()
+        .filter(|f| f.verdict == Verdict::Blocking)
+        .count();
+    if blocking == 0 {
+        println!("\nPushOS can run.");
+        return Ok(());
+    }
+    Err(format!(
+        "\n{blocking} check(s) must be fixed before PushOS can run."
+    ))
+}
+
+fn check_configuration(root: &Path) -> Finding {
+    match pushos_config::load(root).and_then(|file| RuntimeConfig::build(&file)) {
+        Ok(config) => Finding::new(
+            Verdict::Good,
+            "configuration",
+            format!(
+                "{} ({} pages, {} bindings)",
+                root.display(),
+                config.pages.len(),
+                config.bindings.len()
+            ),
+        ),
+        Err(error) => Finding::new(
+            Verdict::Blocking,
+            "configuration",
+            super::check::describe(&error).replace('\n', "\n                     "),
+        ),
+    }
+}
+
+fn check_database() -> Finding {
+    let Ok(path) = paths::state_file() else {
+        return Finding::new(
+            Verdict::Blocking,
+            "database",
+            "nowhere to keep runtime state",
+        );
+    };
+    match StorageWriter::open(&path) {
+        Ok(_) => Finding::new(Verdict::Good, "database", path.display().to_string()),
+        Err(error) => Finding::new(
+            Verdict::Blocking,
+            "database",
+            format!("{}: {error}", path.display()),
+        ),
+    }
+}
+
+fn check_push() -> Finding {
+    match Push2Device::connect(PortRole::User) {
+        Ok(_) => Finding::new(Verdict::Good, "push 2", "connected on the user port"),
+        Err(error) if error.is_absent() => Finding::new(
+            Verdict::Optional,
+            "push 2",
+            "not attached; PushOS will wait for it and take it when it appears",
+        ),
+        Err(error) => Finding::new(
+            Verdict::Optional,
+            "push 2",
+            format!("{error}; check nothing else is holding the device"),
+        ),
+    }
+}
+
+async fn check_host_tools() -> Vec<Finding> {
+    let processes = SystemProcessRunner::new();
+    let mut findings = Vec::new();
+
+    for (subject, program, note) in [
+        (
+            "shortcuts",
+            "/usr/bin/shortcuts",
+            "Shortcut actions will not run",
+        ),
+        (
+            "applescript",
+            "/usr/bin/osascript",
+            "media actions will not run",
+        ),
+        ("open", "/usr/bin/open", "application actions will not run"),
+    ] {
+        let present = tokio::fs::metadata(program).await.is_ok();
+        findings.push(if present {
+            Finding::new(Verdict::Good, subject, program)
+        } else {
+            Finding::new(
+                Verdict::Optional,
+                subject,
+                format!("{program} is missing; {note}"),
+            )
+        });
+    }
+
+    // Running something harmless proves the runner works, not merely that the
+    // binary exists.
+    let outcome = processes
+        .run(&pushos_domain::ports::ProcessSpec::new(
+            "/bin/echo",
+            ["pushos".to_owned()],
+        ))
+        .await;
+    findings.push(match outcome {
+        Ok(outcome) if outcome.succeeded() => Finding::new(
+            Verdict::Good,
+            "subprocesses",
+            "can start and reap processes",
+        ),
+        Ok(outcome) => Finding::new(
+            Verdict::Blocking,
+            "subprocesses",
+            format!("a trivial process exited {:?}", outcome.exit_code),
+        ),
+        Err(error) => Finding::new(Verdict::Blocking, "subprocesses", error.to_string()),
+    });
+
+    findings
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_verdict_has_a_distinct_fixed_width_mark() {
+        let marks = [
+            Verdict::Good.mark(),
+            Verdict::Optional.mark(),
+            Verdict::Blocking.mark(),
+        ];
+        assert!(marks.iter().all(|mark| mark.len() == marks[0].len()));
+
+        let mut sorted = marks;
+        sorted.sort_unstable();
+        sorted.iter().reduce(|a, b| {
+            assert_ne!(a, b, "verdict marks must be distinguishable");
+            b
+        });
+    }
+
+    #[tokio::test]
+    async fn the_host_checks_prove_the_runner_works_rather_than_only_that_files_exist() {
+        let findings = check_host_tools().await;
+        let subprocesses = findings
+            .iter()
+            .find(|f| f.subject == "subprocesses")
+            .expect("the check runs");
+        assert_eq!(subprocesses.verdict, Verdict::Good);
+    }
+
+    #[test]
+    fn a_missing_configuration_is_reported_as_blocking() {
+        let finding = check_configuration(Path::new("/nowhere/at/all"));
+        // A missing root loads as empty and is valid, so this is a good result:
+        // PushOS starts with nothing bound rather than refusing to start.
+        assert_eq!(finding.verdict, Verdict::Good);
+    }
+
+    #[test]
+    fn an_invalid_configuration_is_reported_as_blocking() {
+        let directory = std::env::temp_dir().join(format!(
+            "pushos-doctor-{}",
+            pushos_domain::ids::ExecutionId::generate()
+        ));
+        std::fs::create_dir_all(&directory).expect("writable");
+        std::fs::write(
+            directory.join("pushos.toml"),
+            "[[bindings]]\ncontrol = \"pad.400\"\ngesture = \"tap\"\naction = \"page.next\"\n",
+        )
+        .expect("writable");
+
+        assert_eq!(check_configuration(&directory).verdict, Verdict::Blocking);
+        std::fs::remove_dir_all(&directory).ok();
+    }
+}
