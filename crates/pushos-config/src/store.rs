@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use tokio::sync::watch;
 use tracing::{info, warn};
 
 use crate::build::RuntimeConfig;
@@ -19,25 +20,38 @@ use crate::loader;
 pub struct ConfigStore {
     current: ArcSwap<RuntimeConfig>,
     root: PathBuf,
+    /// Bumped on every successful reload, so components holding a snapshot know
+    /// to take a fresh one. Without this a reload would update the store and
+    /// leave the running surface on the configuration it started with.
+    generation: watch::Sender<u64>,
 }
 
 impl ConfigStore {
     /// Builds a store holding an empty configuration.
     pub fn empty(root: impl Into<PathBuf>) -> Self {
-        Self {
-            current: ArcSwap::from_pointee(RuntimeConfig::empty()),
-            root: root.into(),
-        }
+        Self::holding(RuntimeConfig::empty(), root.into())
     }
 
     /// Builds a store by loading `root`.
     pub fn load(root: impl Into<PathBuf>) -> Result<Self, ConfigError> {
         let root = root.into();
         let config = RuntimeConfig::build(&loader::load(&root)?)?;
-        Ok(Self {
+        Ok(Self::holding(config, root))
+    }
+
+    fn holding(config: RuntimeConfig, root: PathBuf) -> Self {
+        Self {
             current: ArcSwap::from_pointee(config),
             root,
-        })
+            generation: watch::channel(0).0,
+        }
+    }
+
+    /// Watches for configuration replacements.
+    ///
+    /// The value is a generation counter; what matters is that it changed.
+    pub fn subscribe(&self) -> watch::Receiver<u64> {
+        self.generation.subscribe()
     }
 
     /// The root the store reads from.
@@ -66,6 +80,7 @@ impl ConfigStore {
             "configuration replaced"
         );
         self.current.store(Arc::clone(&candidate));
+        self.generation.send_modify(|generation| *generation += 1);
         Ok(candidate)
     }
 
@@ -180,6 +195,41 @@ mod tests {
             store.current().bindings.len(),
             1,
             "the running surface is unchanged"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_reload_notifies_everything_holding_a_snapshot() {
+        let scratch = Scratch::new();
+        scratch.write_main(ONE_PAGE);
+        let store = ConfigStore::load(&scratch.0).expect("valid");
+
+        let changes = store.subscribe();
+        assert!(!changes.has_changed().expect("the store is alive"));
+
+        scratch.write_main(&format!(
+            "{ONE_PAGE}\n[[pages]]\nid = \"music\"\nname = \"Music\"\n"
+        ));
+        store.reload().expect("valid");
+
+        assert!(changes.has_changed().expect("the store is alive"));
+    }
+
+    #[tokio::test]
+    async fn a_rejected_reload_notifies_nobody() {
+        let scratch = Scratch::new();
+        scratch.write_main(ONE_PAGE);
+        let store = ConfigStore::load(&scratch.0).expect("valid");
+        let changes = store.subscribe();
+
+        scratch.write_main(
+            "[[bindings]]\ncontrol = \"pad.400\"\ngesture = \"tap\"\naction = \"page.next\"\n",
+        );
+        assert!(!store.reload_or_keep());
+
+        assert!(
+            !changes.has_changed().expect("the store is alive"),
+            "nothing changed, so nothing should be told to re-read"
         );
     }
 

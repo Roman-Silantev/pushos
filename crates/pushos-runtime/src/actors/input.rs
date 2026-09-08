@@ -49,6 +49,7 @@ pub struct InputTask {
     config: Arc<ConfigStore>,
     bus: EventBus,
     view: watch::Sender<SurfaceView>,
+    reloads: watch::Receiver<u64>,
     gestures: Vec<GestureEvent>,
 }
 
@@ -73,13 +74,14 @@ impl InputTask {
         let recognizer =
             GestureRecognizer::new(current.timing, current.bindings.gesture_interest().clone());
 
-        let (view, receiver) = watch::channel(build_view(&surface, false));
+        let (view, receiver) = watch::channel(build_view(&surface));
 
         let task = Self {
             input,
             recognizer,
             surface,
             dispatcher,
+            reloads: config.subscribe(),
             config,
             bus,
             view,
@@ -105,6 +107,16 @@ impl InputTask {
                 biased;
 
                 () = shutdown.cancelled() => break,
+
+                // Ahead of input deliberately: a configuration change must take
+                // effect before the next gesture is interpreted, or a reload
+                // could be overtaken by a pad the operator has already pressed.
+                reloaded = self.reloads.changed() => {
+                    if reloaded.is_ok() {
+                        let config = self.config.current();
+                        self.reconfigure(config);
+                    }
+                }
 
                 event = self.input.next_event() => {
                     let Some(event) = event else {
@@ -268,21 +280,15 @@ impl InputTask {
 
     fn publish(&self) {
         // A dropped receiver means the renderer is gone, which shutdown handles.
-        let _ = self.view.send(build_view(&self.surface, true));
-    }
-
-    /// The current state of the pipeline, for diagnostics.
-    pub fn config_store(&self) -> &Arc<ConfigStore> {
-        &self.config
+        let _ = self.view.send(build_view(&self.surface));
     }
 }
 
-fn build_view(surface: &SurfaceState, connected: bool) -> SurfaceView {
-    let mut snapshot = surface.snapshot();
-    snapshot.connected = connected && snapshot.connected;
+fn build_view(surface: &SurfaceState) -> SurfaceView {
+    let context = surface.context(false);
     SurfaceView {
-        leds: Arc::new(leds::plan_for(surface.config(), &surface.context(false))),
-        snapshot: Arc::new(snapshot),
+        leds: Arc::new(leds::plan_for(surface.config(), &context)),
+        snapshot: Arc::new(surface.snapshot()),
     }
 }
 

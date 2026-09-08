@@ -189,7 +189,7 @@ impl SurfaceState {
             page: view,
             workspace: self.workspace.as_ref().map(ToString::to_string),
             connected: self.connected,
-            slots: Default::default(),
+            slots: crate::actors::slots::labels_for(&self.config, &self.context(false)),
             footer: page.and_then(|page| page.description.clone()),
             notice: self.notice.as_ref().map(|timed| timed.value.clone()),
             overlay: self.overlay.as_ref().map(|timed| timed.value.clone()),

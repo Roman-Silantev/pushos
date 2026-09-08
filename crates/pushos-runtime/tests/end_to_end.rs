@@ -53,6 +53,32 @@ gesture = "press"
 action = "page.next"
 "#;
 
+/// A configuration directory a test can rewrite while PushOS is running.
+struct ConfigDirectory(std::path::PathBuf);
+
+impl ConfigDirectory {
+    fn new(text: &str) -> Self {
+        let path = std::env::temp_dir().join(format!(
+            "pushos-e2e-{}",
+            pushos_domain::ids::ExecutionId::generate()
+        ));
+        std::fs::create_dir_all(&path).expect("the temporary directory is writable");
+        let directory = Self(path);
+        directory.write(text);
+        directory
+    }
+
+    fn write(&self, text: &str) {
+        std::fs::write(self.0.join("pushos.toml"), text).expect("writable");
+    }
+}
+
+impl Drop for ConfigDirectory {
+    fn drop(&mut self) {
+        std::fs::remove_dir_all(&self.0).ok();
+    }
+}
+
 fn store(text: &str) -> Arc<ConfigStore> {
     let parsed: ConfigFile = toml::from_str(text).expect("the test configuration parses");
     let config = RuntimeConfig::build(&parsed).expect("the test configuration is valid");
@@ -332,6 +358,64 @@ async fn every_event_from_one_gesture_shares_a_correlation() {
 
     assert_eq!(resolved.correlation_id, progressed.correlation_id);
     harness.stop().await;
+}
+
+/// Hot reload is only useful if it reaches the surface. The store used to be
+/// updated while the running pipeline kept resolving against the configuration
+/// it started with.
+#[tokio::test]
+async fn reloading_configuration_changes_what_the_running_surface_does() {
+    let directory = ConfigDirectory::new(CONFIG);
+    let config = Arc::new(ConfigStore::load(&directory.0).expect("valid"));
+
+    let (surface, input) = FakePush::new();
+    let provider = RecordingProvider::new("test", ["one", "two"]);
+    let shutdown = Shutdown::new();
+
+    let runtime = Runtime::new(Arc::clone(&config))
+        .with_provider(Arc::new(provider.clone()))
+        .expect("free")
+        .with_provider(Arc::new(
+            pushos_actions::providers::page::PageProvider::new(),
+        ))
+        .expect("free");
+    let output: Arc<dyn PushOutput> = Arc::new(surface.clone());
+    let running = shutdown.clone();
+    let finished = tokio::spawn(async move {
+        runtime
+            .run(
+                Box::new(input),
+                output,
+                PushRenderer::new().expect("builds"),
+                running,
+            )
+            .await;
+    });
+
+    // Pad 0 runs `test.one` under the configuration PushOS started with.
+    let at = Instant::now();
+    surface.press_pad(pad(0), at).await;
+    surface.release_pad(pad(0), at).await;
+    settle(|| provider.call_count() >= 1).await;
+    assert_eq!(provider.calls()[0].selector.to_string(), "test.one");
+
+    // Rebind it, and reload.
+    directory.write(&CONFIG.replace("action = \"test.one\"", "action = \"test.two\""));
+    config.reload().expect("the new configuration is valid");
+
+    let at = Instant::now();
+    surface.press_pad(pad(0), at).await;
+    surface.release_pad(pad(0), at).await;
+    settle(|| provider.call_count() >= 2).await;
+
+    assert_eq!(
+        provider.calls()[1].selector.to_string(),
+        "test.two",
+        "the running surface kept using the configuration it started with"
+    );
+
+    shutdown.stop().await;
+    let _ = tokio::time::timeout(Duration::from_secs(5), finished).await;
 }
 
 #[tokio::test]
