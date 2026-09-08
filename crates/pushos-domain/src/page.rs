@@ -36,6 +36,26 @@ impl Page {
     }
 }
 
+/// Which page an action wants to move to.
+///
+/// Relative movement is expressed here rather than resolved by the provider,
+/// because only the component that owns the current page knows what "next"
+/// means. Keeping the provider free of that state is what lets page actions be
+/// tested without a running surface.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PageTarget {
+    /// A specific page.
+    Named(PageId),
+    /// The next page in configured order, wrapping at the end.
+    Next,
+    /// The previous page in configured order, wrapping at the start.
+    Previous,
+    /// The configured home page.
+    Home,
+    /// Wherever the operator was before the current page.
+    Back,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -45,5 +65,12 @@ mod tests {
         let page = Page::new("development", "Development");
         assert_eq!(page.id.as_str(), "development");
         assert_eq!(page.name, "Development");
+    }
+
+    #[test]
+    fn a_named_target_carries_the_page_it_names() {
+        let target = PageTarget::Named("music".into());
+        assert_eq!(target, PageTarget::Named(PageId::new("music")));
+        assert_ne!(target, PageTarget::Home);
     }
 }

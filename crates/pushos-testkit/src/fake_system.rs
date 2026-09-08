@@ -79,6 +79,7 @@ pub enum MediaCall {
 pub struct FakeMedia {
     recorder: Arc<Recorder<MediaCall>>,
     playing: Arc<Mutex<Option<MediaSnapshot>>>,
+    volume: Arc<Mutex<Option<u8>>>,
 }
 
 impl FakeMedia {
@@ -87,6 +88,14 @@ impl FakeMedia {
         Self {
             recorder: Recorder::new(),
             playing: Arc::new(Mutex::new(None)),
+            volume: Arc::new(Mutex::new(Some(50))),
+        }
+    }
+
+    /// Sets what [`MediaController::volume`] will report.
+    pub fn set_reported_volume(&self, percent: Option<u8>) {
+        if let Ok(mut volume) = self.volume.lock() {
+            *volume = percent;
         }
     }
 
@@ -129,12 +138,21 @@ impl MediaController for FakeMedia {
     }
 
     async fn set_volume(&self, percent: u8) -> Result<(), ActionError> {
-        self.recorder.record(MediaCall::Volume(percent))
+        self.recorder.record(MediaCall::Volume(percent))?;
+        if let Ok(mut volume) = self.volume.lock() {
+            *volume = Some(percent);
+        }
+        Ok(())
     }
 
     async fn now_playing(&self) -> Result<Option<MediaSnapshot>, ActionError> {
         self.recorder.check()?;
         Ok(self.playing.lock().ok().and_then(|playing| playing.clone()))
+    }
+
+    async fn volume(&self) -> Result<Option<u8>, ActionError> {
+        self.recorder.check()?;
+        Ok(self.volume.lock().ok().and_then(|volume| *volume))
     }
 }
 

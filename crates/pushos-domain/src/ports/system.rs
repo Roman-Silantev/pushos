@@ -21,6 +21,8 @@ pub trait MediaController: Send + Sync + std::fmt::Debug {
     async fn previous_track(&self) -> Result<(), ActionError>;
     /// Sets output volume as a percentage, `0..=100`.
     async fn set_volume(&self, percent: u8) -> Result<(), ActionError>;
+    /// Reads the current volume as a percentage, when the backend exposes one.
+    async fn volume(&self) -> Result<Option<u8>, ActionError>;
     /// Reads what is playing, for the display overlay.
     async fn now_playing(&self) -> Result<Option<MediaSnapshot>, ActionError>;
 }

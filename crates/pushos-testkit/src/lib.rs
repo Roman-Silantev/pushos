@@ -13,5 +13,5 @@ mod recording_provider;
 
 pub use clock::ManualClock;
 pub use fake_push::{FakePush, FakePushInput, SurfaceState};
-pub use fake_system::{FakeApplications, FakeMedia, FakeProcesses, FakeShortcuts};
+pub use fake_system::{FakeApplications, FakeMedia, FakeProcesses, FakeShortcuts, MediaCall};
 pub use recording_provider::{RecordingProvider, ScriptedOutcome};

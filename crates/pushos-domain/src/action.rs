@@ -265,8 +265,8 @@ pub enum DisplayIntent {
         /// Optional supporting line.
         detail: Option<String>,
     },
-    /// Switch to a page.
-    Page(crate::ids::PageId),
+    /// Move to a page.
+    Page(crate::page::PageTarget),
     /// Offer the operator a choice. Never steals focus on its own.
     Prompt {
         /// What is being asked.
