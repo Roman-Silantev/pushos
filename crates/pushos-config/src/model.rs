@@ -29,6 +29,12 @@ pub struct ConfigFile {
     /// The bindings in force.
     #[serde(default)]
     pub bindings: Vec<BindingEntry>,
+    /// The agent roles that exist.
+    #[serde(default)]
+    pub agents: Vec<AgentEntry>,
+    /// The agent providers PushOS may start.
+    #[serde(default)]
+    pub providers: Vec<ProviderEntry>,
 }
 
 impl ConfigFile {
@@ -44,6 +50,8 @@ impl ConfigFile {
         self.permissions.granted.extend(other.permissions.granted);
         self.pages.extend(other.pages);
         self.bindings.extend(other.bindings);
+        self.agents.extend(other.agents);
+        self.providers.extend(other.providers);
     }
 }
 
@@ -110,6 +118,53 @@ pub struct PageEntry {
     pub name: String,
     /// Longer description, shown in Studio.
     pub description: Option<String>,
+}
+
+/// An agent role.
+///
+/// A role, not a process: which provider fills it can change without any
+/// binding changing.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct AgentEntry {
+    /// Stable identity, referenced by bindings.
+    pub id: String,
+    /// Name shown on the display.
+    pub name: String,
+    /// What the role is for, given to the provider as its standing instruction.
+    #[serde(default)]
+    pub objective: String,
+    /// Which providers may fill it, best first. Empty accepts any.
+    #[serde(default)]
+    pub preferred: Vec<String>,
+    /// What this role is allowed to do.
+    ///
+    /// Applied on top of what the provider itself permits: the stricter of the
+    /// two wins, so a role can narrow a provider but never widen it.
+    #[serde(default)]
+    pub permissions: Vec<Permission>,
+}
+
+/// An agent provider PushOS may start.
+///
+/// Named as a command rather than a vendor, so any agent speaking the protocol
+/// can be used without a change to PushOS.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ProviderEntry {
+    /// What bindings and roles call it.
+    pub id: String,
+    /// The program to run.
+    pub program: String,
+    /// Its arguments, passed without any shell interpretation.
+    #[serde(default)]
+    pub args: Vec<String>,
+    /// Environment to set for it.
+    ///
+    /// For pointing at an installation, not for secrets: PushOS never persists
+    /// a credential in configuration.
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
 }
 
 /// A binding declaration.

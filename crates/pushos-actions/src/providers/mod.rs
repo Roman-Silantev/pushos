@@ -4,6 +4,7 @@
 //! on a concrete backend. That is what lets every one of them be tested with
 //! fakes and swapped for a different implementation.
 
+pub mod agent;
 pub mod application;
 pub mod media;
 pub mod page;

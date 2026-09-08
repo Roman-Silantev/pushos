@@ -217,20 +217,79 @@ impl AgentTarget {
     }
 }
 
+impl std::str::FromStr for AgentTarget {
+    type Err = MalformedTarget;
+
+    /// Reads the form a binding writes:
+    ///
+    /// ```text
+    /// role:builder
+    /// workspace:sydclaw/role:builder
+    /// session:abc123
+    /// selected
+    /// ```
+    fn from_str(text: &str) -> Result<Self, Self::Err> {
+        let text = text.trim();
+        if text.is_empty() || text == "selected" {
+            return Ok(Self::Selected);
+        }
+
+        let mut agent = None;
+        let mut workspace = None;
+        let mut session = None;
+
+        for part in text.split('/') {
+            let (key, value) = part
+                .split_once(':')
+                .ok_or_else(|| MalformedTarget(text.to_owned()))?;
+            let value = value.trim();
+            if value.is_empty() {
+                return Err(MalformedTarget(text.to_owned()));
+            }
+
+            match key.trim() {
+                "role" | "agent" => agent = Some(AgentId::new(value)),
+                "workspace" => workspace = Some(WorkspaceId::new(value)),
+                "session" => session = Some(SessionId::new(value)),
+                _ => return Err(MalformedTarget(text.to_owned())),
+            }
+        }
+
+        // A session identifier is exact and cannot be combined with a role: the
+        // two would disagree the moment the session ended.
+        match (session, agent) {
+            (Some(_), Some(_)) => Err(MalformedTarget(text.to_owned())),
+            (Some(session), None) => Ok(Self::Session(session)),
+            (None, Some(agent)) => Ok(Self::Role { agent, workspace }),
+            (None, None) => Err(MalformedTarget(text.to_owned())),
+        }
+    }
+}
+
+/// A target that is not written in a form PushOS understands.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "`{0}` is not a target; write `role:builder`, `workspace:x/role:builder`, \
+     `session:abc` or `selected`"
+)]
+pub struct MalformedTarget(pub String);
+
 impl fmt::Display for AgentTarget {
+    /// Writes the same form the parser reads, so anything PushOS prints in a
+    /// log or on the display can be pasted straight back into a binding.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Role {
                 agent,
                 workspace: Some(workspace),
             } => {
-                write!(f, "workspace={workspace} role={agent}")
+                write!(f, "workspace:{workspace}/role:{agent}")
             }
             Self::Role {
                 agent,
                 workspace: None,
-            } => write!(f, "role={agent}"),
-            Self::Session(session) => write!(f, "session={session}"),
+            } => write!(f, "role:{agent}"),
+            Self::Session(session) => write!(f, "session:{session}"),
             Self::Selected => f.write_str("selected"),
         }
     }
@@ -327,13 +386,79 @@ mod tests {
     }
 
     #[test]
+    fn every_written_target_parses_back_to_what_it_says() {
+        use std::str::FromStr as _;
+
+        assert_eq!(
+            AgentTarget::from_str("role:builder").expect("valid"),
+            AgentTarget::role("builder")
+        );
+        assert_eq!(
+            AgentTarget::from_str("workspace:sydclaw/role:builder").expect("valid"),
+            AgentTarget::role("builder").in_workspace("sydclaw")
+        );
+        assert_eq!(
+            AgentTarget::from_str("role:builder/workspace:sydclaw").expect("order is free"),
+            AgentTarget::role("builder").in_workspace("sydclaw")
+        );
+        assert_eq!(
+            AgentTarget::from_str("session:abc123").expect("valid"),
+            AgentTarget::Session(SessionId::new("abc123"))
+        );
+        assert_eq!(
+            AgentTarget::from_str("selected").expect("valid"),
+            AgentTarget::Selected
+        );
+        assert_eq!(
+            AgentTarget::from_str("").expect("empty means selected"),
+            AgentTarget::Selected
+        );
+    }
+
+    #[test]
+    fn everything_a_target_renders_as_parses_back() {
+        use std::str::FromStr as _;
+
+        for target in [
+            AgentTarget::role("builder"),
+            AgentTarget::role("builder").in_workspace("sydclaw"),
+            AgentTarget::Session(SessionId::new("abc")),
+            AgentTarget::Selected,
+        ] {
+            let written = target.to_string();
+            assert_eq!(
+                AgentTarget::from_str(&written).expect("what PushOS prints must parse"),
+                target
+            );
+        }
+    }
+
+    #[test]
+    fn a_target_that_cannot_be_understood_is_rejected_rather_than_guessed_at() {
+        use std::str::FromStr as _;
+
+        for text in [
+            "builder",
+            "role:",
+            "nonsense:builder",
+            "session:abc/role:builder",
+            "workspace:sydclaw",
+        ] {
+            assert!(
+                AgentTarget::from_str(text).is_err(),
+                "`{text}` should not have parsed"
+            );
+        }
+    }
+
+    #[test]
     fn a_target_reads_the_way_it_is_configured() {
         assert_eq!(
             AgentTarget::role("builder")
                 .in_workspace("sydclaw")
                 .to_string(),
-            "workspace=sydclaw role=builder"
+            "workspace:sydclaw/role:builder"
         );
-        assert_eq!(AgentTarget::role("builder").to_string(), "role=builder");
+        assert_eq!(AgentTarget::role("builder").to_string(), "role:builder");
     }
 }

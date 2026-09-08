@@ -9,6 +9,7 @@ repository.workspace = true
 authors.workspace = true
 
 [dependencies]
+pushos-agents = { workspace = true }
 pushos-domain = { workspace = true }
 async-trait = { workspace = true }
 thiserror = { workspace = true }

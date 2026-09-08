@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use pushos_bindings::{BindingTable, GestureTiming, find_conflicts};
 use pushos_domain::action::{ActionDefinition, ActionSelector, Params};
+use pushos_domain::agent::AgentDefinition;
 use pushos_domain::binding::{Binding, BindingScope};
 use pushos_domain::ids::PageId;
 use pushos_domain::page::Page;
@@ -32,6 +33,10 @@ pub struct RuntimeConfig {
     pub permissions: PermissionSet,
     /// The media player to control.
     pub media_player: Option<String>,
+    /// The agent roles that exist.
+    pub agents: Vec<AgentDefinition>,
+    /// The agent providers PushOS may start.
+    pub providers: Vec<crate::model::ProviderEntry>,
 }
 
 impl RuntimeConfig {
@@ -57,6 +62,9 @@ impl RuntimeConfig {
         let bindings = build_bindings(file, &page_ids, &mut problems);
         problems.extend(find_conflicts(&bindings).into_iter().map(Problem::Conflict));
 
+        let providers = build_providers(file, &mut problems);
+        let agents = build_agents(file, &providers, &mut problems);
+
         if !problems.is_empty() {
             return Err(ConfigError::Invalid { problems });
         }
@@ -68,6 +76,8 @@ impl RuntimeConfig {
             timing,
             permissions: file.permissions.granted.iter().copied().collect(),
             media_player: file.runtime.media_player.clone(),
+            agents,
+            providers,
         })
     }
 
@@ -80,7 +90,14 @@ impl RuntimeConfig {
             timing: GestureTiming::DEFAULT,
             permissions: PermissionSet::empty(),
             media_player: None,
+            agents: Vec::new(),
+            providers: Vec::new(),
         }
+    }
+
+    /// The role with this identity.
+    pub fn agent(&self, id: &pushos_domain::ids::AgentId) -> Option<&AgentDefinition> {
+        self.agents.iter().find(|agent| agent.id == *id)
     }
 
     /// Where a page sits in the configured order, one-based.
@@ -115,6 +132,84 @@ impl RuntimeConfig {
         let next = (current + step).rem_euclid(total);
         self.pages.get(usize::try_from(next).ok()?)
     }
+}
+
+/// Builds the provider list, refusing two providers with one name.
+fn build_providers(
+    file: &ConfigFile,
+    problems: &mut Vec<Problem>,
+) -> Vec<crate::model::ProviderEntry> {
+    let mut seen = HashSet::with_capacity(file.providers.len());
+    let mut providers = Vec::with_capacity(file.providers.len());
+
+    for entry in &file.providers {
+        if !seen.insert(entry.id.clone()) {
+            problems.push(Problem::DuplicateProvider {
+                id: entry.id.clone(),
+            });
+            continue;
+        }
+        if entry.program.trim().is_empty() {
+            problems.push(Problem::ProviderWithoutProgram {
+                id: entry.id.clone(),
+            });
+            continue;
+        }
+        providers.push(entry.clone());
+    }
+
+    providers
+}
+
+/// Builds the agent roles, checking that any provider they name exists.
+fn build_agents(
+    file: &ConfigFile,
+    providers: &[crate::model::ProviderEntry],
+    problems: &mut Vec<Problem>,
+) -> Vec<AgentDefinition> {
+    let known: HashSet<_> = providers
+        .iter()
+        .map(|provider| provider.id.as_str())
+        .collect();
+    let mut seen = HashSet::with_capacity(file.agents.len());
+    let mut agents = Vec::with_capacity(file.agents.len());
+
+    for entry in &file.agents {
+        if !seen.insert(entry.id.clone()) {
+            problems.push(Problem::DuplicateAgent {
+                id: entry.id.clone(),
+            });
+            continue;
+        }
+
+        // Naming a provider that is not configured is a typo, not a preference:
+        // the role would silently fall back to something else.
+        let unknown: Vec<_> = entry
+            .preferred
+            .iter()
+            .filter(|provider| !known.contains(provider.as_str()))
+            .cloned()
+            .collect();
+        if !unknown.is_empty() {
+            problems.push(Problem::UnknownAgentProvider {
+                agent: entry.id.clone(),
+                providers: unknown,
+            });
+            continue;
+        }
+
+        let mut definition = AgentDefinition::new(entry.id.as_str(), entry.name.as_str());
+        definition.objective = entry.objective.clone();
+        definition.preferred = entry
+            .preferred
+            .iter()
+            .map(|provider| pushos_domain::ids::ProviderName::new(provider))
+            .collect();
+        definition.permissions = entry.permissions.iter().copied().collect();
+        agents.push(definition);
+    }
+
+    agents
 }
 
 fn build_timing(section: &crate::model::GestureSection) -> GestureTiming {

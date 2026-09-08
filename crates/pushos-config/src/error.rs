@@ -124,6 +124,36 @@ pub enum Problem {
         id: String,
     },
 
+    /// Two providers share a name.
+    #[error("provider `{id}` is declared more than once")]
+    DuplicateProvider {
+        /// The contested name.
+        id: String,
+    },
+
+    /// A provider was declared with nothing to run.
+    #[error("provider `{id}` has no program to run")]
+    ProviderWithoutProgram {
+        /// The provider that cannot start.
+        id: String,
+    },
+
+    /// Two agent roles share an identity.
+    #[error("agent `{id}` is declared more than once")]
+    DuplicateAgent {
+        /// The contested identity.
+        id: String,
+    },
+
+    /// An agent role prefers a provider that is not declared.
+    #[error("agent `{agent}` prefers undeclared provider(s): {}", providers.join(", "))]
+    UnknownAgentProvider {
+        /// The role that named them.
+        agent: String,
+        /// The providers that do not exist.
+        providers: Vec<String>,
+    },
+
     /// Two bindings share an identity.
     #[error("binding id `{id}` is used more than once")]
     DuplicateBindingId {

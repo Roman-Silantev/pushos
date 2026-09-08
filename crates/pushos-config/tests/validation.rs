@@ -382,3 +382,210 @@ fn stepping_pages_with_none_configured_yields_nothing() {
     assert!(config.page_after(None).is_none());
     assert!(config.page_before(None).is_none());
 }
+
+// --- Agents and providers ----------------------------------------------------
+
+const AGENTS: &str = r#"
+[[providers]]
+id = "claude"
+program = "npx"
+args = ["-y", "@agentclientprotocol/claude-agent-acp@latest"]
+
+[[providers]]
+id = "codex"
+program = "npx"
+args = ["-y", "@agentclientprotocol/codex-acp@latest"]
+
+[[agents]]
+id = "builder"
+name = "Builder"
+objective = "Implement approved work safely and concisely."
+preferred = ["claude", "codex"]
+permissions = ["shell.execute", "git.commit"]
+
+[[agents]]
+id = "reviewer"
+name = "Reviewer"
+preferred = ["codex"]
+"#;
+
+#[test]
+fn agent_roles_and_providers_build() {
+    let config = build(AGENTS);
+
+    assert_eq!(config.providers.len(), 2);
+    assert_eq!(config.agents.len(), 2);
+
+    let builder = config
+        .agent(&pushos_domain::ids::AgentId::new("builder"))
+        .expect("the builder is declared");
+    assert_eq!(builder.name, "Builder");
+    assert!(builder.objective.contains("Implement"));
+    assert!(builder.permissions.allows(Permission::ShellExecute));
+    assert!(!builder.permissions.allows(Permission::DeployProduction));
+}
+
+#[test]
+fn a_role_naming_a_provider_that_is_not_declared_is_refused() {
+    let found = problems(
+        r#"
+        [[providers]]
+        id = "claude"
+        program = "npx"
+
+        [[agents]]
+        id = "builder"
+        name = "Builder"
+        preferred = ["cursor"]
+        "#,
+    );
+
+    assert!(
+        found
+            .iter()
+            .any(|problem| matches!(problem, Problem::UnknownAgentProvider { .. })),
+        "a typo in a provider name must not silently fall back"
+    );
+}
+
+#[test]
+fn two_roles_with_one_identity_are_refused() {
+    let found = problems(
+        r#"
+        [[agents]]
+        id = "builder"
+        name = "Builder"
+
+        [[agents]]
+        id = "builder"
+        name = "Other Builder"
+        "#,
+    );
+    assert!(
+        found
+            .iter()
+            .any(|problem| matches!(problem, Problem::DuplicateAgent { .. }))
+    );
+}
+
+#[test]
+fn two_providers_with_one_name_are_refused() {
+    let found = problems(
+        r#"
+        [[providers]]
+        id = "claude"
+        program = "npx"
+
+        [[providers]]
+        id = "claude"
+        program = "something-else"
+        "#,
+    );
+    assert!(
+        found
+            .iter()
+            .any(|problem| matches!(problem, Problem::DuplicateProvider { .. }))
+    );
+}
+
+#[test]
+fn a_provider_with_nothing_to_run_is_refused() {
+    let found = problems(
+        r#"
+        [[providers]]
+        id = "claude"
+        program = "  "
+        "#,
+    );
+    assert!(
+        found
+            .iter()
+            .any(|problem| matches!(problem, Problem::ProviderWithoutProgram { .. }))
+    );
+}
+
+#[test]
+fn a_role_expressing_no_preference_is_accepted() {
+    let config = build(
+        r#"
+        [[providers]]
+        id = "claude"
+        program = "npx"
+
+        [[agents]]
+        id = "builder"
+        name = "Builder"
+        "#,
+    );
+
+    let builder = config
+        .agent(&pushos_domain::ids::AgentId::new("builder"))
+        .expect("declared");
+    assert!(
+        builder.preferred.is_empty(),
+        "no preference means any provider will do"
+    );
+}
+
+#[test]
+fn a_role_is_granted_nothing_it_did_not_ask_for() {
+    let config = build(
+        r#"
+        [[agents]]
+        id = "reader"
+        name = "Reader"
+        permissions = ["filesystem.read"]
+        "#,
+    );
+
+    let reader = config
+        .agent(&pushos_domain::ids::AgentId::new("reader"))
+        .expect("declared");
+    assert!(reader.permissions.allows(Permission::FilesystemRead));
+    for denied in [
+        Permission::ShellExecute,
+        Permission::GitPush,
+        Permission::FilesystemWrite,
+    ] {
+        assert!(
+            !reader.permissions.allows(denied),
+            "{denied:?} was not asked for"
+        );
+    }
+}
+
+#[test]
+fn bindings_can_name_a_role_as_their_target() {
+    let config = build(&format!(
+        r#"{AGENTS}
+        {PAGES}
+
+        [[bindings]]
+        control = "pad.16"
+        gesture = "hold"
+        page = "development"
+        action = "agent.prompt"
+        target = "workspace:sydclaw/role:builder"
+        label = "Talk to Builder"
+        "#
+    ));
+
+    let key = BindingKey::new(
+        ControlId::Pad(PadIndex::new(16).expect("in range")),
+        Gesture::Hold,
+    );
+    let binding = &config.bindings.candidates(key)[0];
+    assert_eq!(binding.action.selector.to_string(), "agent.prompt");
+
+    let target: pushos_domain::agent::AgentTarget = binding
+        .action
+        .params
+        .text("target")
+        .expect("the target is present")
+        .parse()
+        .expect("and it parses");
+    assert_eq!(
+        target,
+        pushos_domain::agent::AgentTarget::role("builder").in_workspace("sydclaw")
+    );
+}
