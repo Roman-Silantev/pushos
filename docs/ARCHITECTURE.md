@@ -170,6 +170,37 @@ This started as exactly that bug. Studio reported "Push 2 attached" while
 running against a fake surface, because the only thing the protocol could say
 was yes or no. Tests now cover it at the socket and on the display.
 
+## A binding names a role, not a session
+
+A provider's session identifier will not outlive the day, and a pad is expected
+to. So a binding says `role:builder`, or `workspace:sydclaw/role:builder`, and
+the router turns that into a session: the one already filling the role, or a new
+one. Binding an exact session is supported and is the wrong default.
+
+Agent state is normalised into eleven states that every provider maps onto.
+Providers have their own vocabularies and change them between releases; lights,
+the display and bindings are written against the normalised one, so a rename
+cannot ripple through the system.
+
+Each session gets its own agent process. That costs a subprocess and buys
+isolation: a session cannot see another's work, and an agent that crashes takes
+down only its own.
+
+Two decisions inside the adapter are worth stating:
+
+- **A role's standing instruction is context, not a request.** Sending it on its
+  own spends a whole turn having the agent acknowledge its job description while
+  the operator waits, so it is prepended to the first real prompt instead. This
+  was found by running it, not by reading it.
+- **A permission question is parked holding the protocol's responder**, and the
+  answer is handed straight to it rather than queued behind other commands. A
+  question nobody answers is refused after fifteen minutes, because one that
+  waits forever wedges the agent.
+
+An agent working quietly earns a line on the display. An agent that has stopped
+and is waiting for a decision earns the operator's attention, and with only
+eight columns it is the one that gets a column.
+
 ## Failures are classified, not stringified
 
 Every error carries a class: retryable, validation, permission,

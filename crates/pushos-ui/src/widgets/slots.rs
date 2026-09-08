@@ -18,6 +18,10 @@ const VALUE_GAP: f32 = 6.0;
 const EMPTY_MARK_WIDTH: f32 = 18.0;
 
 /// Draws every column.
+///
+/// Agents take the columns when any are running. A surface with agents on it is
+/// one where what they are doing matters more than what the buttons around the
+/// display would do, and there are only eight columns.
 pub(crate) fn draw_slots(
     canvas: &mut Canvas,
     text: &mut TextRenderer,
@@ -25,6 +29,11 @@ pub(crate) fn draw_slots(
     layout: &Layout,
     snapshot: &UiSnapshot,
 ) {
+    if !snapshot.agents.is_empty() {
+        draw_agents(canvas, text, theme, layout, snapshot);
+        return;
+    }
+
     for (index, slot) in snapshot.slots.iter().enumerate() {
         let area = layout.slot(index);
         if let Some(slot) = slot {
@@ -56,6 +65,45 @@ pub(crate) fn draw_slots(
 fn label_baseline(theme: &Theme, inner: Area) -> f32 {
     let block = theme.sizes.body + VALUE_GAP + theme.sizes.caption;
     inner.y + ((inner.height - block) / 2.0).max(0.0) + theme.sizes.body
+}
+
+/// Draws the running agents across the columns.
+fn draw_agents(
+    canvas: &mut Canvas,
+    text: &mut TextRenderer,
+    theme: &Theme,
+    layout: &Layout,
+    snapshot: &UiSnapshot,
+) {
+    for index in 0..crate::snapshot::SLOT_COUNT {
+        let area = layout.slot(index);
+        let Some(agent) = snapshot.agents.get(index) else {
+            let inner = area.inset(SLOT_PADDING);
+            canvas.fill(
+                Area::new(
+                    inner.x,
+                    label_baseline(theme, inner) - 5.0,
+                    EMPTY_MARK_WIDTH,
+                    2.0,
+                ),
+                theme.divider,
+            );
+            continue;
+        };
+
+        let mut slot = Slot::new(agent.role.clone()).with_tone(agent.tone);
+        // The state is always shown, and the agent's own words only when there
+        // is room for both to be read.
+        slot = slot.with_value(match &agent.detail {
+            Some(detail) => format!("{} \u{2014} {detail}", agent.state),
+            None => agent.state.clone(),
+        });
+        if agent.selected {
+            slot = slot.selected();
+        }
+
+        draw_slot(canvas, text, theme, area, &slot);
+    }
 }
 
 fn draw_slot(canvas: &mut Canvas, text: &mut TextRenderer, theme: &Theme, area: Area, slot: &Slot) {

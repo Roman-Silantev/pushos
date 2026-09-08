@@ -35,6 +35,11 @@ pub struct SurfaceState {
     notice: Option<Timed<Notice>>,
     overlay: Option<Timed<Overlay>>,
     splash_until: Option<Instant>,
+    /// What the agents are doing, as the display should show it.
+    ///
+    /// Kept here rather than read from the supervisor when drawing: the
+    /// renderer takes an immutable snapshot and must never wait on a lock.
+    agents: Vec<pushos_ui::AgentLine>,
 }
 
 /// Something that goes away on its own.
@@ -60,7 +65,13 @@ impl SurfaceState {
             notice: None,
             overlay: None,
             splash_until: None,
+            agents: Vec::new(),
         }
+    }
+
+    /// Records what the agents are doing.
+    pub fn set_agents(&mut self, agents: Vec<pushos_ui::AgentLine>) {
+        self.agents = agents;
     }
 
     /// Adopts a new configuration.
@@ -228,6 +239,7 @@ impl SurfaceState {
             overlay: self.overlay.as_ref().map(|timed| timed.value.clone()),
             // The frame is left at zero: the renderer owns the animation, so a
             // snapshot never has to be republished just because time passed.
+            agents: self.agents.clone(),
             splash: self.splash_until.map(|_| {
                 Splash::new("PushOS", 0).with_detail(match &self.workspace {
                     Some(workspace) => workspace.to_string(),

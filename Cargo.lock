@@ -1623,7 +1623,9 @@ name = "pushos-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "pushos-acp",
  "pushos-actions",
+ "pushos-agents",
  "pushos-api",
  "pushos-bindings",
  "pushos-config",
@@ -1700,6 +1702,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "pushos-actions",
+ "pushos-agents",
  "pushos-api",
  "pushos-bindings",
  "pushos-config",

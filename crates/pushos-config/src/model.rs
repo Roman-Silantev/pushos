@@ -63,6 +63,10 @@ pub struct RuntimeSection {
     pub home_page: Option<String>,
     /// The media player to control.
     pub media_player: Option<String>,
+    /// Where agents work when a role does not name a workspace.
+    ///
+    /// A leading `~` is expanded. Defaults to wherever PushOS was started.
+    pub workspace_root: Option<String>,
 }
 
 impl RuntimeSection {
@@ -72,6 +76,9 @@ impl RuntimeSection {
         }
         if other.media_player.is_some() {
             self.media_player = other.media_player;
+        }
+        if other.workspace_root.is_some() {
+            self.workspace_root = other.workspace_root;
         }
     }
 }
@@ -155,7 +162,12 @@ pub struct ProviderEntry {
     /// What bindings and roles call it.
     pub id: String,
     /// The program to run.
-    pub program: String,
+    ///
+    /// May be left out for a provider PushOS already knows how to start, so
+    /// naming one is enough. Naming it is still required: PushOS does not start
+    /// a subprocess the operator never mentioned.
+    #[serde(default)]
+    pub program: Option<String>,
     /// Its arguments, passed without any shell interpretation.
     #[serde(default)]
     pub args: Vec<String>,

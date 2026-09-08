@@ -31,6 +31,8 @@ pub struct UiSnapshot {
     pub overlay: Option<Overlay>,
     /// The waiting screen, which takes over everything and animates.
     pub splash: Option<Splash>,
+    /// The agent sessions worth showing, most recently active first.
+    pub agents: Vec<AgentLine>,
 }
 
 impl UiSnapshot {
@@ -262,6 +264,48 @@ impl Overlay {
     #[must_use]
     pub fn asking(mut self, choices: impl IntoIterator<Item = String>) -> Self {
         self.choices = choices.into_iter().collect();
+        self
+    }
+}
+
+/// One agent session, as the display shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AgentLine {
+    /// The role it fills.
+    pub role: String,
+    /// What it is doing, in one word.
+    pub state: String,
+    /// The last thing it said.
+    pub detail: Option<String>,
+    /// How it should read at a glance.
+    pub tone: Tone,
+    /// Whether this is the session the operator has chosen.
+    pub selected: bool,
+}
+
+impl AgentLine {
+    /// Builds a line for a role in a state.
+    pub fn new(role: impl Into<String>, state: impl Into<String>, tone: Tone) -> Self {
+        Self {
+            role: role.into(),
+            state: state.into(),
+            detail: None,
+            tone,
+            selected: false,
+        }
+    }
+
+    /// Adds the last thing it said.
+    #[must_use]
+    pub fn with_detail(mut self, detail: impl Into<String>) -> Self {
+        self.detail = Some(detail.into());
+        self
+    }
+
+    /// Marks it as the operator's current choice.
+    #[must_use]
+    pub const fn selected(mut self) -> Self {
+        self.selected = true;
         self
     }
 }

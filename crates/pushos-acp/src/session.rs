@@ -234,11 +234,10 @@ async fn serve(
         },
     );
 
-    // The role's standing instruction goes first, so everything after it is the
-    // operator's own words rather than setup.
-    if !objective.trim().is_empty() {
-        let _ = send_prompt(&connection, &wire_session, &objective).await;
-    }
+    // The role's standing instruction is context for the first request, not a
+    // request of its own. Sending it alone would spend a whole turn having the
+    // agent acknowledge its job description while the operator waits.
+    let mut standing = Some(objective).filter(|text| !text.trim().is_empty());
 
     while let Some(command) = inbox.recv().await {
         match command {
@@ -251,6 +250,10 @@ async fn serve(
                 );
                 let _ = reply.send(Ok(()));
 
+                let text = match standing.take() {
+                    Some(objective) => format!("{objective}\n\n{text}"),
+                    None => text,
+                };
                 let stop = send_prompt(&connection, &wire_session, &text).await;
                 let reason = match stop {
                     Ok(reason) => mapping::stop_reason(&reason),

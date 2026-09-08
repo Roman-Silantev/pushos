@@ -14,7 +14,7 @@ use pushos_storage::{EventRecord, Storage};
 use pushos_ui::PushRenderer;
 use tracing::{info, warn};
 
-use crate::actors::{InputTask, RenderTask};
+use crate::actors::{AgentTask, InputTask, RenderTask};
 use crate::bus::EventBus;
 use crate::control::RuntimeControl;
 use crate::shutdown::Shutdown;
@@ -25,7 +25,17 @@ pub struct Runtime {
     providers: ProviderRegistry,
     storage: Option<Storage>,
     control: Option<ControlServer>,
+    agents: Option<AgentWiring>,
     bus: EventBus,
+}
+
+/// The agent supervisor and the stream its backends report on.
+struct AgentWiring {
+    supervisor: Arc<pushos_agents::AgentSupervisor>,
+    updates: tokio::sync::mpsc::UnboundedReceiver<(
+        pushos_domain::ids::SessionId,
+        pushos_domain::ports::AgentEvent,
+    )>,
 }
 
 impl std::fmt::Debug for Runtime {
@@ -45,8 +55,28 @@ impl Runtime {
             providers: ProviderRegistry::new(),
             storage: None,
             control: None,
+            agents: None,
             bus: EventBus::new(),
         }
+    }
+
+    /// Runs agent sessions, and puts what they are doing on the surface.
+    ///
+    /// Optional: PushOS runs without agents, it simply has none to drive.
+    #[must_use]
+    pub fn with_agents(
+        mut self,
+        supervisor: Arc<pushos_agents::AgentSupervisor>,
+        updates: tokio::sync::mpsc::UnboundedReceiver<(
+            pushos_domain::ids::SessionId,
+            pushos_domain::ports::AgentEvent,
+        )>,
+    ) -> Self {
+        self.agents = Some(AgentWiring {
+            supervisor,
+            updates,
+        });
+        self
     }
 
     /// Installs an action provider.
@@ -97,7 +127,7 @@ impl Runtime {
         let providers = Arc::new(self.providers);
         let dispatcher = Arc::new(ActionDispatcher::new(Arc::clone(&providers), granted));
 
-        let (pipeline, view) = InputTask::new(
+        let (pipeline, view, refresh) = InputTask::new(
             input,
             output.kind().into(),
             Arc::clone(&dispatcher),
@@ -139,6 +169,29 @@ impl Runtime {
                         }
                     }
                 }
+            });
+        }
+
+        if let Some(wiring) = self.agents {
+            let supervisor = Arc::clone(&wiring.supervisor);
+            let refresh = refresh.clone();
+            let task = AgentTask::new(wiring.supervisor, wiring.updates, self.bus.clone());
+            let watching = shutdown.clone();
+
+            shutdown.spawn(async move {
+                task.run(watching, move || {
+                    // Reading the sessions needs a lock the renderer must never
+                    // take, so the lines are built here and published.
+                    let supervisor = Arc::clone(&supervisor);
+                    let refresh = refresh.clone();
+                    tokio::spawn(async move {
+                        let sessions = supervisor.sessions().await;
+                        let selected = supervisor.selected().await.map(|session| session.id);
+                        let _ =
+                            refresh.send(crate::actors::lines_for(&sessions, selected.as_ref()));
+                    });
+                })
+                .await;
             });
         }
 

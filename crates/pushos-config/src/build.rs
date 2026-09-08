@@ -37,6 +37,8 @@ pub struct RuntimeConfig {
     pub agents: Vec<AgentDefinition>,
     /// The agent providers PushOS may start.
     pub providers: Vec<crate::model::ProviderEntry>,
+    /// Where agents work when a role does not name a workspace.
+    pub workspace_root: Option<std::path::PathBuf>,
 }
 
 impl RuntimeConfig {
@@ -78,6 +80,11 @@ impl RuntimeConfig {
             media_player: file.runtime.media_player.clone(),
             agents,
             providers,
+            workspace_root: file
+                .runtime
+                .workspace_root
+                .as_deref()
+                .map(crate::paths::expand_home),
         })
     }
 
@@ -92,7 +99,15 @@ impl RuntimeConfig {
             media_player: None,
             agents: Vec::new(),
             providers: Vec::new(),
+            workspace_root: None,
         }
+    }
+
+    /// Where agents work, falling back to wherever PushOS was started.
+    pub fn workspace_root(&self) -> std::path::PathBuf {
+        self.workspace_root.clone().unwrap_or_else(|| {
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."))
+        })
     }
 
     /// The role with this identity.
@@ -149,7 +164,14 @@ fn build_providers(
             });
             continue;
         }
-        if entry.program.trim().is_empty() {
+        // An explicitly empty program is a mistake; an absent one means "use
+        // the command PushOS already knows for this name", which the host
+        // resolves and reports on when it cannot.
+        if entry
+            .program
+            .as_ref()
+            .is_some_and(|program| program.trim().is_empty())
+        {
             problems.push(Problem::ProviderWithoutProgram {
                 id: entry.id.clone(),
             });

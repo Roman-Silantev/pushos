@@ -83,6 +83,7 @@ fn page() -> UiSnapshot {
         )),
         overlay: None,
         splash: None,
+        agents: Vec::new(),
     }
 }
 

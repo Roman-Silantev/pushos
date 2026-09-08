@@ -12,7 +12,7 @@ mod control;
 mod shutdown;
 mod supervisor;
 
-pub use actors::{InputTask, RenderTask, SurfaceState, SurfaceView};
+pub use actors::{AgentReporter, AgentTask, InputTask, RenderTask, SurfaceState, SurfaceView};
 pub use app::Runtime;
 pub use bus::{EventBus, EventSubscription};
 pub use control::RuntimeControl;

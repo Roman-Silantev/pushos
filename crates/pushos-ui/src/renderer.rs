@@ -163,6 +163,7 @@ mod tests {
             notice: None,
             overlay: None,
             splash: None,
+            agents: Vec::new(),
         }
     }
 
@@ -374,6 +375,59 @@ mod tests {
 
         assert_ne!(connected.pixels(), offline.pixels());
         assert!(ink(&offline) > 500, "an offline surface still shows why");
+    }
+
+    #[test]
+    fn running_agents_take_the_columns() {
+        let mut renderer = renderer();
+        let mut without = DisplayFrame::blank();
+        let mut with_agents = DisplayFrame::blank();
+
+        let snapshot = populated();
+        renderer.render(&snapshot, &mut without);
+
+        let mut busy = snapshot;
+        busy.agents = vec![
+            crate::snapshot::AgentLine::new("Builder", "working", Tone::Active)
+                .with_detail("rewriting the queue"),
+            crate::snapshot::AgentLine::new("Reviewer", "waiting", Tone::Attention).selected(),
+        ];
+        renderer.render(&busy, &mut with_agents);
+
+        assert_ne!(
+            without.pixels(),
+            with_agents.pixels(),
+            "what the agents are doing should be on screen"
+        );
+    }
+
+    #[test]
+    fn an_agent_waiting_for_a_decision_is_not_drawn_like_one_working() {
+        let mut renderer = renderer();
+        let mut working = DisplayFrame::blank();
+        let mut waiting = DisplayFrame::blank();
+
+        let mut snapshot = populated();
+        snapshot.agents = vec![crate::snapshot::AgentLine::new(
+            "Builder",
+            "working",
+            Tone::Active,
+        )];
+        renderer.render(&snapshot, &mut working);
+
+        renderer.invalidate();
+        snapshot.agents = vec![crate::snapshot::AgentLine::new(
+            "Builder",
+            "waiting",
+            Tone::Attention,
+        )];
+        renderer.render(&snapshot, &mut waiting);
+
+        assert_ne!(
+            working.pixels(),
+            waiting.pixels(),
+            "an agent that has stopped and is waiting must look different"
+        );
     }
 
     #[test]

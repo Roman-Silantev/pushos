@@ -23,6 +23,9 @@ hold_threshold_ms = 400
 # hold threshold, or a slow double tap would be indistinguishable from a hold.
 double_tap_window_ms = 280
 
+# Where agents work when a role does not name a workspace. A leading ~ expands.
+# workspace_root = "~/Projects"
+
 [permissions]
 # Nothing is permitted unless it is listed here. There is no wildcard.
 # Add "shell.execute" only when you have shell bindings you trust.
@@ -31,6 +34,57 @@ granted = [
     "application.launch",
     "shortcuts.execute",
 ]
+
+# --- Agents ------------------------------------------------------------------
+# An agent is a role, not a process. Which provider fills it can change without
+# any binding changing, and a binding names the role rather than a session.
+#
+# Uncomment a provider to make agents available. PushOS knows how to start the
+# two adapters below, so naming one is enough; it will not start a subprocess
+# you never mentioned. Add `program` and `args` for anything else that speaks
+# the Agent Client Protocol.
+#
+# Agent actions need "shell.execute" in the permissions above, because an agent
+# runs commands on your behalf.
+
+# [[providers]]
+# id = "claude"
+
+# [[providers]]
+# id = "codex"
+
+# [[agents]]
+# id = "builder"
+# name = "Builder"
+# objective = "Implement approved development work safely and concisely."
+# preferred = ["claude"]
+# permissions = ["filesystem.read", "filesystem.write", "shell.execute"]
+
+# [[agents]]
+# id = "reviewer"
+# name = "Reviewer"
+# objective = "Review what changed and report only what matters."
+# preferred = ["codex"]
+# permissions = ["filesystem.read"]
+
+# A pad that talks to a role. Tap starts or selects it; hold sends a prompt.
+#
+# [[bindings]]
+# control = "pad.16"
+# gesture = "tap"
+# page = "development"
+# action = "agent.start"
+# target = "role:builder"
+# label = "Builder"
+#
+# One approve pad serves every agent, because a binding with no target acts on
+# whichever session you last chose.
+#
+# [[bindings]]
+# control = "button.upper_8"
+# gesture = "press"
+# action = "agent.approve"
+# label = "Approve"
 
 # --- Pages -------------------------------------------------------------------
 # A page changes what the controls mean. Bindings reference a page by id.

@@ -80,6 +80,8 @@ pushos bindings  # list what it has bound
 - **PushOS Studio**, a configuration application that talks to a running PushOS
   over a local socket. Build it with `npm run tauri build` in
   [`studio/`](studio/).
+- **Agents**, over the Agent Client Protocol. Verified against Claude and Codex.
+  A pad names a role, not a session, so it still means something tomorrow.
 
 ## Installing
 
@@ -153,6 +155,8 @@ crates/
 ├── pushos-ui          rendering for the display and the lights
 ├── pushos-config      loading, validation and hot reload
 ├── pushos-storage     local SQLite, with one write owner
+├── pushos-agents      agent roles, live sessions and the routing between them
+├── pushos-acp         the Agent Client Protocol adapter
 ├── pushos-api         the local control socket and its protocol
 ├── pushos-runtime     the event bus, supervision and wiring
 ├── pushos-macos       the macOS half: processes, media, apps, Shortcuts
@@ -194,10 +198,10 @@ Built and tested:
 | Phase 2 | The display: pages, widgets, notices, overlays |
 | Phase 3 | Page, application, Shortcut, media and shell actions |
 | Phase 4 | PushOS Studio and the control socket it talks to |
+| Phase 5 | Agents over the Agent Client Protocol |
 
-Next, in order: agent integration over the Agent Client Protocol, sessions and
-terminals, workspaces, durable workflows, and voice. `SPEC.md` holds the full
-plan.
+Next, in order: sessions and terminals, workspaces, durable workflows, and
+voice. `SPEC.md` holds the full plan.
 
 ## Contributing
 
