@@ -42,9 +42,13 @@ impl ControlId {
         }
     }
 
-    /// Whether the control carries a light that PushOS can drive.
+    /// Whether the control carries an individually addressable light.
+    ///
+    /// Only pads and buttons do. Encoders have no light at all, and the touch
+    /// strip's LED array is driven as a unit by a separate message rather than
+    /// as one addressable control.
     pub const fn is_illuminated(self) -> bool {
-        !matches!(self, Self::TouchStrip)
+        matches!(self, Self::Pad(_) | Self::Button(_))
     }
 
     /// Iterates every control the surface exposes.
@@ -213,8 +217,10 @@ mod tests {
     }
 
     #[test]
-    fn only_the_touch_strip_lacks_a_controllable_light() {
-        assert!(!ControlId::TouchStrip.is_illuminated());
+    fn only_pads_and_buttons_have_individually_addressable_lights() {
         assert!(ControlId::Button(ButtonId::Play).is_illuminated());
+        assert!(ControlId::Pad(PadIndex::new(0).expect("0 is in range")).is_illuminated());
+        assert!(!ControlId::Encoder(EncoderId::Master).is_illuminated());
+        assert!(!ControlId::TouchStrip.is_illuminated());
     }
 }
