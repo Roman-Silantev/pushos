@@ -17,7 +17,7 @@ pub use actors::{
     AgentReporter, AgentTask, InputTask, RenderTask, SurfaceState, SurfaceView, TerminalReporter,
     TerminalTask,
 };
-pub use app::Runtime;
+pub use app::{RunningRuntime, Runtime};
 pub use bus::{EventBus, EventSubscription};
 pub use control::RuntimeControl;
 pub use sessions::{AgentSessions, TerminalSessions};

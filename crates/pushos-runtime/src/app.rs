@@ -12,9 +12,12 @@ use pushos_config::ConfigStore;
 use pushos_domain::ports::{PushInput, PushOutput};
 use pushos_storage::{EventRecord, Storage};
 use pushos_ui::PushRenderer;
+use tokio::sync::watch;
 use tracing::{info, warn};
 
-use crate::actors::{AgentTask, InputTask, RenderTask, SessionPublisher, TerminalTask};
+use crate::actors::{
+    AgentTask, InputTask, RenderTask, SessionPublisher, SurfaceView, TerminalTask,
+};
 use crate::bus::EventBus;
 use crate::control::RuntimeControl;
 use crate::sessions::{AgentSessions, TerminalSessions};
@@ -156,39 +159,23 @@ impl Runtime {
         self.bus.clone()
     }
 
-    /// Starts the runtime against an attached surface.
+    /// Starts everything that outlives the hardware.
     ///
-    /// Returns once every task has stopped.
-    pub async fn run(
-        self,
-        input: Box<dyn PushInput>,
-        output: Arc<dyn PushOutput>,
-        renderer: PushRenderer,
-        shutdown: Shutdown,
-    ) {
+    /// Agents, terminals, projects and the control socket are not the surface's
+    /// to own. A Push 2 unplugged and plugged back in must find its sessions
+    /// still running and its project still selected, and PushOS with nothing
+    /// attached must still be configurable, or Studio could not reach a machine
+    /// whose device is in a bag.
+    pub fn start(self, shutdown: &Shutdown) -> RunningRuntime {
         let granted = self.config.current().permissions.clone();
         let providers = Arc::new(self.providers);
         let dispatcher = Arc::new(ActionDispatcher::new(Arc::clone(&providers), granted));
 
-        let (pipeline, view, refresh) = InputTask::new(
-            input,
-            output.kind().into(),
-            Arc::clone(&dispatcher),
-            Arc::clone(&self.config),
-            self.bus.clone(),
-        );
+        // Created once, for the life of the process. A surface publishes into
+        // the view; with none attached it holds the waiting screen.
+        let (view, watching) = watch::channel(SurfaceView::waiting());
+        let (refresh, lines) = watch::channel(Vec::new());
 
-        // The surface follows the project rather than keeping its own answer,
-        // so the two can never disagree about where the operator is.
-        let pipeline = match &self.workspaces {
-            Some(manager) => pipeline.following(manager.subscribe()),
-            None => pipeline,
-        };
-        let render = RenderTask::new(output, renderer, view.clone());
-        let view_for_shutdown = view.clone();
-
-        // Built before the tasks take ownership, so the control socket can
-        // list sessions without reaching into either supervisor itself.
         let mut publisher = SessionPublisher::new(refresh);
         let mut sources: Vec<Arc<dyn pushos_api::SessionSource>> = Vec::new();
         if let Some(wiring) = &self.agents {
@@ -203,9 +190,13 @@ impl Runtime {
         }
 
         if let Some(server) = self.control {
-            let mut control =
-                RuntimeControl::new(Arc::clone(&self.config), providers, dispatcher, view)
-                    .with_sessions(sources);
+            let mut control = RuntimeControl::new(
+                Arc::clone(&self.config),
+                providers,
+                Arc::clone(&dispatcher),
+                watching.clone(),
+            )
+            .with_sessions(sources);
             if let Some(manager) = &self.workspaces {
                 control = control.with_workspaces(Arc::clone(manager));
             }
@@ -241,36 +232,133 @@ impl Runtime {
 
         if let Some(wiring) = self.agents {
             let task = AgentTask::new(wiring.supervisor, wiring.updates, self.bus.clone());
-            let watching = shutdown.clone();
+            let watched = shutdown.clone();
             let publishing = publisher.clone();
-            shutdown.spawn(async move { task.run(watching, move || publishing.publish()).await });
+            shutdown.spawn(async move { task.run(watched, move || publishing.publish()).await });
         }
 
         if let Some(wiring) = self.terminals {
             let task = TerminalTask::new(wiring.supervisor, wiring.updates, self.bus.clone());
-            let watching = shutdown.clone();
+            let watched = shutdown.clone();
             let publishing = publisher.clone();
-            shutdown.spawn(async move { task.run(watching, move || publishing.publish()).await });
+            shutdown.spawn(async move { task.run(watched, move || publishing.publish()).await });
         }
 
-        info!("PushOS running");
-        let watching = view_for_shutdown.clone();
-        let rendering = shutdown.spawn(render.run(shutdown.clone()));
-        let reading = shutdown.spawn(pipeline.run(shutdown.clone()));
-
-        // The pipeline ends when the surface goes away; that is what stops the
-        // runtime, not an error.
-        let _ = reading.await;
-
-        // Kept before the tasks go, so a restart lands the operator back in the
-        // project they were in, on the page they were on.
-        if let Some(manager) = &self.workspaces {
-            let context = watching.borrow().context.clone();
-            manager.remember_current(&context).await;
+        RunningRuntime {
+            config: self.config,
+            dispatcher,
+            workspaces: self.workspaces,
+            view,
+            watching,
+            lines,
+            bus: self.bus,
         }
+    }
+
+    /// Starts the runtime and serves one surface until it goes away.
+    ///
+    /// What the tests and the simulated surface use. Real hardware comes and
+    /// goes, so the CLI starts once and serves repeatedly.
+    pub async fn run(
+        self,
+        input: Box<dyn PushInput>,
+        output: Arc<dyn PushOutput>,
+        renderer: PushRenderer,
+        shutdown: Shutdown,
+    ) {
+        let running = self.start(&shutdown);
+        running.serve(input, output, renderer, &shutdown).await;
+        running.stop().await;
 
         shutdown.stop().await;
-        let _ = rendering.await;
         info!("PushOS stopped");
+    }
+}
+
+/// The parts of PushOS that keep running whether or not a Push 2 is attached.
+pub struct RunningRuntime {
+    config: Arc<ConfigStore>,
+    dispatcher: Arc<ActionDispatcher>,
+    workspaces: Option<Arc<pushos_workspaces::WorkspaceManager>>,
+    view: watch::Sender<SurfaceView>,
+    watching: watch::Receiver<SurfaceView>,
+    lines: watch::Receiver<Vec<pushos_ui::SessionLine>>,
+    bus: EventBus,
+}
+
+impl std::fmt::Debug for RunningRuntime {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RunningRuntime")
+            .field("projects", &self.workspaces.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
+impl RunningRuntime {
+    /// Drives one surface until it goes away.
+    ///
+    /// Returns when the Push 2 is unplugged or shutdown begins. Everything
+    /// above stays exactly as it was, so plugging it back in resumes rather
+    /// than starts again.
+    pub async fn serve(
+        &self,
+        input: Box<dyn PushInput>,
+        output: Arc<dyn PushOutput>,
+        renderer: PushRenderer,
+        shutdown: &Shutdown,
+    ) {
+        let pipeline = InputTask::new(
+            input,
+            output.kind().into(),
+            Arc::clone(&self.dispatcher),
+            Arc::clone(&self.config),
+            self.bus.clone(),
+            self.view.clone(),
+            self.lines.clone(),
+        );
+
+        // The surface follows the project rather than keeping its own answer,
+        // so the two can never disagree about where the operator is.
+        let pipeline = match &self.workspaces {
+            Some(manager) => pipeline.following(manager.subscribe()),
+            None => pipeline,
+        };
+        let render = RenderTask::new(output, renderer, self.watching.clone());
+
+        // The surface's own coordinator. Its tasks end when the Push 2 goes
+        // away, or when the whole runtime does, and nothing above it is
+        // disturbed either way.
+        let attached = shutdown.child();
+
+        info!("PushOS running");
+        let rendering = attached.spawn(render.run(attached.clone()));
+        let reading = attached.spawn(pipeline.run(attached.clone()));
+
+        // The pipeline ends when the surface goes away; that is what ends this,
+        // not an error.
+        let _ = reading.await;
+
+        // Told to stop rather than dropped, so it finishes the frame it is on
+        // and leaves the display in a state someone chose.
+        attached.stop().await;
+        let _ = rendering.await;
+    }
+
+    /// The event bus, for components that want to observe the runtime.
+    pub fn bus(&self) -> EventBus {
+        self.bus.clone()
+    }
+
+    /// What the surface is showing, for anything that needs to record it.
+    pub fn view(&self) -> watch::Receiver<SurfaceView> {
+        self.watching.clone()
+    }
+
+    /// Keeps what the project in effect was doing, before PushOS stops.
+    pub async fn stop(&self) {
+        if let Some(manager) = &self.workspaces {
+            let context = self.watching.borrow().context.clone();
+            manager.remember_current(&context).await;
+        }
     }
 }

@@ -33,6 +33,19 @@ impl Shutdown {
         self.token.clone()
     }
 
+    /// A coordinator for work that ends before the runtime does.
+    ///
+    /// Cancelling the child stops only what it owns; cancelling the parent
+    /// stops both. Used for the tasks that belong to one surface, which comes
+    /// and goes while everything above it keeps running.
+    #[must_use]
+    pub fn child(&self) -> Self {
+        Self {
+            token: self.token.child_token(),
+            tasks: TaskTracker::new(),
+        }
+    }
+
     /// Registers a task so shutdown waits for it.
     ///
     /// Nothing important is spawned outside this, which is what stops a

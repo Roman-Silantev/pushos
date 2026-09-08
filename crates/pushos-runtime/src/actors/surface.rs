@@ -129,6 +129,11 @@ impl SurfaceState {
         self.surface
     }
 
+    /// The workspace in effect.
+    pub fn workspace(&self) -> Option<WorkspaceId> {
+        self.workspace.clone()
+    }
+
     /// Moves to a workspace.
     pub fn select_workspace(&mut self, workspace: Option<WorkspaceId>) {
         self.workspace = workspace;

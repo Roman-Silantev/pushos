@@ -12,7 +12,7 @@ use pushos_api::ControlServer;
 use pushos_config::{ConfigStore, ConfigWatcher};
 use pushos_domain::ports::PushOutput;
 use pushos_push2::{PortRole, Push2Device};
-use pushos_runtime::{Backoff, Runtime, Shutdown};
+use pushos_runtime::{Backoff, RunningRuntime, Runtime, Shutdown};
 use pushos_storage::StorageWriter;
 use pushos_testkit::FakePush;
 use pushos_ui::PushRenderer;
@@ -37,37 +37,44 @@ pub(crate) async fn execute(requested: Option<&Path>, fake: bool) -> Result<(), 
 
     let worktrees = paths::worktree_root()?;
 
+    // Started before any surface, and kept for the life of the process. Agents,
+    // terminals, projects and the control socket are not the hardware's to own:
+    // a Push 2 unplugged and plugged back in must find its work still running,
+    // and PushOS with nothing attached must still be configurable.
+    let running = build_runtime(&config, &storage, worktrees).start(&shutdown);
+
     if fake {
-        run_once_on_fake_surface(&config, &storage, &worktrees, shutdown.clone()).await?;
+        run_once_on_fake_surface(&running, shutdown.clone()).await?;
     } else {
-        serve_hardware(&config, &storage, &worktrees, &shutdown).await;
+        serve_hardware(&running, &shutdown).await;
     }
 
+    running.stop().await;
     shutdown.stop().await;
     Ok(())
 }
 
-/// Connects, serves, and waits for the surface to come back.
-async fn serve_hardware(
-    config: &Arc<ConfigStore>,
-    storage: &StorageWriter,
-    worktree_root: &std::path::Path,
-    shutdown: &Shutdown,
-) {
+/// Takes the surface whenever there is one, and waits when there is not.
+///
+/// Only the surface comes and goes. Everything else was started before this and
+/// is still there between connections.
+async fn serve_hardware(running: &RunningRuntime, shutdown: &Shutdown) {
     let mut backoff = Backoff::new();
+    let mut announced = false;
 
     while !shutdown.is_cancelled() {
         match Push2Device::connect(PortRole::User) {
             Ok((device, input)) => {
                 backoff.reset();
+                announced = false;
                 let output: Arc<dyn PushOutput> = Arc::new(device);
 
                 match PushRenderer::new() {
                     Ok(renderer) => {
-                        build_runtime(config, storage, worktree_root.to_path_buf())
-                            .run(Box::new(input), output, renderer, shutdown.clone())
+                        running
+                            .serve(Box::new(input), output, renderer, shutdown)
                             .await;
-                        info!("the Push 2 went away; waiting for it to return");
+                        info!("the Push 2 went away; everything else is still running");
                     }
                     Err(error) => {
                         warn!(%error, "the renderer could not be built");
@@ -76,7 +83,13 @@ async fn serve_hardware(
                 }
             }
             Err(error) if error.is_absent() => {
-                // Not a fault. PushOS is expected to run with nothing plugged in.
+                // Not a fault. PushOS is expected to run with nothing plugged
+                // in, and stays configurable from Studio while it waits. Said
+                // once rather than on every attempt.
+                if !announced {
+                    info!("no Push 2 attached; waiting for one, and answering Studio meanwhile");
+                    announced = true;
+                }
                 wait(&mut backoff, shutdown).await;
             }
             Err(error) => {
@@ -89,17 +102,15 @@ async fn serve_hardware(
 
 /// Runs against a simulated surface, for working away from the hardware.
 async fn run_once_on_fake_surface(
-    config: &Arc<ConfigStore>,
-    storage: &StorageWriter,
-    worktree_root: &std::path::Path,
+    running: &RunningRuntime,
     shutdown: Shutdown,
 ) -> Result<(), String> {
     info!("running against a simulated surface; no hardware is being used");
     let (surface, input) = FakePush::new();
     let renderer = PushRenderer::new().map_err(|error| error.to_string())?;
 
-    build_runtime(config, storage, worktree_root.to_path_buf())
-        .run(Box::new(input), Arc::new(surface), renderer, shutdown)
+    running
+        .serve(Box::new(input), Arc::new(surface), renderer, &shutdown)
         .await;
     Ok(())
 }

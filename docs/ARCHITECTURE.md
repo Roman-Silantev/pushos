@@ -81,6 +81,28 @@ Two hardware facts shape the design more than they might appear to:
   as a uniform 5x5x5 cube, which makes colour-to-index exact arithmetic instead
   of a search, and gives the white-only buttons a sensible brightness for free.
 
+## The runtime outlives the hardware, and so does its work
+
+A Push 2 is a cable away from being gone, and that must not be a reason to lose
+anything. So the process is built in two layers. Agents, terminals, projects,
+the audit trail and the control socket are started once and kept; only the input
+pipeline and the renderer belong to a surface, and those are built again each
+time one is attached.
+
+Two things follow, and both are the point. Unplugging the Push and plugging it
+back in finds the terminals still running and the project still selected, rather
+than a fresh start. And PushOS with nothing attached is still a running PushOS:
+the socket is bound, so Studio can configure a machine whose device is in a bag.
+
+A surface gets its own shutdown coordinator, a child of the runtime's. Cancelling
+it stops the pipeline and the renderer and nothing else; cancelling the runtime's
+stops both. The renderer is told to stop rather than dropped, so it finishes the
+frame it is on and leaves the display in a state someone chose.
+
+What the display is showing and what the sessions are doing are published on
+watches rather than queues, because a pipeline built for a surface that has just
+been plugged in needs the current answer, not a backlog of what it missed.
+
 ## Timing lives in one place
 
 `GestureRecognizer` owns every hold threshold, double-tap window and Shift

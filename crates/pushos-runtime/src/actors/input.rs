@@ -42,6 +42,20 @@ pub struct SurfaceView {
     pub context: pushos_domain::context::SurfaceContext,
 }
 
+impl SurfaceView {
+    /// What there is to show before any surface is attached.
+    ///
+    /// PushOS runs with nothing plugged in, so this is a real state rather than
+    /// a placeholder: it is what a client asking now would be told.
+    pub fn waiting() -> Self {
+        Self {
+            snapshot: Arc::new(UiSnapshot::disconnected()),
+            leds: Arc::new(pushos_ui::LedPlan::new()),
+            context: pushos_domain::context::SurfaceContext::empty(),
+        }
+    }
+}
+
 /// Runs the input pipeline.
 pub struct InputTask {
     input: Box<dyn PushInput>,
@@ -59,12 +73,16 @@ pub struct InputTask {
     /// two parts of PushOS come to disagree about where the operator is.
     projects: Option<watch::Receiver<Option<pushos_domain::ids::WorkspaceId>>>,
     /// What the sessions are doing, published by whoever is watching them.
-    sessions: tokio::sync::mpsc::UnboundedReceiver<Vec<pushos_ui::SessionLine>>,
+    ///
+    /// The latest list is the only one that matters, and a pipeline built for
+    /// a surface that has just been plugged in needs the current one rather
+    /// than a queue of everything it missed.
+    sessions: watch::Receiver<Vec<pushos_ui::SessionLine>>,
     gestures: Vec<GestureEvent>,
 }
 
 /// Tells the input pipeline what the sessions are doing.
-pub(crate) type SessionRefresh = tokio::sync::mpsc::UnboundedSender<Vec<pushos_ui::SessionLine>>;
+pub(crate) type SessionRefresh = watch::Sender<Vec<pushos_ui::SessionLine>>;
 
 impl std::fmt::Debug for InputTask {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -75,23 +93,26 @@ impl std::fmt::Debug for InputTask {
 }
 
 impl InputTask {
-    /// Builds the pipeline.
+    /// Builds the pipeline for one surface.
+    ///
+    /// The view and the session lines are given rather than created, because
+    /// they outlive any one surface: a Push 2 unplugged and plugged back in
+    /// gets a new pipeline, and everything it is meant to show is still there.
     pub fn new(
         input: Box<dyn PushInput>,
         surface_kind: SurfacePresence,
         dispatcher: Arc<ActionDispatcher>,
         config: Arc<ConfigStore>,
         bus: EventBus,
-    ) -> (Self, watch::Receiver<SurfaceView>, SessionRefresh) {
+        view: watch::Sender<SurfaceView>,
+        sessions: watch::Receiver<Vec<pushos_ui::SessionLine>>,
+    ) -> Self {
         let current = config.current();
         let surface = SurfaceState::new(Arc::clone(&current));
         let recognizer =
             GestureRecognizer::new(current.timing, current.bindings.gesture_interest().clone());
 
-        let (view, receiver) = watch::channel(build_view(&surface));
-        let (refresh, sessions) = tokio::sync::mpsc::unbounded_channel();
-
-        let task = Self {
+        Self {
             input,
             surface_kind,
             recognizer,
@@ -104,8 +125,7 @@ impl InputTask {
             view,
             sessions,
             gestures: Vec::with_capacity(4),
-        };
-        (task, receiver, refresh)
+        }
     }
 
     /// Follows the project in effect.
@@ -121,6 +141,13 @@ impl InputTask {
     /// Runs until the surface goes away or shutdown begins.
     pub async fn run(mut self, shutdown: Shutdown) {
         self.surface.set_surface(self.surface_kind, Instant::now());
+
+        // Taken up front rather than waited for: a surface plugged in while a
+        // project is selected and agents are working should show that, not an
+        // empty display until the next thing happens.
+        self.follow_project();
+        let lines = self.sessions.borrow_and_update().clone();
+        self.surface.set_sessions(lines);
         self.publish();
         self.bus.publish(EventEnvelope::root(
             EventSource::Push,
@@ -166,10 +193,12 @@ impl InputTask {
                     self.on_deadline(Instant::now()).await;
                 }
 
-                lines = self.sessions.recv() => {
-                    let Some(lines) = lines else { continue };
-                    self.surface.set_sessions(lines);
-                    self.publish();
+                changed = self.sessions.changed() => {
+                    if changed.is_ok() {
+                        let lines = self.sessions.borrow_and_update().clone();
+                        self.surface.set_sessions(lines);
+                        self.publish();
+                    }
                 }
             }
         }
@@ -197,6 +226,9 @@ impl InputTask {
             return;
         };
         let workspace = projects.borrow_and_update().clone();
+        if workspace == self.surface.workspace() {
+            return;
+        }
 
         self.surface.select_workspace(workspace.clone());
         self.bus.publish(EventEnvelope::root(
