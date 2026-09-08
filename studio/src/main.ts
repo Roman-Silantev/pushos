@@ -248,7 +248,9 @@ function sidebar(vocabulary: Vocabulary): HTMLElement {
   if (state.status !== null) {
     const source = element("div", "source");
     source.append(element("h2", "sidebar-title", "Configuration"));
-    source.append(element("p", "source-path", state.status.config_root));
+    const path = element("p", "source-path", state.status.config_root);
+    path.title = state.status.config_root;
+    source.append(path);
     source.append(
       element(
         "p",

@@ -192,7 +192,14 @@ body {
   overflow-wrap: anywhere;
 }
 
+/* A configuration root can be a long path. Three lines is enough to recognise
+ * one; the rest is a tooltip rather than half the sidebar. */
 .source-path {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
   font-family: ui-monospace, SFMono-Regular, monospace;
   color: var(--ink);
 }
