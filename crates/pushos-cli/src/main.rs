@@ -25,6 +25,7 @@ async fn main() -> std::process::ExitCode {
         Command::Doctor => commands::doctor::execute(cli.config.as_deref()).await,
         Command::Status => commands::control::status().await,
         Command::Bindings => commands::control::bindings().await,
+        Command::Sessions => commands::control::sessions().await,
         Command::Init { force } => commands::init::execute(cli.config.as_deref(), force),
     };
 

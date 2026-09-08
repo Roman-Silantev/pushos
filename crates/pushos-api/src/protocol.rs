@@ -75,6 +75,8 @@ pub enum Request {
         /// Which binding to run.
         address: BindingAddress,
     },
+    /// Every live agent and terminal session.
+    Sessions,
     /// Re-read the configuration from disk.
     Reload,
 }
@@ -98,6 +100,11 @@ pub enum Response {
     Edited(EditReport),
     /// A binding was run.
     Tested(TestReport),
+    /// The live sessions.
+    ///
+    /// Wrapped for the same reason the bindings are: an internally tagged
+    /// enum has nowhere to write its tag on a bare sequence.
+    Sessions(SessionList),
     /// The request could not be carried out.
     Failed(Failure),
 }
@@ -113,6 +120,73 @@ impl From<Vec<BindingSpec>> for BindingList {
     fn from(bindings: Vec<BindingSpec>) -> Self {
         Self { bindings }
     }
+}
+
+/// The sessions currently running.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionList {
+    /// Every session, agents and terminals together, oldest first.
+    pub sessions: Vec<SessionInfo>,
+}
+
+impl From<Vec<SessionInfo>> for SessionList {
+    fn from(sessions: Vec<SessionInfo>) -> Self {
+        Self { sessions }
+    }
+}
+
+/// What kind of work a session is.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum SessionKind {
+    /// An agent working through the Agent Client Protocol.
+    Agent,
+    /// A terminal PushOS is running.
+    Terminal,
+}
+
+impl SessionKind {
+    /// The action namespace that drives this kind of session.
+    pub const fn provider(self) -> &'static str {
+        match self {
+            Self::Agent => "agent",
+            Self::Terminal => "terminal",
+        }
+    }
+}
+
+/// One live session, described so a client can bind a control to it.
+///
+/// Both target forms are given because they are not interchangeable.
+/// [`Self::target`] names this exact session and stops meaning anything when it
+/// ends; [`Self::standing_target`] names the role or the terminal name, and
+/// goes on meaning the right thing tomorrow.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionInfo {
+    /// What PushOS calls it.
+    pub id: String,
+    /// Whether it is an agent or a terminal.
+    pub kind: SessionKind,
+    /// What the operator calls it: a role, or a terminal's name.
+    pub name: String,
+    /// What it is doing, in words.
+    pub status: String,
+    /// Whether it can still be acted on.
+    pub live: bool,
+    /// Whether unqualified actions currently act on it.
+    pub selected: bool,
+    /// The exact target text a binding would use for this session.
+    pub target: String,
+    /// The durable target text, when the session has one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub standing_target: Option<String>,
+    /// The last thing it said, when it has said anything.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    /// The workspace it belongs to.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub workspace: Option<String>,
 }
 
 /// How the runtime is doing.
@@ -375,6 +449,21 @@ mod tests {
                 status: "completed".to_owned(),
                 message: None,
             }),
+            Response::Sessions(
+                vec![SessionInfo {
+                    id: "term-abc".to_owned(),
+                    kind: SessionKind::Terminal,
+                    name: "tests".to_owned(),
+                    status: "running".to_owned(),
+                    live: true,
+                    selected: true,
+                    target: "session:term-abc".to_owned(),
+                    standing_target: Some("name:tests".to_owned()),
+                    detail: Some("77 passed".to_owned()),
+                    workspace: None,
+                }]
+                .into(),
+            ),
             Response::Failed(Failure::new(FailureKind::NotFound, "nothing there")),
         ];
 
@@ -387,6 +476,62 @@ mod tests {
                 response
             );
         }
+    }
+
+    #[test]
+    fn every_request_variant_can_be_encoded_and_read_back() {
+        let requests = [
+            Request::Status,
+            Request::Describe,
+            Request::Bindings,
+            Request::Bind {
+                spec: Box::new(BindingSpec::new(
+                    BindingAddress::new("pad.0", "tap"),
+                    "page.next",
+                )),
+            },
+            Request::Unbind {
+                address: BindingAddress::new("pad.0", "tap"),
+            },
+            Request::Test {
+                address: BindingAddress::new("pad.0", "tap"),
+            },
+            Request::Sessions,
+            Request::Reload,
+        ];
+
+        for request in requests {
+            let line = serde_json::to_string(&request)
+                .unwrap_or_else(|error| panic!("{request:?} could not be encoded: {error}"));
+            assert!(!line.contains('\n'), "the framing is one request per line");
+            assert_eq!(
+                serde_json::from_str::<Request>(&line).expect("deserialisable"),
+                request
+            );
+        }
+    }
+
+    #[test]
+    fn a_session_carries_both_the_exact_and_the_standing_way_to_name_it() {
+        // A binding made against an exact session stops working when it ends;
+        // one made against the name goes on meaning the right thing. Studio
+        // can only offer the choice if both arrive.
+        let session = SessionInfo {
+            id: "term-abc".to_owned(),
+            kind: SessionKind::Terminal,
+            name: "tests".to_owned(),
+            status: "running".to_owned(),
+            live: true,
+            selected: false,
+            target: "session:term-abc".to_owned(),
+            standing_target: Some("name:tests".to_owned()),
+            detail: None,
+            workspace: None,
+        };
+
+        assert_eq!(session.kind.provider(), "terminal");
+        assert!(session.target.contains(&session.id));
+        assert_eq!(session.standing_target.as_deref(), Some("name:tests"));
     }
 
     #[test]

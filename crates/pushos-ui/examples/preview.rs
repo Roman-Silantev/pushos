@@ -2,14 +2,15 @@
 //! a Push 2 attached.
 //!
 //! ```text
-//! cargo run -p pushos-ui --example preview -- /tmp/pushos.ppm [page|overlay|splash|offline]
+//! cargo run -p pushos-ui --example preview -- /tmp/pushos.ppm [page|sessions|overlay|splash|offline]
 //! ```
 
 use std::io::Write as _;
 
 use pushos_domain::ports::{DISPLAY_HEIGHT, DISPLAY_WIDTH, DisplayFrame};
 use pushos_ui::{
-    Notice, Overlay, PageView, PushRenderer, Slot, Splash, SurfacePresence, Tone, UiSnapshot,
+    Notice, Overlay, PageView, PushRenderer, SessionLine, Slot, Splash, SurfacePresence, Tone,
+    UiSnapshot,
 };
 
 fn main() -> std::io::Result<()> {
@@ -19,6 +20,7 @@ fn main() -> std::io::Result<()> {
     let mode = std::env::args().nth(2).unwrap_or_else(|| "page".to_owned());
 
     let snapshot = match mode.as_str() {
+        "sessions" => sessions(),
         "overlay" => overlay(),
         "splash" => splash(),
         "offline" => UiSnapshot::disconnected(),
@@ -83,7 +85,29 @@ fn page() -> UiSnapshot {
         )),
         overlay: None,
         splash: None,
-        agents: Vec::new(),
+        sessions: Vec::new(),
+    }
+}
+
+/// Agents and terminals working at the same time.
+///
+/// The columns belong to whatever is running, whichever kind of work it is,
+/// with the ones wanting attention first.
+fn sessions() -> UiSnapshot {
+    UiSnapshot {
+        notice: None,
+        sessions: vec![
+            SessionLine::new("reviewer", "waiting", Tone::Attention)
+                .with_detail("May I push to origin/main?")
+                .selected(),
+            SessionLine::new("tests", "failed", Tone::Failure).with_detail("3 failed, 461 passed"),
+            SessionLine::new("builder", "working", Tone::Active)
+                .with_detail("editing crates/pushos-terminal/src/pty.rs"),
+            SessionLine::new("server", "running", Tone::Active)
+                .with_detail("listening on 127.0.0.1:4000"),
+            SessionLine::new("architect", "sleeping", Tone::Muted),
+        ],
+        ..page()
     }
 }
 

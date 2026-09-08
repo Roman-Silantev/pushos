@@ -6,11 +6,12 @@
 use std::sync::Arc;
 
 use pushos_acp::{AcpBackend, AgentCommand};
-use pushos_actions::providers::{agent, application, media, page, shell, shortcut};
+use pushos_actions::providers::{agent, application, media, page, shell, shortcut, terminal};
 use pushos_agents::{AgentRoster, AgentSupervisor};
 use pushos_config::RuntimeConfig;
-use pushos_domain::ports::{ActionProvider, AgentObserver, ProcessRunner};
+use pushos_domain::ports::{ActionProvider, AgentObserver, ProcessRunner, TerminalObserver};
 use pushos_macos::{AppleScriptMedia, OpenLauncher, ShortcutsCli, SystemProcessRunner};
+use pushos_terminal::{PtyTerminals, TerminalSupervisor};
 use tracing::{info, warn};
 
 /// Builds the agent supervisor from configuration.
@@ -68,6 +69,25 @@ pub(crate) fn agents(
     )))
 }
 
+/// Builds the terminal supervisor.
+///
+/// Always built, unlike the agents: a terminal needs nothing configured, since
+/// the operator's own shell is always there to run.
+pub(crate) fn terminals(
+    config: &RuntimeConfig,
+    observer: Arc<dyn TerminalObserver>,
+) -> Arc<TerminalSupervisor> {
+    let host = Arc::new(PtyTerminals::new(observer));
+    let mut supervisor = TerminalSupervisor::new(host, config.workspace_root());
+
+    if let Some(shell) = &config.shell {
+        info!(%shell, "terminals will run the configured shell");
+        supervisor = supervisor.with_shell(shell.as_str());
+    }
+
+    Arc::new(supervisor)
+}
+
 /// The command that starts a configured provider.
 fn command_for(entry: &pushos_config::model::ProviderEntry) -> Option<AgentCommand> {
     let command = match &entry.program {
@@ -88,6 +108,7 @@ fn command_for(entry: &pushos_config::model::ProviderEntry) -> Option<AgentComma
 pub(crate) fn providers(
     config: &RuntimeConfig,
     agents: Option<&Arc<AgentSupervisor>>,
+    terminals: &Arc<TerminalSupervisor>,
 ) -> Vec<Arc<dyn ActionProvider>> {
     let processes: Arc<dyn ProcessRunner> = Arc::new(SystemProcessRunner::new());
 
@@ -100,6 +121,7 @@ pub(crate) fn providers(
             ShortcutsCli::new(Arc::clone(&processes)),
         ))),
         Arc::new(shell::ShellProvider::new(Arc::clone(&processes))),
+        Arc::new(terminal::TerminalProvider::new(Arc::clone(terminals))),
     ];
 
     // Agents are offered only when there is something to run them, so a
@@ -141,14 +163,22 @@ mod tests {
         RuntimeConfig::build(&parsed).expect("valid")
     }
 
+    /// A supervisor over a real pseudo-terminal host that is never asked to
+    /// open anything, so no process is started.
+    fn idle_terminals(config: &RuntimeConfig) -> Arc<TerminalSupervisor> {
+        let (reporter, _updates) = pushos_runtime::TerminalReporter::new();
+        terminals(config, Arc::new(reporter))
+    }
+
     #[test]
     fn every_shipped_namespace_is_present_by_default() {
-        let namespaces: Vec<_> = providers(&config(""), None)
+        let settings = config("");
+        let namespaces: Vec<_> = providers(&settings, None, &idle_terminals(&settings))
             .iter()
             .map(|provider| provider.name().to_string())
             .collect();
 
-        for expected in ["page", "app", "shortcut", "shell", "media"] {
+        for expected in ["page", "app", "shortcut", "shell", "media", "terminal"] {
             assert!(
                 namespaces.contains(&expected.to_owned()),
                 "`{expected}` is missing"
@@ -158,7 +188,8 @@ mod tests {
 
     #[test]
     fn namespaces_are_unique_so_the_registry_will_accept_them_all() {
-        let mut namespaces: Vec<_> = providers(&config(""), None)
+        let settings = config("");
+        let mut namespaces: Vec<_> = providers(&settings, None, &idle_terminals(&settings))
             .iter()
             .map(|provider| provider.name().to_string())
             .collect();
@@ -172,7 +203,8 @@ mod tests {
     fn a_surface_with_no_agent_roles_carries_no_agent_namespace() {
         // A namespace that refuses every binding is worse than none: the
         // failure would say "unknown verb" rather than "no agents configured".
-        let namespaces: Vec<_> = providers(&config(""), None)
+        let settings = config("");
+        let namespaces: Vec<_> = providers(&settings, None, &idle_terminals(&settings))
             .iter()
             .map(|provider| provider.name().to_string())
             .collect();
@@ -261,9 +293,31 @@ mod tests {
     }
 
     #[test]
+    fn terminals_are_available_with_nothing_configured() {
+        // Unlike agents, a terminal needs no provider installed: the
+        // operator's own shell is always there.
+        let settings = config("");
+        let namespaces: Vec<_> = providers(&settings, None, &idle_terminals(&settings))
+            .iter()
+            .map(|provider| provider.name().to_string())
+            .collect();
+        assert!(namespaces.contains(&"terminal".to_owned()));
+    }
+
+    #[tokio::test]
+    async fn a_configured_shell_is_what_a_terminal_runs() {
+        let settings = config("[runtime]\nshell = \"/bin/dash\"\n");
+        let supervisor = idle_terminals(&settings);
+
+        // Nothing has been opened, so nothing has been started.
+        assert_eq!(supervisor.live_count().await, 0);
+        assert_eq!(settings.shell.as_deref(), Some("/bin/dash"));
+    }
+
+    #[test]
     fn an_unusable_media_player_leaves_the_namespace_unclaimed() {
         let unusable = config("[runtime]\nmedia_player = \"Music\\\" to quit\"\n");
-        let namespaces: Vec<_> = providers(&unusable, None)
+        let namespaces: Vec<_> = providers(&unusable, None, &idle_terminals(&unusable))
             .iter()
             .map(|provider| provider.name().to_string())
             .collect();

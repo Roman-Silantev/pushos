@@ -178,6 +178,10 @@ async fn answer(request: Request, plane: &dyn ControlPlane) -> Response {
             Ok(report) => Response::Tested(report),
             Err(failure) => Response::Failed(failure),
         },
+        Request::Sessions => match plane.sessions().await {
+            Ok(sessions) => Response::Sessions(sessions),
+            Err(failure) => Response::Failed(failure),
+        },
         Request::Reload => match plane.reload().await {
             Ok(status) => Response::Status(status),
             Err(failure) => Response::Failed(failure),

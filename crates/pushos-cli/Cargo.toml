@@ -25,6 +25,7 @@ pushos-ui = { workspace = true }
 pushos-push2 = { workspace = true }
 pushos-runtime = { workspace = true }
 pushos-storage = { workspace = true }
+pushos-terminal = { workspace = true }
 pushos-testkit = { workspace = true }
 clap = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "signal", "time"] }

@@ -84,6 +84,51 @@ pub(crate) async fn bindings() -> Result<(), String> {
     Ok(())
 }
 
+/// Prints every session, and how a binding would name it.
+///
+/// The standing target is printed alongside the exact one because they are not
+/// interchangeable: binding to a session identifier stops meaning anything the
+/// moment that session ends.
+pub(crate) async fn sessions() -> Result<(), String> {
+    let mut client = connect().await?;
+    client.handshake().await.map_err(|error| describe(&error))?;
+
+    let Response::Sessions(list) = client
+        .send(&Request::Sessions)
+        .await
+        .map_err(|error| describe(&error))?
+    else {
+        return Err("PushOS answered with something unexpected".to_owned());
+    };
+
+    if list.sessions.is_empty() {
+        println!("nothing is running");
+        return Ok(());
+    }
+
+    for session in list.sessions {
+        let mark = if session.selected { '>' } else { ' ' };
+        println!(
+            "{mark} {:<9} {:<16} {:<10} {}",
+            // The namespace that drives it, which is also what a binding
+            // writes, so the listing and the action stay in step.
+            session.kind.provider(),
+            session.name,
+            session.status,
+            session.detail.as_deref().unwrap_or("")
+        );
+        println!(
+            "  {:<9} bind to {}",
+            "",
+            session
+                .standing_target
+                .as_deref()
+                .unwrap_or(session.target.as_str())
+        );
+    }
+    Ok(())
+}
+
 fn scope_of(address: &pushos_config::BindingAddress) -> String {
     match (&address.workspace, &address.page) {
         (Some(workspace), Some(page)) => format!("workspace {workspace}, page {page}"),

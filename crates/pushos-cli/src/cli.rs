@@ -46,6 +46,9 @@ pub(crate) enum Command {
     /// List what a running PushOS has bound.
     Bindings,
 
+    /// List the agent and terminal sessions a running PushOS is driving.
+    Sessions,
+
     /// Write a starting configuration.
     Init {
         /// Overwrite an existing configuration.
@@ -126,6 +129,14 @@ mod tests {
                 level.filter().starts_with("warn"),
                 "`{level:?}` should leave dependencies at warn"
             );
+        }
+    }
+
+    #[test]
+    fn every_read_only_command_needs_no_arguments() {
+        for name in ["status", "bindings", "sessions", "check", "doctor"] {
+            Cli::try_parse_from(["pushos", name])
+                .unwrap_or_else(|error| panic!("`pushos {name}` should parse: {error}"));
         }
     }
 

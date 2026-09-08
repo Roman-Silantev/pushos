@@ -19,9 +19,10 @@ const EMPTY_MARK_WIDTH: f32 = 18.0;
 
 /// Draws every column.
 ///
-/// Agents take the columns when any are running. A surface with agents on it is
-/// one where what they are doing matters more than what the buttons around the
-/// display would do, and there are only eight columns.
+/// Sessions take the columns when any are running. A surface with agents and
+/// terminals working on it is one where what they are doing matters more than
+/// what the buttons around the display would do, and there are only eight
+/// columns.
 pub(crate) fn draw_slots(
     canvas: &mut Canvas,
     text: &mut TextRenderer,
@@ -29,8 +30,8 @@ pub(crate) fn draw_slots(
     layout: &Layout,
     snapshot: &UiSnapshot,
 ) {
-    if !snapshot.agents.is_empty() {
-        draw_agents(canvas, text, theme, layout, snapshot);
+    if !snapshot.sessions.is_empty() {
+        draw_sessions(canvas, text, theme, layout, snapshot);
         return;
     }
 
@@ -67,8 +68,8 @@ fn label_baseline(theme: &Theme, inner: Area) -> f32 {
     inner.y + ((inner.height - block) / 2.0).max(0.0) + theme.sizes.body
 }
 
-/// Draws the running agents across the columns.
-fn draw_agents(
+/// Draws the running sessions across the columns.
+fn draw_sessions(
     canvas: &mut Canvas,
     text: &mut TextRenderer,
     theme: &Theme,
@@ -77,7 +78,7 @@ fn draw_agents(
 ) {
     for index in 0..crate::snapshot::SLOT_COUNT {
         let area = layout.slot(index);
-        let Some(agent) = snapshot.agents.get(index) else {
+        let Some(session) = snapshot.sessions.get(index) else {
             let inner = area.inset(SLOT_PADDING);
             canvas.fill(
                 Area::new(
@@ -91,14 +92,14 @@ fn draw_agents(
             continue;
         };
 
-        let mut slot = Slot::new(agent.role.clone()).with_tone(agent.tone);
-        // The state is always shown, and the agent's own words only when there
-        // is room for both to be read.
-        slot = slot.with_value(match &agent.detail {
-            Some(detail) => format!("{} \u{2014} {detail}", agent.state),
-            None => agent.state.clone(),
+        let mut slot = Slot::new(session.name.clone()).with_tone(session.tone);
+        // The state is always shown, and what the session itself said only
+        // when there is room for both to be read.
+        slot = slot.with_value(match &session.detail {
+            Some(detail) => format!("{} \u{2014} {detail}", session.state),
+            None => session.state.clone(),
         });
-        if agent.selected {
+        if session.selected {
             slot = slot.selected();
         }
 

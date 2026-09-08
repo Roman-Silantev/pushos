@@ -4,11 +4,17 @@ mod agents;
 mod input;
 pub(crate) mod leds;
 mod render;
+mod sessions;
 pub(crate) mod slots;
 mod surface;
+mod terminals;
 
-pub(crate) use agents::lines_for;
+pub(crate) use agents::lines_for as agent_lines;
 pub use agents::{AgentReporter, AgentTask};
 pub use input::{InputTask, SurfaceView};
 pub use render::RenderTask;
+pub(crate) use sessions::SessionPublisher;
 pub use surface::SurfaceState;
+pub(crate) use terminals::describe as describe_terminal;
+pub(crate) use terminals::lines_for as terminal_lines;
+pub use terminals::{TerminalReporter, TerminalTask};

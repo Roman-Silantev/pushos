@@ -32,7 +32,7 @@ pub struct UiSnapshot {
     /// The waiting screen, which takes over everything and animates.
     pub splash: Option<Splash>,
     /// The agent sessions worth showing, most recently active first.
-    pub agents: Vec<AgentLine>,
+    pub sessions: Vec<SessionLine>,
 }
 
 impl UiSnapshot {
@@ -270,9 +270,9 @@ impl Overlay {
 
 /// One agent session, as the display shows it.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AgentLine {
-    /// The role it fills.
-    pub role: String,
+pub struct SessionLine {
+    /// What the operator calls it: an agent's role, or a terminal's name.
+    pub name: String,
     /// What it is doing, in one word.
     pub state: String,
     /// The last thing it said.
@@ -283,11 +283,11 @@ pub struct AgentLine {
     pub selected: bool,
 }
 
-impl AgentLine {
-    /// Builds a line for a role in a state.
-    pub fn new(role: impl Into<String>, state: impl Into<String>, tone: Tone) -> Self {
+impl SessionLine {
+    /// Builds a line for something in a state.
+    pub fn new(name: impl Into<String>, state: impl Into<String>, tone: Tone) -> Self {
         Self {
-            role: role.into(),
+            name: name.into(),
             state: state.into(),
             detail: None,
             tone,

@@ -9,11 +9,11 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use pushos_actions::{ActionDispatcher, ProviderRegistry};
-use pushos_api::ControlPlane;
 use pushos_api::protocol::{
     BindingList, ControlInfo, EditReport, Failure, FailureKind, GridPosition, PROTOCOL_VERSION,
-    PageInfo, ProviderInfo, StatusReport, SurfaceReport, TestReport, Vocabulary,
+    PageInfo, ProviderInfo, SessionList, StatusReport, SurfaceReport, TestReport, Vocabulary,
 };
+use pushos_api::{ControlPlane, SessionSource};
 use pushos_config::{
     BindingAddress, BindingSpec, ConfigDocuments, ConfigError, ConfigStore, RuntimeConfig,
 };
@@ -38,6 +38,8 @@ pub struct RuntimeControl {
     providers: Arc<ProviderRegistry>,
     dispatcher: Arc<ActionDispatcher>,
     view: watch::Receiver<SurfaceView>,
+    /// Where live sessions are read from, one source per kind of work.
+    sessions: Vec<Arc<dyn SessionSource>>,
 }
 
 impl RuntimeControl {
@@ -53,7 +55,15 @@ impl RuntimeControl {
             providers,
             dispatcher,
             view,
+            sessions: Vec::new(),
         }
+    }
+
+    /// Reports the sessions these sources are running.
+    #[must_use]
+    pub fn with_sessions(mut self, sources: Vec<Arc<dyn SessionSource>>) -> Self {
+        self.sessions = sources;
+        self
     }
 
     fn report(&self, config: &RuntimeConfig) -> StatusReport {
@@ -222,6 +232,14 @@ impl ControlPlane for RuntimeControl {
                 Err(Failure::new(kind, error.to_string()))
             }
         }
+    }
+
+    async fn sessions(&self) -> Result<SessionList, Failure> {
+        let mut sessions = Vec::new();
+        for source in &self.sessions {
+            sessions.extend(source.sessions().await);
+        }
+        Ok(SessionList { sessions })
     }
 
     async fn reload(&self) -> Result<StatusReport, Failure> {

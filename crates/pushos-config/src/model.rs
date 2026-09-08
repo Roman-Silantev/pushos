@@ -67,6 +67,10 @@ pub struct RuntimeSection {
     ///
     /// A leading `~` is expanded. Defaults to wherever PushOS was started.
     pub workspace_root: Option<String>,
+    /// The program a terminal runs when a binding does not name one.
+    ///
+    /// Defaults to the operator's own shell.
+    pub shell: Option<String>,
 }
 
 impl RuntimeSection {
@@ -79,6 +83,9 @@ impl RuntimeSection {
         }
         if other.workspace_root.is_some() {
             self.workspace_root = other.workspace_root;
+        }
+        if other.shell.is_some() {
+            self.shell = other.shell;
         }
     }
 }

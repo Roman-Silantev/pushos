@@ -9,12 +9,17 @@ mod actors;
 mod app;
 mod bus;
 mod control;
+mod sessions;
 mod shutdown;
 mod supervisor;
 
-pub use actors::{AgentReporter, AgentTask, InputTask, RenderTask, SurfaceState, SurfaceView};
+pub use actors::{
+    AgentReporter, AgentTask, InputTask, RenderTask, SurfaceState, SurfaceView, TerminalReporter,
+    TerminalTask,
+};
 pub use app::Runtime;
 pub use bus::{EventBus, EventSubscription};
 pub use control::RuntimeControl;
+pub use sessions::{AgentSessions, TerminalSessions};
 pub use shutdown::{SHUTDOWN_GRACE, Shutdown};
 pub use supervisor::{Backoff, INITIAL_BACKOFF, MAXIMUM_BACKOFF};

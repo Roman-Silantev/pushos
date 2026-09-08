@@ -5,7 +5,9 @@
 
 use async_trait::async_trait;
 
-use crate::protocol::{BindingList, EditReport, Failure, StatusReport, TestReport, Vocabulary};
+use crate::protocol::{
+    BindingList, EditReport, Failure, SessionList, StatusReport, TestReport, Vocabulary,
+};
 use pushos_config::{BindingAddress, BindingSpec};
 
 /// The operations a control client can ask for.
@@ -29,6 +31,24 @@ pub trait ControlPlane: Send + Sync + std::fmt::Debug {
     /// Runs a configured binding's action once.
     async fn test(&self, address: BindingAddress) -> Result<TestReport, Failure>;
 
+    /// Every live agent and terminal session.
+    ///
+    /// Defaulted to nothing: a PushOS with no agent roles configured and no
+    /// terminals open has no sessions, and that is not a failure.
+    async fn sessions(&self) -> Result<SessionList, Failure> {
+        Ok(SessionList::default())
+    }
+
     /// Re-reads the configuration from disk.
     async fn reload(&self) -> Result<StatusReport, Failure>;
+}
+
+/// Somewhere the live sessions can be read from.
+///
+/// Agents and terminals answer this separately, so a PushOS with only one of
+/// them configured carries only that one and neither knows about the other.
+#[async_trait]
+pub trait SessionSource: Send + Sync + std::fmt::Debug {
+    /// Every session this source knows about, oldest first.
+    async fn sessions(&self) -> Vec<crate::protocol::SessionInfo>;
 }

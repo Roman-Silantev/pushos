@@ -99,8 +99,9 @@ async fn run_once_on_fake_surface(
 fn build_runtime(config: &Arc<ConfigStore>, storage: &StorageWriter) -> Runtime {
     let mut runtime = Runtime::new(Arc::clone(config)).with_storage(storage.handle());
 
-    // Agent activity is reported from the thread reading a provider's output,
-    // so it arrives on its own stream rather than through the surface.
+    // Agent and terminal activity is reported from the thread reading a
+    // program's output, so each arrives on its own stream rather than through
+    // the surface.
     let (reporter, updates) = pushos_runtime::AgentReporter::new();
     let current = config.current();
     let agents = host::agents(&current, Arc::new(reporter), &current.workspace_root());
@@ -110,6 +111,10 @@ fn build_runtime(config: &Arc<ConfigStore>, storage: &StorageWriter) -> Runtime 
         runtime = runtime.with_agents(Arc::clone(supervisor), updates);
     }
 
+    let (terminal_reporter, terminal_updates) = pushos_runtime::TerminalReporter::new();
+    let terminals = host::terminals(&current, Arc::new(terminal_reporter));
+    runtime = runtime.with_terminals(Arc::clone(&terminals), terminal_updates);
+
     // Without a socket PushOS still runs; it simply cannot be configured from
     // Studio. That is worth saying rather than refusing to start over.
     match open_control_socket() {
@@ -117,7 +122,7 @@ fn build_runtime(config: &Arc<ConfigStore>, storage: &StorageWriter) -> Runtime 
         Err(reason) => warn!(reason, "PushOS Studio will not be able to connect"),
     }
 
-    for provider in host::providers(&current, agents.as_ref()) {
+    for provider in host::providers(&current, agents.as_ref(), &terminals) {
         let name = provider.name();
         match runtime.with_provider(provider) {
             Ok(next) => runtime = next,

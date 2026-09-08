@@ -163,7 +163,7 @@ mod tests {
             notice: None,
             overlay: None,
             splash: None,
-            agents: Vec::new(),
+            sessions: Vec::new(),
         }
     }
 
@@ -387,10 +387,10 @@ mod tests {
         renderer.render(&snapshot, &mut without);
 
         let mut busy = snapshot;
-        busy.agents = vec![
-            crate::snapshot::AgentLine::new("Builder", "working", Tone::Active)
+        busy.sessions = vec![
+            crate::snapshot::SessionLine::new("Builder", "working", Tone::Active)
                 .with_detail("rewriting the queue"),
-            crate::snapshot::AgentLine::new("Reviewer", "waiting", Tone::Attention).selected(),
+            crate::snapshot::SessionLine::new("Reviewer", "waiting", Tone::Attention).selected(),
         ];
         renderer.render(&busy, &mut with_agents);
 
@@ -408,7 +408,7 @@ mod tests {
         let mut waiting = DisplayFrame::blank();
 
         let mut snapshot = populated();
-        snapshot.agents = vec![crate::snapshot::AgentLine::new(
+        snapshot.sessions = vec![crate::snapshot::SessionLine::new(
             "Builder",
             "working",
             Tone::Active,
@@ -416,7 +416,7 @@ mod tests {
         renderer.render(&snapshot, &mut working);
 
         renderer.invalidate();
-        snapshot.agents = vec![crate::snapshot::AgentLine::new(
+        snapshot.sessions = vec![crate::snapshot::SessionLine::new(
             "Builder",
             "waiting",
             Tone::Attention,

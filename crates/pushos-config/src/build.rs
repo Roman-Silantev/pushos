@@ -39,6 +39,8 @@ pub struct RuntimeConfig {
     pub providers: Vec<crate::model::ProviderEntry>,
     /// Where agents work when a role does not name a workspace.
     pub workspace_root: Option<std::path::PathBuf>,
+    /// The program a terminal runs when a binding does not name one.
+    pub shell: Option<String>,
 }
 
 impl RuntimeConfig {
@@ -85,6 +87,7 @@ impl RuntimeConfig {
                 .workspace_root
                 .as_deref()
                 .map(crate::paths::expand_home),
+            shell: file.runtime.shell.clone(),
         })
     }
 
@@ -100,6 +103,7 @@ impl RuntimeConfig {
             agents: Vec::new(),
             providers: Vec::new(),
             workspace_root: None,
+            shell: None,
         }
     }
 

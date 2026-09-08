@@ -12,6 +12,7 @@ authors.workspace = true
 pushos-domain = { workspace = true }
 pushos-actions = { workspace = true }
 pushos-agents = { workspace = true }
+pushos-terminal = { workspace = true }
 pushos-api = { workspace = true }
 pushos-bindings = { workspace = true }
 pushos-config = { workspace = true }

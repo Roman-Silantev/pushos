@@ -11,7 +11,7 @@ use pushos_domain::agent::AgentState;
 use pushos_domain::event::{DomainEvent, EventEnvelope, EventSource};
 use pushos_domain::ids::{CorrelationId, SessionId};
 use pushos_domain::ports::{AgentEvent, AgentObserver};
-use pushos_ui::{AgentLine, SLOT_COUNT, Tone};
+use pushos_ui::{SLOT_COUNT, SessionLine, Tone};
 use tokio::sync::mpsc;
 use tracing::debug;
 
@@ -118,7 +118,7 @@ impl AgentTask {
 ///
 /// Sessions waiting on the operator come first: with only eight columns, the
 /// ones that have stopped and need a decision are the ones that must be visible.
-pub(crate) fn lines_for(sessions: &[Session], selected: Option<&SessionId>) -> Vec<AgentLine> {
+pub(crate) fn lines_for(sessions: &[Session], selected: Option<&SessionId>) -> Vec<SessionLine> {
     let mut ordered: Vec<&Session> = sessions.iter().filter(|s| s.is_live()).collect();
     ordered.sort_by_key(|session| (!session.state.needs_operator(), !session.state.is_busy()));
 
@@ -126,7 +126,7 @@ pub(crate) fn lines_for(sessions: &[Session], selected: Option<&SessionId>) -> V
         .into_iter()
         .take(SLOT_COUNT)
         .map(|session| {
-            let mut line = AgentLine::new(
+            let mut line = SessionLine::new(
                 session.agent.to_string(),
                 session.state.to_string(),
                 tone_for(session.state),
@@ -189,7 +189,7 @@ mod tests {
 
         let lines = lines_for(&sessions, None);
         assert_eq!(
-            lines[0].role, "builder",
+            lines[0].name, "builder",
             "the one that has stopped must be visible"
         );
         assert_eq!(lines[0].tone, Tone::Attention);
@@ -203,7 +203,7 @@ mod tests {
         ];
 
         let lines = lines_for(&sessions, None);
-        assert_eq!(lines[0].role, "busy");
+        assert_eq!(lines[0].name, "busy");
         assert_eq!(lines[0].tone, Tone::Active);
     }
 
@@ -216,7 +216,7 @@ mod tests {
 
         let lines = lines_for(&sessions, None);
         assert_eq!(lines.len(), 1, "a finished session takes no column");
-        assert_eq!(lines[0].role, "busy");
+        assert_eq!(lines[0].name, "busy");
     }
 
     #[test]
@@ -244,13 +244,13 @@ mod tests {
         let lines = lines_for(&sessions, Some(&SessionId::new("s2")));
         let reviewer = lines
             .iter()
-            .find(|line| line.role == "reviewer")
+            .find(|line| line.name == "reviewer")
             .expect("shown");
         assert!(reviewer.selected);
         assert!(
             !lines
                 .iter()
-                .find(|line| line.role == "builder")
+                .find(|line| line.name == "builder")
                 .expect("shown")
                 .selected
         );

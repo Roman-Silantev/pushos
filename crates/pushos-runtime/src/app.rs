@@ -14,9 +14,10 @@ use pushos_storage::{EventRecord, Storage};
 use pushos_ui::PushRenderer;
 use tracing::{info, warn};
 
-use crate::actors::{AgentTask, InputTask, RenderTask};
+use crate::actors::{AgentTask, InputTask, RenderTask, SessionPublisher, TerminalTask};
 use crate::bus::EventBus;
 use crate::control::RuntimeControl;
+use crate::sessions::{AgentSessions, TerminalSessions};
 use crate::shutdown::Shutdown;
 
 /// A configured but not yet running PushOS.
@@ -26,6 +27,7 @@ pub struct Runtime {
     storage: Option<Storage>,
     control: Option<ControlServer>,
     agents: Option<AgentWiring>,
+    terminals: Option<TerminalWiring>,
     bus: EventBus,
 }
 
@@ -35,6 +37,15 @@ struct AgentWiring {
     updates: tokio::sync::mpsc::UnboundedReceiver<(
         pushos_domain::ids::SessionId,
         pushos_domain::ports::AgentEvent,
+    )>,
+}
+
+/// The terminal supervisor and the stream its host reports on.
+struct TerminalWiring {
+    supervisor: Arc<pushos_terminal::TerminalSupervisor>,
+    updates: tokio::sync::mpsc::UnboundedReceiver<(
+        pushos_domain::ids::SessionId,
+        pushos_domain::ports::TerminalEvent,
     )>,
 }
 
@@ -56,6 +67,7 @@ impl Runtime {
             storage: None,
             control: None,
             agents: None,
+            terminals: None,
             bus: EventBus::new(),
         }
     }
@@ -73,6 +85,25 @@ impl Runtime {
         )>,
     ) -> Self {
         self.agents = Some(AgentWiring {
+            supervisor,
+            updates,
+        });
+        self
+    }
+
+    /// Runs terminals, and puts what they are doing on the surface.
+    ///
+    /// Optional: PushOS runs without terminals, it simply has none to drive.
+    #[must_use]
+    pub fn with_terminals(
+        mut self,
+        supervisor: Arc<pushos_terminal::TerminalSupervisor>,
+        updates: tokio::sync::mpsc::UnboundedReceiver<(
+            pushos_domain::ids::SessionId,
+            pushos_domain::ports::TerminalEvent,
+        )>,
+    ) -> Self {
+        self.terminals = Some(TerminalWiring {
             supervisor,
             updates,
         });
@@ -136,13 +167,26 @@ impl Runtime {
         );
         let render = RenderTask::new(output, renderer, view.clone());
 
+        // Built before the tasks take ownership, so the control socket can
+        // list sessions without reaching into either supervisor itself.
+        let mut publisher = SessionPublisher::new(refresh);
+        let mut sources: Vec<Arc<dyn pushos_api::SessionSource>> = Vec::new();
+        if let Some(wiring) = &self.agents {
+            publisher = publisher.with_agents(Arc::clone(&wiring.supervisor));
+            sources.push(Arc::new(AgentSessions::new(Arc::clone(&wiring.supervisor))));
+        }
+        if let Some(wiring) = &self.terminals {
+            publisher = publisher.with_terminals(Arc::clone(&wiring.supervisor));
+            sources.push(Arc::new(TerminalSessions::new(Arc::clone(
+                &wiring.supervisor,
+            ))));
+        }
+
         if let Some(server) = self.control {
-            let plane: Arc<dyn ControlPlane> = Arc::new(RuntimeControl::new(
-                Arc::clone(&self.config),
-                providers,
-                dispatcher,
-                view,
-            ));
+            let plane: Arc<dyn ControlPlane> = Arc::new(
+                RuntimeControl::new(Arc::clone(&self.config), providers, dispatcher, view)
+                    .with_sessions(sources),
+            );
             let serving = shutdown.clone();
             shutdown.spawn(async move {
                 server
@@ -173,26 +217,17 @@ impl Runtime {
         }
 
         if let Some(wiring) = self.agents {
-            let supervisor = Arc::clone(&wiring.supervisor);
-            let refresh = refresh.clone();
             let task = AgentTask::new(wiring.supervisor, wiring.updates, self.bus.clone());
             let watching = shutdown.clone();
+            let publishing = publisher.clone();
+            shutdown.spawn(async move { task.run(watching, move || publishing.publish()).await });
+        }
 
-            shutdown.spawn(async move {
-                task.run(watching, move || {
-                    // Reading the sessions needs a lock the renderer must never
-                    // take, so the lines are built here and published.
-                    let supervisor = Arc::clone(&supervisor);
-                    let refresh = refresh.clone();
-                    tokio::spawn(async move {
-                        let sessions = supervisor.sessions().await;
-                        let selected = supervisor.selected().await.map(|session| session.id);
-                        let _ =
-                            refresh.send(crate::actors::lines_for(&sessions, selected.as_ref()));
-                    });
-                })
-                .await;
-            });
+        if let Some(wiring) = self.terminals {
+            let task = TerminalTask::new(wiring.supervisor, wiring.updates, self.bus.clone());
+            let watching = shutdown.clone();
+            let publishing = publisher.clone();
+            shutdown.spawn(async move { task.run(watching, move || publishing.publish()).await });
         }
 
         info!("PushOS running");

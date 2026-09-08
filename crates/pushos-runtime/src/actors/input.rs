@@ -51,13 +51,13 @@ pub struct InputTask {
     bus: EventBus,
     view: watch::Sender<SurfaceView>,
     reloads: watch::Receiver<u64>,
-    /// What the agents are doing, published by whoever is watching them.
-    agents: tokio::sync::mpsc::UnboundedReceiver<Vec<pushos_ui::AgentLine>>,
+    /// What the sessions are doing, published by whoever is watching them.
+    sessions: tokio::sync::mpsc::UnboundedReceiver<Vec<pushos_ui::SessionLine>>,
     gestures: Vec<GestureEvent>,
 }
 
-/// Tells the input pipeline what the agents are doing.
-pub(crate) type AgentRefresh = tokio::sync::mpsc::UnboundedSender<Vec<pushos_ui::AgentLine>>;
+/// Tells the input pipeline what the sessions are doing.
+pub(crate) type SessionRefresh = tokio::sync::mpsc::UnboundedSender<Vec<pushos_ui::SessionLine>>;
 
 impl std::fmt::Debug for InputTask {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -75,14 +75,14 @@ impl InputTask {
         dispatcher: Arc<ActionDispatcher>,
         config: Arc<ConfigStore>,
         bus: EventBus,
-    ) -> (Self, watch::Receiver<SurfaceView>, AgentRefresh) {
+    ) -> (Self, watch::Receiver<SurfaceView>, SessionRefresh) {
         let current = config.current();
         let surface = SurfaceState::new(Arc::clone(&current));
         let recognizer =
             GestureRecognizer::new(current.timing, current.bindings.gesture_interest().clone());
 
         let (view, receiver) = watch::channel(build_view(&surface));
-        let (refresh, agents) = tokio::sync::mpsc::unbounded_channel();
+        let (refresh, sessions) = tokio::sync::mpsc::unbounded_channel();
 
         let task = Self {
             input,
@@ -94,7 +94,7 @@ impl InputTask {
             config,
             bus,
             view,
-            agents,
+            sessions,
             gestures: Vec::with_capacity(4),
         };
         (task, receiver, refresh)
@@ -140,9 +140,9 @@ impl InputTask {
                     self.on_deadline(Instant::now()).await;
                 }
 
-                lines = self.agents.recv() => {
+                lines = self.sessions.recv() => {
                     let Some(lines) = lines else { continue };
-                    self.surface.set_agents(lines);
+                    self.surface.set_sessions(lines);
                     self.publish();
                 }
             }
