@@ -1,0 +1,457 @@
+/* PushOS Studio.
+ *
+ * Dark, because Studio sits beside a Push 2 under studio lighting, and quiet,
+ * because it is a configuration tool rather than the command centre. Nothing is
+ * signalled by colour alone: a bound control carries a count, and every status
+ * pill carries its own words.
+ */
+
+:root {
+  --ground: #0e0f13;
+  --panel: #161821;
+  --raised: #1d202b;
+  --line: #272b39;
+  --ink: #eef0f5;
+  --muted: #8890a4;
+  --accent: #58a6ff;
+  --good: #3fb950;
+  --bad: #f85149;
+  --radius: 8px;
+
+  color-scheme: dark;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", sans-serif;
+  font-size: 14px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* A fixed height, not a minimum: the surface scrolls inside its own pane so
+ * the inspector stays where the operator can reach it. */
+#studio {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* --- Header ------------------------------------------------------------- */
+
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 12px 18px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
+.product {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.status {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.pill {
+  padding: 3px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--raised);
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.pill.good {
+  color: var(--good);
+  border-color: color-mix(in srgb, var(--good) 40%, var(--line));
+}
+
+.pill.bad {
+  color: var(--bad);
+  border-color: color-mix(in srgb, var(--bad) 40%, var(--line));
+}
+
+.notice {
+  flex: 1 1 100%;
+  padding: 8px 12px;
+  border-radius: var(--radius);
+  border-left: 3px solid var(--muted);
+  background: var(--raised);
+}
+
+.notice.good {
+  border-left-color: var(--good);
+}
+
+.notice.bad {
+  border-left-color: var(--bad);
+}
+
+.notice-text {
+  margin: 0;
+}
+
+.notice-detail {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+}
+
+/* --- Layout ------------------------------------------------------------- */
+
+.body {
+  display: grid;
+  grid-template-columns: 232px minmax(0, 1fr);
+  flex: 1;
+  min-height: 0;
+}
+
+.sidebar {
+  padding: 16px;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  overflow-y: auto;
+}
+
+.sidebar-title {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.pages {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.page {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.page:hover {
+  background: var(--raised);
+}
+
+.page.current {
+  background: var(--raised);
+  border-color: var(--accent);
+}
+
+.page-name {
+  font-weight: 500;
+}
+
+.page-detail {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.source {
+  margin-top: 24px;
+}
+
+.source-path,
+.source-note {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.source-path {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: var(--ink);
+}
+
+.main {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  min-height: 0;
+  min-width: 0;
+}
+
+/* --- The virtual surface ------------------------------------------------ */
+
+.surface {
+  padding: 18px;
+  overflow-y: auto;
+}
+
+.group + .group {
+  margin-top: 18px;
+}
+
+.group-title {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.controls {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.controls.column {
+  flex-direction: column;
+  width: max-content;
+}
+
+.pad-grid {
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 6px;
+  max-width: 640px;
+}
+
+.control {
+  position: relative;
+  min-width: 62px;
+  min-height: 44px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  color: var(--muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.1s ease, background 0.1s ease;
+}
+
+.pad-grid .control {
+  aspect-ratio: 1;
+  min-width: 0;
+}
+
+.control:hover {
+  border-color: var(--muted);
+}
+
+.control.bound {
+  background: var(--raised);
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--accent) 35%, var(--line));
+}
+
+.control.selected {
+  border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  color: var(--ink);
+}
+
+.caption {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The count is the part that does not depend on colour. */
+.count {
+  position: absolute;
+  top: 3px;
+  right: 5px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* --- The inspector ------------------------------------------------------ */
+
+.inspector {
+  max-height: 44vh;
+  padding: 16px 18px;
+  background: var(--panel);
+  border-top: 1px solid var(--line);
+  overflow-y: auto;
+}
+
+.inspector-header {
+  margin-bottom: 12px;
+}
+
+.inspector-title {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 15px;
+}
+
+.inspector-scope,
+.empty {
+  margin: 4px 0 0;
+  color: var(--muted);
+}
+
+.gesture {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--ground);
+}
+
+.gesture + .gesture {
+  margin-top: 8px;
+}
+
+.gesture.assigned {
+  border-left: 3px solid var(--accent);
+}
+
+.gesture-heading {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.gesture-name {
+  font-weight: 600;
+}
+
+.gesture-state {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  font-size: 12px;
+}
+
+.gesture-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(120px, 1fr) minmax(120px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.field-name {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.field-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+}
+
+.field-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.gesture-buttons {
+  display: flex;
+  gap: 6px;
+}
+
+.button {
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--raised);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.button:hover {
+  border-color: var(--muted);
+}
+
+.button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #06121f;
+  font-weight: 500;
+}
+
+.button.danger:hover {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+/* --- Not running -------------------------------------------------------- */
+
+.disconnected {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 48px auto;
+  padding: 24px;
+  max-width: 480px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+
+.disconnected h2 {
+  margin: 0;
+  font-size: 16px;
+}
+
+.disconnected p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.command {
+  margin: 0;
+  padding: 8px 12px;
+  border-radius: 6px;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}

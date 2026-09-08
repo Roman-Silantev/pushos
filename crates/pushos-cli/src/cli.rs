@@ -40,6 +40,12 @@ pub(crate) enum Command {
     /// Report on the hardware, the configuration and the host integrations.
     Doctor,
 
+    /// Ask a running PushOS what it is doing.
+    Status,
+
+    /// List what a running PushOS has bound.
+    Bindings,
+
     /// Write a starting configuration.
     Init {
         /// Overwrite an existing configuration.

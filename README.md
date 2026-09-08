@@ -46,6 +46,8 @@ pushos init      # write a starting configuration
 pushos check     # validate it without running anything
 pushos doctor    # report on hardware, configuration and host integrations
 pushos run       # run it
+pushos status    # ask a running PushOS what it is doing
+pushos bindings  # list what it has bound
 ```
 
 - **All 141 Push 2 controls**, addressed by name. `pad.0`, `button.play`,
@@ -63,6 +65,8 @@ pushos run       # run it
   surface is untouched.
 - **A simulated surface**, so you can work on pages and bindings with no
   hardware attached: `pushos run --fake`.
+- **PushOS Studio**, a configuration application that talks to a running PushOS
+  over a local socket. See [`studio/`](studio/).
 
 ## Installing
 
@@ -136,10 +140,13 @@ crates/
 ├── pushos-ui          rendering for the display and the lights
 ├── pushos-config      loading, validation and hot reload
 ├── pushos-storage     local SQLite, with one write owner
+├── pushos-api         the local control socket and its protocol
 ├── pushos-runtime     the event bus, supervision and wiring
 ├── pushos-macos       the macOS half: processes, media, apps, Shortcuts
 ├── pushos-testkit     FakePush and a fake for every other port
 └── pushos-cli         the `pushos` binary
+
+studio/                a separate configuration application (Tauri)
 ```
 
 Dependencies point inward. The domain owns the interfaces; adapters implement
@@ -173,10 +180,11 @@ Built and tested:
 | Phase 1 | The action and binding kernel |
 | Phase 2 | The display: pages, widgets, notices, overlays |
 | Phase 3 | Page, application, Shortcut, media and shell actions |
+| Phase 4 | PushOS Studio and the control socket it talks to |
 
-Next, in order: PushOS Studio, agent integration over the Agent Client Protocol,
-sessions and terminals, workspaces, durable workflows, and voice. `SPEC.md`
-holds the full plan.
+Next, in order: agent integration over the Agent Client Protocol, sessions and
+terminals, workspaces, durable workflows, and voice. `SPEC.md` holds the full
+plan.
 
 ## Contributing
 

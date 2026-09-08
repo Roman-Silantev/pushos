@@ -116,6 +116,31 @@ Two things are refused rather than resolved:
 - **Unknown keys.** A misspelled field is an error, not a binding that silently
   does nothing.
 
+## Studio is a separate process, and stays one
+
+PushOS Studio embeds no runtime. It reaches a running PushOS over a Unix socket
+in the state directory, owner-readable only, with a newline-delimited JSON
+protocol small enough to drive by hand when something is wrong. Closing Studio
+stops nothing, and a crash in Studio cannot take the surface down.
+
+The socket carries a protocol version and a client refuses to talk to a runtime
+speaking a different one, rather than sending edits that might be read
+differently from how they were meant.
+
+Two decisions about what the socket will do are worth stating:
+
+- **Testing a binding runs a binding**, not an arbitrary action. A client can
+  only trigger something the operator has already configured, and the
+  dispatcher's permission check still applies.
+- **Edits go through the same path a hand edit does.** The configuration is
+  parsed with a format-preserving reader, changed, validated as a whole, and
+  only then written, each file replaced atomically. A file Studio has saved is
+  still a file its author recognises, and an edit that would break the surface
+  changes nothing on disk.
+
+The runtime is reloaded after a successful edit, so Studio cannot report success
+while the operator's pads carry on unchanged.
+
 ## Failures are classified, not stringified
 
 Every error carries a class: retryable, validation, permission,

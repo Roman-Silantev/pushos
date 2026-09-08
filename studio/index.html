@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PushOS Studio</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <main id="studio">
+      <!-- Replaced as soon as the application runs. If this is still on screen,
+           the script did not load, and that is worth saying rather than
+           showing an empty window. -->
+      <noscript>PushOS Studio needs JavaScript.</noscript>
+      <div class="disconnected" id="booting">
+        <h2>Starting PushOS Studio</h2>
+        <p>If this message stays, the application could not load its interface.</p>
+      </div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

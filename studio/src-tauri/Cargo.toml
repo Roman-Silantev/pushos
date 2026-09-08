@@ -1,0 +1,31 @@
+[package]
+name = "pushos-studio"
+description = "PushOS Studio: a configuration application for a running PushOS."
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "Apache-2.0"
+repository = "https://github.com/Roman-Silantev/pushos"
+authors = ["Roman Silantev"]
+
+[lib]
+name = "pushos_studio"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2.6", features = [] }
+
+[dependencies]
+pushos-api = { path = "../../crates/pushos-api" }
+pushos-config = { path = "../../crates/pushos-config" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tauri = { version = "2.11", features = [] }
+tokio = { version = "1.53", features = ["sync"] }
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }

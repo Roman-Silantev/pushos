@@ -57,3 +57,44 @@ jobs:
           -p pushos-ui
           -p pushos-runtime
           -p pushos-testkit
+
+  # Studio is a separate application with its own toolchain, kept out of the
+  # workspace so the core still builds on a machine with no desktop libraries.
+  studio:
+    name: studio
+    runs-on: macos-14
+    defaults:
+      run:
+        working-directory: studio
+    steps:
+      - uses: actions/checkout@v5
+      - run: rustup show active-toolchain || rustup toolchain install
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: studio/package-lock.json
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: studio/src-tauri
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Types
+        run: npm run check
+
+      - name: Frontend builds
+        run: npm run build
+
+      - name: Backend formatting
+        working-directory: studio/src-tauri
+        run: cargo fmt --check
+
+      - name: Backend lints
+        working-directory: studio/src-tauri
+        run: cargo clippy --all-targets
+
+      - name: Backend builds
+        working-directory: studio/src-tauri
+        run: cargo build

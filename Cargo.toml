@@ -1,6 +1,10 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
+# Studio is a separate application with a heavy graphical toolchain. Keeping it
+# out of the workspace means the core still builds and tests on a machine with
+# no desktop libraries, which is what the hardware-free CI job checks.
+exclude = ["studio/src-tauri"]
 
 [workspace.package]
 version = "0.1.0"
