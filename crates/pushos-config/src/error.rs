@@ -11,6 +11,16 @@ use pushos_bindings::BindingConflict;
 /// Why a configuration could not be loaded.
 #[derive(Debug, thiserror::Error)]
 pub enum ConfigError {
+    /// A file could not be written.
+    #[error("could not write `{path}`")]
+    Unwritable {
+        /// The file or directory.
+        path: PathBuf,
+        /// What the file system reported.
+        #[source]
+        source: std::io::Error,
+    },
+
     /// A file could not be read.
     #[error("could not read `{path}`")]
     Unreadable {

@@ -8,6 +8,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use pushos_api::ControlServer;
 use pushos_config::{ConfigStore, ConfigWatcher};
 use pushos_domain::ports::PushOutput;
 use pushos_push2::{PortRole, Push2Device};
@@ -98,6 +99,13 @@ async fn run_once_on_fake_surface(
 fn build_runtime(config: &Arc<ConfigStore>, storage: &StorageWriter) -> Runtime {
     let mut runtime = Runtime::new(Arc::clone(config)).with_storage(storage.handle());
 
+    // Without a socket PushOS still runs; it simply cannot be configured from
+    // Studio. That is worth saying rather than refusing to start over.
+    match open_control_socket() {
+        Ok(server) => runtime = runtime.with_control_socket(server),
+        Err(reason) => warn!(reason, "PushOS Studio will not be able to connect"),
+    }
+
     for provider in host::providers(&config.current()) {
         let name = provider.name();
         match runtime.with_provider(provider) {
@@ -112,6 +120,11 @@ fn build_runtime(config: &Arc<ConfigStore>, storage: &StorageWriter) -> Runtime 
     }
 
     runtime
+}
+
+fn open_control_socket() -> Result<ControlServer, String> {
+    let path = paths::control_socket()?;
+    ControlServer::bind(path).map_err(|error| error.to_string())
 }
 
 fn watch_configuration(config: Arc<ConfigStore>, shutdown: &Shutdown) {

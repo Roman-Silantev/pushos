@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-/// Where the database lives, alongside the configuration.
+/// The database's name inside the state directory.
 const STATE_FILE: &str = "state.sqlite";
 
 /// The configuration root to use, given what was asked for on the command line.
@@ -27,6 +27,14 @@ pub(crate) fn state_file() -> Result<PathBuf, String> {
     Ok(directory.join(STATE_FILE))
 }
 
+/// Where the control socket lives.
+pub(crate) fn control_socket() -> Result<PathBuf, String> {
+    let directory = pushos_config::paths::default_state_directory().ok_or_else(|| {
+        "could not work out where to keep runtime state; set XDG_DATA_HOME or HOME".to_owned()
+    })?;
+    Ok(pushos_api::socket_in(&directory))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -35,6 +43,14 @@ mod tests {
     fn an_explicit_path_is_used_as_given() {
         let requested = std::path::Path::new("/tmp/somewhere");
         assert_eq!(config_root(Some(requested)).expect("explicit"), requested);
+    }
+
+    #[test]
+    fn the_socket_sits_beside_the_database() {
+        let (Ok(socket), Ok(state)) = (control_socket(), state_file()) else {
+            return;
+        };
+        assert_eq!(socket.parent(), state.parent());
     }
 
     #[test]

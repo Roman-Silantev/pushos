@@ -7,6 +7,7 @@
 use std::sync::Arc;
 
 use pushos_actions::{ActionDispatcher, ProviderRegistry};
+use pushos_api::{ControlPlane, ControlServer};
 use pushos_config::ConfigStore;
 use pushos_domain::ports::{PushInput, PushOutput};
 use pushos_storage::{EventRecord, Storage};
@@ -15,6 +16,7 @@ use tracing::{info, warn};
 
 use crate::actors::{InputTask, RenderTask};
 use crate::bus::EventBus;
+use crate::control::RuntimeControl;
 use crate::shutdown::Shutdown;
 
 /// A configured but not yet running PushOS.
@@ -22,6 +24,7 @@ pub struct Runtime {
     config: Arc<ConfigStore>,
     providers: ProviderRegistry,
     storage: Option<Storage>,
+    control: Option<ControlServer>,
     bus: EventBus,
 }
 
@@ -41,6 +44,7 @@ impl Runtime {
             config,
             providers: ProviderRegistry::new(),
             storage: None,
+            control: None,
             bus: EventBus::new(),
         }
     }
@@ -63,6 +67,17 @@ impl Runtime {
         self
     }
 
+    /// Serves a control socket, so PushOS Studio can configure the surface
+    /// while it is running.
+    ///
+    /// Optional: without one PushOS runs perfectly well, it simply cannot be
+    /// configured from another process.
+    #[must_use]
+    pub fn with_control_socket(mut self, server: ControlServer) -> Self {
+        self.control = Some(server);
+        self
+    }
+
     /// The event bus, for components that want to observe the runtime.
     pub fn bus(&self) -> EventBus {
         self.bus.clone()
@@ -79,15 +94,31 @@ impl Runtime {
         shutdown: Shutdown,
     ) {
         let granted = self.config.current().permissions.clone();
-        let dispatcher = Arc::new(ActionDispatcher::new(Arc::new(self.providers), granted));
+        let providers = Arc::new(self.providers);
+        let dispatcher = Arc::new(ActionDispatcher::new(Arc::clone(&providers), granted));
 
         let (pipeline, view) = InputTask::new(
             input,
-            dispatcher,
+            Arc::clone(&dispatcher),
             Arc::clone(&self.config),
             self.bus.clone(),
         );
-        let render = RenderTask::new(output, renderer, view);
+        let render = RenderTask::new(output, renderer, view.clone());
+
+        if let Some(server) = self.control {
+            let plane: Arc<dyn ControlPlane> = Arc::new(RuntimeControl::new(
+                Arc::clone(&self.config),
+                providers,
+                dispatcher,
+                view,
+            ));
+            let serving = shutdown.clone();
+            shutdown.spawn(async move {
+                server
+                    .serve(plane, async move { serving.cancelled().await })
+                    .await;
+            });
+        }
 
         if let Some(storage) = self.storage.clone() {
             let mut events = self.bus.subscribe();

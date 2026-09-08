@@ -16,6 +16,7 @@ pushos-domain = { path = "crates/pushos-domain" }
 pushos-push2 = { path = "crates/pushos-push2" }
 pushos-bindings = { path = "crates/pushos-bindings" }
 pushos-actions = { path = "crates/pushos-actions" }
+pushos-api = { path = "crates/pushos-api" }
 pushos-ui = { path = "crates/pushos-ui" }
 pushos-config = { path = "crates/pushos-config" }
 pushos-storage = { path = "crates/pushos-storage" }
@@ -34,6 +35,10 @@ futures-util = { version = "0.3", default-features = false }
 # reference identity across a serialisation round trip is intended.
 serde = { version = "1.0.229", features = ["derive", "rc"] }
 toml = "1.1"
+# Format-preserving TOML, so Studio can edit a hand-written configuration
+# without discarding its comments and layout.
+toml_edit = "0.25"
+serde_json = "1.0"
 rusqlite = { version = "0.40", features = ["bundled"] }
 uuid = { version = "1.26", features = ["v4", "v7", "serde"] }
 time = { version = "0.3", features = ["formatting", "macros"] }

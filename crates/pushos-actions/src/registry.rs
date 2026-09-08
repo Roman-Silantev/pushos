@@ -10,7 +10,7 @@ use std::sync::Arc;
 use pushos_domain::action::ActionSelector;
 use pushos_domain::error::ActionError;
 use pushos_domain::ids::ProviderName;
-use pushos_domain::ports::ActionProvider;
+use pushos_domain::ports::{ActionProvider, ProviderCapabilities};
 
 /// Every action provider currently installed, indexed by namespace.
 #[derive(Debug, Default)]
@@ -57,6 +57,16 @@ impl ProviderRegistry {
                 verb: selector.verb.to_string(),
             })
         }
+    }
+
+    /// What a provider can do, looked up by its namespace.
+    ///
+    /// Exposed so a configuration tool can offer the verbs that actually exist
+    /// rather than a list it hard-coded and has to keep in step.
+    pub fn capabilities(&self, provider: &ProviderName) -> Option<ProviderCapabilities> {
+        self.providers
+            .get(provider)
+            .map(|provider| provider.capabilities())
     }
 
     /// The namespaces currently installed, in a stable order.
@@ -157,6 +167,21 @@ mod tests {
             .expect_err("the namespace is taken");
         assert_eq!(error.name.as_str(), "media");
         assert_eq!(registry.len(), 1);
+    }
+
+    #[test]
+    fn a_providers_verbs_can_be_looked_up_by_namespace() {
+        let registry = registry_with(&[Stub("media", &["play_pause", "next_track"])]);
+        let capabilities = registry
+            .capabilities(&ProviderName::new("media"))
+            .expect("the provider is installed");
+
+        assert_eq!(capabilities.verbs().len(), 2);
+        assert!(
+            registry
+                .capabilities(&ProviderName::new("absent"))
+                .is_none()
+        );
     }
 
     #[test]
