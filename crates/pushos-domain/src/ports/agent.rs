@@ -15,6 +15,10 @@ use crate::ids::{AgentId, ProviderName, SessionId, WorkspaceId};
 /// Negotiated once when a backend is reached. A capability that is absent is
 /// hidden rather than offered and refused, so the surface never advertises
 /// something the provider will not do.
+///
+/// A row of flags is the right shape here: these are genuinely independent
+/// answers from the provider, not a state with a name.
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AgentCapabilities {
     /// A session can be picked up again after PushOS restarts.

@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 use pushos_agents::{AgentRoster, AgentSupervisor};
 use pushos_domain::agent::{AgentDefinition, AgentState, AgentTarget};
 use pushos_domain::error::ErrorClass;
-use pushos_domain::ids::{ProviderName, SessionId};
+use pushos_domain::ids::SessionId;
 use pushos_domain::ports::{AgentCapabilities, AgentEvent, AgentObserver, StopReason};
 use pushos_testkit::{AgentCall, FakeAgent};
 
