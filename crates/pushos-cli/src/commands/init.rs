@@ -49,6 +49,104 @@ mod tests {
         RuntimeConfig::build(&parsed).expect("the starter preset should be valid");
     }
 
+    /// Every commented-out setting and binding in the preset, uncommented.
+    ///
+    /// Only lines that look like TOML are taken, so the prose around them stays
+    /// as prose.
+    fn with_every_example_enabled() -> String {
+        const KEYS: [&str; 13] = [
+            "control",
+            "gesture",
+            "page",
+            "action",
+            "target",
+            "label",
+            "name",
+            "text",
+            "id",
+            "objective",
+            "preferred",
+            "permissions",
+            "program",
+        ];
+
+        STARTER
+            .lines()
+            .map(|line| {
+                let Some(uncommented) = line.trim_start().strip_prefix("# ") else {
+                    return line;
+                };
+                let looks_like_toml = uncommented.starts_with("[[")
+                    || uncommented.starts_with('[')
+                    || KEYS
+                        .iter()
+                        .any(|key| uncommented.starts_with(&format!("{key} = ")))
+                    || uncommented.starts_with("workspace_root = ")
+                    || uncommented.starts_with("shell = ");
+
+                if looks_like_toml { uncommented } else { line }
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
+    #[test]
+    fn every_example_the_starter_documents_actually_works() {
+        // A setting shown under the wrong section, or a binding whose action no
+        // longer exists, is a trap: the operator uncomments it and PushOS
+        // refuses to start. This is what caught `shell` being documented under
+        // gestures rather than runtime.
+        let enabled = with_every_example_enabled();
+        let parsed: ConfigFile = toml::from_str(&enabled)
+            .unwrap_or_else(|error| panic!("a documented example is not valid TOML: {error}"));
+
+        let config = RuntimeConfig::build(&parsed).unwrap_or_else(|error| {
+            let problems: Vec<String> = error.problems().iter().map(ToString::to_string).collect();
+            panic!("a documented example is not a valid configuration: {problems:?}")
+        });
+
+        assert!(
+            config.shell.is_some(),
+            "the shell example should land in the runtime section"
+        );
+        assert!(
+            config.workspace_root.is_some(),
+            "the workspace example should land in the runtime section"
+        );
+        assert!(
+            !config.agents.is_empty(),
+            "the agent examples should produce roles"
+        );
+        assert!(
+            config.bindings.len() > parsed.pages.len(),
+            "the binding examples should produce bindings"
+        );
+    }
+
+    #[test]
+    fn every_action_the_starter_names_exists_in_a_shipped_provider() {
+        // Documentation that names a verb PushOS does not have would fail only
+        // when the operator finally pressed the control.
+        let enabled = with_every_example_enabled();
+        let parsed: ConfigFile = toml::from_str(&enabled).expect("valid TOML");
+
+        let namespaces = [
+            "agent", "app", "media", "page", "shell", "shortcut", "terminal",
+        ];
+        for binding in &parsed.bindings {
+            let provider = binding
+                .action
+                .split_once('.')
+                .map(|(provider, _)| provider)
+                .unwrap_or_default();
+            assert!(
+                namespaces.contains(&provider),
+                "`{}` names a provider PushOS does not ship",
+                binding.action
+            );
+        }
+    }
+
     #[test]
     fn an_existing_configuration_is_not_replaced_without_being_asked() {
         let directory = std::env::temp_dir().join(format!(

@@ -16,15 +16,19 @@ home_page = "home"
 # The application media actions control. Anything scriptable will do.
 media_player = "Music"
 
+# Where agents and terminals work when nothing else says. A leading ~ expands.
+# workspace_root = "~/Projects"
+
+# What a terminal runs when a binding does not name a program. Defaults to your
+# own shell.
+# shell = "/bin/zsh"
+
 [gestures]
 # A press held this long is a hold rather than a tap.
 hold_threshold_ms = 400
 # Two taps closer together than this are a double tap. Must be shorter than the
 # hold threshold, or a slow double tap would be indistinguishable from a hold.
 double_tap_window_ms = 280
-
-# Where agents work when a role does not name a workspace. A leading ~ expands.
-# workspace_root = "~/Projects"
 
 [permissions]
 # Nothing is permitted unless it is listed here. There is no wildcard.
@@ -85,6 +89,50 @@ granted = [
 # gesture = "press"
 # action = "agent.approve"
 # label = "Approve"
+
+# --- Terminals ---------------------------------------------------------------
+# PushOS runs terminals itself rather than opening windows. They start with
+# nothing appearing on screen, keep running when nothing is looking, and a pad
+# that means "the test run" means it whether or not a window exists.
+#
+# Nothing needs declaring: a terminal is created by the binding that opens it,
+# and named there. Every terminal action needs "shell.execute" in the
+# permissions above, because a terminal runs whatever is typed into it.
+#
+# Tap to open the terminal called "tests". Pressing it again selects the one
+# already running rather than starting a second.
+#
+# [[bindings]]
+# control = "pad.24"
+# gesture = "tap"
+# page = "development"
+# action = "terminal.open"
+# label = "Tests"
+# [bindings.params]
+# name = "tests"
+
+# Hold the same pad to run the tests in it. `terminal.run` types a line and
+# presses return; `terminal.send` types exactly what it is given, which is how
+# a single key answers a prompt.
+#
+# [[bindings]]
+# control = "pad.24"
+# gesture = "hold"
+# page = "development"
+# action = "terminal.run"
+# target = "name:tests"
+# label = "Run tests"
+# [bindings.params]
+# text = "cargo test"
+
+# One stop pad serves every terminal, because a binding with no target acts on
+# whichever one you last chose.
+#
+# [[bindings]]
+# control = "button.upper_7"
+# gesture = "press"
+# action = "terminal.close"
+# label = "Stop"
 
 # --- Pages -------------------------------------------------------------------
 # A page changes what the controls mean. Bindings reference a page by id.

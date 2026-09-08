@@ -11,6 +11,7 @@ import {
   type BindingAddress,
   type BindingSpec,
   type EditReport,
+  type SessionInfo,
   type StatusReport,
   type Vocabulary,
 } from "./api";
@@ -27,6 +28,9 @@ interface State {
   page: string | null;
   selected: string | null;
   notice: Notice | null;
+  /** What is running now. Refreshed on its own, because it changes while the
+   *  rest of the screen is being edited. */
+  sessions: SessionInfo[];
 }
 
 interface Notice {
@@ -42,23 +46,29 @@ const state: State = {
   page: null,
   selected: null,
   notice: null,
+  sessions: [],
 };
 
 const root = document.querySelector<HTMLElement>("#studio");
+
+/** How often the running sessions are re-read, in milliseconds. */
+const SESSION_POLL_MS = 3000;
 
 /** Re-reads everything from PushOS and redraws. */
 async function refresh(): Promise<void> {
   try {
     const api = await client();
-    const [status, vocabulary, bindings] = await Promise.all([
+    const [status, vocabulary, bindings, sessions] = await Promise.all([
       api.status(),
       api.describe(),
       api.bindings(),
+      api.sessions(),
     ]);
 
     state.status = status;
     state.vocabulary = vocabulary;
     state.bindings = bindings.bindings;
+    state.sessions = sessions.sessions;
 
     // Start on the page PushOS is showing, so Studio opens where the operator
     // already is rather than somewhere arbitrary.
@@ -69,6 +79,7 @@ async function refresh(): Promise<void> {
   } catch (error) {
     const failure = describeError(error);
     state.status = null;
+    state.sessions = [];
     state.notice = {
       text: failure.message,
       detail: failure.problems,
@@ -77,6 +88,28 @@ async function refresh(): Promise<void> {
   }
 
   draw();
+}
+
+/**
+ * Re-reads only what is running, and redraws only that panel.
+ *
+ * A full redraw would discard whatever the operator has half-typed into the
+ * inspector, so this touches one node and leaves the forms alone.
+ */
+async function refreshSessions(): Promise<void> {
+  if (state.status === null) return;
+
+  try {
+    const { sessions } = await (await client()).sessions();
+    state.sessions = sessions;
+  } catch {
+    // A session list that could not be read is not worth a banner: the next
+    // edit will report the failure properly, and the panel says it is empty.
+    state.sessions = [];
+  }
+
+  const panel = document.querySelector<HTMLElement>(".running");
+  panel?.replaceWith(runningPanel());
 }
 
 /** Runs an edit, reports what happened, and re-reads. */
@@ -166,6 +199,7 @@ function draw(): void {
         page: state.page,
         vocabulary: state.vocabulary,
         bindings: state.bindings,
+        sessions: state.sessions,
       },
       { save, remove, test },
     ),
@@ -259,7 +293,57 @@ function sidebar(vocabulary: Vocabulary): HTMLElement {
     aside.append(source);
   }
 
+  aside.append(runningPanel());
   return aside;
+}
+
+/**
+ * What is running now.
+ *
+ * Here rather than in the inspector because it answers a different question:
+ * not "what does this pad do" but "what is there to point a pad at".
+ */
+function runningPanel(): HTMLElement {
+  const panel = element("div", "running");
+  panel.append(element("h2", "sidebar-title", "Running now"));
+
+  if (state.sessions.length === 0) {
+    panel.append(
+      element(
+        "p",
+        "source-note",
+        "No agents or terminals are running. Start one, and it can be bound to any control.",
+      ),
+    );
+    return panel;
+  }
+
+  const list = element("ul", "session-list");
+  for (const session of state.sessions) {
+    const item = element("li", `session ${session.live ? "live" : "ended"}`);
+    if (session.selected) item.classList.add("chosen");
+
+    const heading = element("div", "session-heading");
+    heading.append(element("span", "session-name", session.name));
+    heading.append(element("span", "session-kind", session.kind));
+    item.append(heading);
+
+    item.append(element("p", "session-status", session.status));
+    if (session.detail !== undefined) {
+      const detail = element("p", "session-detail", session.detail);
+      detail.title = session.detail;
+      item.append(detail);
+    }
+
+    const target = session.standing_target ?? session.target;
+    const bind = element("p", "session-target", target);
+    bind.title = `Choose this under Target to bind a control to it: ${target}`;
+    item.append(bind);
+
+    list.append(item);
+  }
+  panel.append(list);
+  return panel;
 }
 
 function pageButton(name: string, detail: string, id: string | null): HTMLElement {
@@ -303,3 +387,8 @@ window.addEventListener("unhandledrejection", (event) =>
 );
 
 refresh().catch((error: unknown) => reportFatal(describeError(error).message));
+
+// What is running changes on its own, so the panel keeps up without the
+// operator having to ask. Only that panel is redrawn, so an edit in progress is
+// never thrown away.
+setInterval(() => void refreshSessions(), SESSION_POLL_MS);

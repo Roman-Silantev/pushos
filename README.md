@@ -59,6 +59,7 @@ pushos doctor    # report on hardware, configuration and host integrations
 pushos run       # run it
 pushos status    # ask a running PushOS what it is doing
 pushos bindings  # list what it has bound
+pushos sessions  # list the agents and terminals it is driving
 ```
 
 - **All 141 Push 2 controls**, addressed by name. `pad.0`, `button.play`,
@@ -69,8 +70,8 @@ pushos bindings  # list what it has bound
 - **Pages**, so the same 64 pads mean different things in different contexts.
 - **Bindings** with deterministic precedence: `workspace+page`, `workspace`,
   `page`, `global`.
-- **Actions**: page navigation, applications, Apple Shortcuts, media control and
-  shell commands.
+- **Actions**: page navigation, applications, Apple Shortcuts, media control,
+  shell commands and terminals.
 - **The display**, drawn natively for 960x160.
 - **Hot reload**, validated. A bad edit is reported and ignored; the running
   surface is untouched.
@@ -82,6 +83,11 @@ pushos bindings  # list what it has bound
   [`studio/`](studio/).
 - **Agents**, over the Agent Client Protocol. Verified against Claude and Codex.
   A pad names a role, not a session, so it still means something tomorrow.
+- **Terminals** PushOS runs itself, with no window opening. They keep running
+  when nothing is looking, and the last thing each one said is on the display.
+  A pad names the terminal, not the process.
+- **Assigning a session to a control** in Studio: everything running is listed,
+  and either its name or the exact session can be bound to any control.
 
 ## Installing
 
@@ -131,6 +137,24 @@ gesture = "hold"
 page = "development"
 action = "shell.run"
 params = { program = "cargo", args = ["test"], cwd = "~/Projects/pushos" }
+
+# A terminal PushOS runs itself. Tap opens it, and pressing again selects the
+# one already running rather than starting a second.
+[[bindings]]
+control = "pad.24"
+gesture = "tap"
+page = "development"
+action = "terminal.open"
+label = "Tests"
+params = { name = "tests" }
+
+[[bindings]]
+control = "pad.24"
+gesture = "hold"
+page = "development"
+action = "terminal.run"
+target = "name:tests"
+params = { text = "cargo test" }
 ```
 
 Two rules the configuration enforces, both so that you can predict what a pad
@@ -157,6 +181,7 @@ crates/
 ├── pushos-storage     local SQLite, with one write owner
 ├── pushos-agents      agent roles, live sessions and the routing between them
 ├── pushos-acp         the Agent Client Protocol adapter
+├── pushos-terminal    managed pseudo-terminals and what PushOS knows of them
 ├── pushos-api         the local control socket and its protocol
 ├── pushos-runtime     the event bus, supervision and wiring
 ├── pushos-macos       the macOS half: processes, media, apps, Shortcuts
@@ -187,6 +212,11 @@ specification calls out are covered explicitly: a hold interrupted by a
 disconnect, a release arriving after a reset, a configuration reload while a
 press is in flight.
 
+Some things cannot be faked and are not. The pseudo-terminal adapter is tested
+against real processes: a program is started, typed into, read from, stopped and
+its exit status collected. Three bugs in this milestone were found that way and
+by no other means.
+
 ## Where this is up to
 
 Built and tested:
@@ -199,9 +229,10 @@ Built and tested:
 | Phase 3 | Page, application, Shortcut, media and shell actions |
 | Phase 4 | PushOS Studio and the control socket it talks to |
 | Phase 5 | Agents over the Agent Client Protocol |
+| Phase 6 | Sessions and terminals, and assigning one to a control |
 
-Next, in order: sessions and terminals, workspaces, durable workflows, and
-voice. `SPEC.md` holds the full plan.
+Next, in order: workspaces, durable workflows, voice and memory. `SPEC.md` holds
+the full plan.
 
 ## Contributing
 

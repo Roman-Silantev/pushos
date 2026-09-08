@@ -6,7 +6,7 @@
 //! or hold its configuration open.
 
 use pushos_api::protocol::{
-    BindingList, EditReport, Request, Response, StatusReport, TestReport, Vocabulary,
+    BindingList, EditReport, Request, Response, SessionList, StatusReport, TestReport, Vocabulary,
 };
 use pushos_api::{ClientError, ControlClient};
 use pushos_config::{BindingAddress, BindingSpec};
@@ -103,6 +103,19 @@ async fn unbind(address: BindingAddress) -> Result<EditReport, StudioError> {
     }
 }
 
+/// Every agent and terminal session running now.
+///
+/// Read separately from the bindings and refreshed on its own, because it
+/// changes while the operator is editing and the rest does not.
+#[tauri::command]
+async fn sessions() -> Result<SessionList, StudioError> {
+    match ask(Request::Sessions).await? {
+        Response::Sessions(list) => Ok(list),
+        Response::Failed(failure) => Err(ClientError::Refused(failure).into()),
+        other => Err(StudioError::unexpected(&other)),
+    }
+}
+
 /// Runs a configured binding once, so its effect can be seen before committing
 /// to it on the hardware.
 #[tauri::command]
@@ -126,7 +139,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            status, describe, bindings, bind, unbind, test
+            status, describe, bindings, bind, unbind, test, sessions
         ])
         // A window that shows nothing is the hardest kind of failure to report,
         // because there is nowhere on screen to report it. Recording what the

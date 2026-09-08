@@ -8,8 +8,10 @@ import type {
   BindingAddress,
   BindingSpec,
   ProviderInfo,
+  SessionInfo,
   Vocabulary,
 } from "../api";
+import { targetSuitsAction } from "../api";
 import { captionFor } from "../layout";
 import { element } from "./surface";
 
@@ -19,6 +21,8 @@ export interface InspectorModel {
   page: string | null;
   vocabulary: Vocabulary;
   bindings: BindingSpec[];
+  /** What is running now, so a control can be pointed at one of them. */
+  sessions: SessionInfo[];
 }
 
 /** What the inspector can ask the application to do. */
@@ -123,10 +127,12 @@ function renderGesture(
   form.className = "gesture-form";
 
   const action = actionPicker(model.vocabulary.providers, existing?.action);
-  const target = textField("target", "Target", existing?.target ?? "");
+  const target = targetField(model.sessions, existing?.target ?? "");
   const label = textField("label", "Caption on the display", existing?.label ?? "");
 
-  form.append(action.field, target.field, label.field);
+  form.append(action.field);
+  if (target.assign !== null) form.append(target.assign);
+  form.append(target.field, label.field);
 
   const buttons = element("div", "gesture-buttons");
   const save = button("Save", "primary");
@@ -148,6 +154,19 @@ function renderGesture(
     buttons.append(test, remove);
   }
   form.append(buttons);
+
+  // Said before the binding is written rather than discovered on the hardware.
+  const mismatch = element("p", "field-warning");
+  mismatch.hidden = true;
+  const check = (): void => {
+    const problem = targetSuitsAction(action.value(), model.sessions, target.value());
+    mismatch.textContent = problem ?? "";
+    mismatch.hidden = problem === null;
+  };
+  action.onChange(check);
+  target.onChange(check);
+  check();
+  form.append(mismatch);
 
   form.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -175,7 +194,7 @@ function renderGesture(
 function actionPicker(
   providers: ProviderInfo[],
   current: string | undefined,
-): { field: HTMLElement; value: () => string } {
+): Field {
   const field = element("label", "field");
   field.append(element("span", "field-name", "Action"));
 
@@ -204,14 +223,119 @@ function actionPicker(
   }
 
   field.append(select);
-  return { field, value: () => select.value };
+  return {
+    field,
+    value: () => select.value,
+    onChange: (run) => select.addEventListener("change", run),
+  };
 }
 
-function textField(
-  name: string,
-  caption: string,
-  initial: string,
-): { field: HTMLElement; value: () => string } {
+/**
+ * The target, chosen from what is running or written by hand.
+ *
+ * Both forms are offered for every session because they mean different things:
+ * naming a role or a terminal keeps working after this session ends, and naming
+ * the session itself does not. The text stays editable so a target for
+ * something that is not running yet can still be written.
+ */
+function targetField(sessions: SessionInfo[], initial: string): TargetField {
+  const field = element("label", "field");
+  field.append(element("span", "field-name", "Target"));
+
+  const input = document.createElement("input");
+  input.className = "field-input";
+  input.name = "target";
+  input.type = "text";
+  input.value = initial;
+  input.autocomplete = "off";
+  input.placeholder = "Nothing in particular";
+  field.append(input);
+
+  const listeners: Array<() => void> = [];
+  const announce = (): void => {
+    for (const run of listeners) run();
+  };
+  input.addEventListener("input", announce);
+
+  return {
+    field,
+    assign: sessions.length === 0 ? null : assignField(sessions, input, announce),
+    value: () => input.value.trim(),
+    onChange: (run) => listeners.push(run),
+  };
+}
+
+/**
+ * Picks a running session and writes it into the target beside it.
+ *
+ * Both forms are offered for every session because they mean different things:
+ * naming a role or a terminal keeps working after this session ends, and naming
+ * the session itself does not. The text stays editable, so a target for
+ * something that is not running yet can still be written by hand.
+ */
+function assignField(
+  sessions: SessionInfo[],
+  input: HTMLInputElement,
+  announce: () => void,
+): HTMLElement {
+  const field = element("label", "field");
+  field.append(element("span", "field-name", "Assign a session"));
+
+  const chooser = document.createElement("select");
+  chooser.className = "field-input";
+
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = "Running now\u2026";
+  chooser.append(none);
+
+  for (const session of sessions) {
+    const group = document.createElement("optgroup");
+    const state = session.live ? session.status : `${session.status}, ended`;
+    group.label = `${session.name} \u2014 ${session.kind}, ${state}`;
+
+    if (session.standing_target !== undefined) {
+      const standing = document.createElement("option");
+      standing.value = session.standing_target;
+      const holds = session.kind === "agent" ? "fills the role" : "holds the name";
+      standing.textContent = `${session.standing_target} (whichever ${session.kind} ${holds})`;
+      group.append(standing);
+    }
+
+    const exact = document.createElement("option");
+    exact.value = session.target;
+    exact.textContent = `${session.target} (this session only)`;
+    group.append(exact);
+
+    chooser.append(group);
+  }
+
+  chooser.addEventListener("change", () => {
+    if (chooser.value === "") return;
+    input.value = chooser.value;
+    // Reset, so the picker reads as something done rather than as state that
+    // could disagree with the text beside it.
+    chooser.value = "";
+    announce();
+  });
+
+  field.append(chooser);
+  return field;
+}
+
+/** A form control the caller can read and watch. */
+interface Field {
+  field: HTMLElement;
+  value: () => string;
+  onChange: (run: () => void) => void;
+}
+
+/** The target, with the picker that fills it in when anything is running. */
+interface TargetField extends Field {
+  assign: HTMLElement | null;
+}
+
+function textField(name: string, caption: string, initial: string): Field {
   const field = element("label", "field");
   field.append(element("span", "field-name", caption));
 
@@ -223,7 +347,11 @@ function textField(
   input.autocomplete = "off";
   field.append(input);
 
-  return { field, value: () => input.value.trim() };
+  return {
+    field,
+    value: () => input.value.trim(),
+    onChange: (run) => input.addEventListener("input", run),
+  };
 }
 
 function button(caption: string, variant: string): HTMLButtonElement {

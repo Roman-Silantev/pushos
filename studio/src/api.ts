@@ -79,6 +79,30 @@ export interface Vocabulary {
   providers: ProviderInfo[];
 }
 
+/** Whether a session is an agent or a terminal. */
+export type SessionKind = "agent" | "terminal";
+
+/**
+ * One session running now, described so a control can be bound to it.
+ *
+ * Both target forms arrive because they are not interchangeable. `target`
+ * names this exact session and stops meaning anything when it ends;
+ * `standing_target` names the role or the terminal name, and goes on meaning
+ * the right thing tomorrow.
+ */
+export interface SessionInfo {
+  id: string;
+  kind: SessionKind;
+  name: string;
+  status: string;
+  live: boolean;
+  selected: boolean;
+  target: string;
+  standing_target?: string;
+  detail?: string;
+  workspace?: string;
+}
+
 export interface EditReport {
   file: string;
   replaced: boolean;
@@ -125,6 +149,7 @@ const live = {
   bind: (spec: BindingSpec) => invoke<EditReport>("bind", { spec }),
   unbind: (address: BindingAddress) => invoke<EditReport>("unbind", { address }),
   test: (address: BindingAddress) => invoke<TestReport>("test", { address }),
+  sessions: () => invoke<{ sessions: SessionInfo[] }>("sessions"),
 };
 
 /** What Studio talks to. */
@@ -161,6 +186,37 @@ export function describeSurface(surface: SurfaceReport): {
     case "absent":
       return { text: "No surface attached", tone: "idle" };
   }
+}
+
+/** The action namespace that drives a kind of session. */
+export function providerFor(kind: SessionKind): string {
+  return kind === "agent" ? "agent" : "terminal";
+}
+
+/**
+ * Whether an action and a target belong together.
+ *
+ * A terminal target on an agent action is a binding that will always fail, and
+ * saying so before it is written is cheaper than finding out on the hardware.
+ */
+export function targetSuitsAction(
+  action: string,
+  sessions: SessionInfo[],
+  target: string,
+): string | null {
+  if (target === "" || action === "") return null;
+
+  const session = sessions.find(
+    (candidate) =>
+      candidate.target === target || candidate.standing_target === target,
+  );
+  if (session === undefined) return null;
+
+  const wanted = providerFor(session.kind);
+  const provider = action.split(".")[0] ?? "";
+  if (provider === wanted) return null;
+
+  return `${session.name} is a ${session.kind}; ${wanted} actions drive it, not ${provider}.`;
 }
 
 /** Whether two addresses point at the same binding. */

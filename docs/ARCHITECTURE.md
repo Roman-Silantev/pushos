@@ -201,6 +201,45 @@ An agent working quietly earns a line on the display. An agent that has stopped
 and is waiting for a decision earns the operator's attention, and with only
 eight columns it is the one that gets a column.
 
+## Terminals are run, not opened
+
+A surface with a dozen jobs on it cannot be a desktop with a dozen windows. So
+PushOS runs terminals as pseudo-terminals it owns: they start with nothing
+appearing on screen, they keep running when nothing is looking, and a pad that
+means "the test run" means it whether or not a window exists. Opening a real
+terminal window stays a separate, deliberate act.
+
+A terminal is named, and a binding names the name rather than the session, for
+the same reason a binding names a role. Opening a name that is already running
+selects it instead of starting a second, because a physical control is going to
+be pressed twice and must not fork.
+
+A pseudo-terminal blocks by nature: a read waits for the program to speak, which
+may be hours. Each terminal therefore gets one dedicated thread, not a task on
+the async runtime, and that same thread waits for the program to finish. Reading
+and waiting in one place is what guarantees everything a program wrote is
+reported before its exit is.
+
+Three decisions came out of running it rather than reading it:
+
+- **A carriage return only rewrites a line when no newline follows it.** A pty
+  ends lines with both. Treating the return as a rewrite erased every line just
+  before keeping it, which is exactly the kind of bug a test written from the
+  specification would not have.
+- **The display shows the last finished line, not the line still being
+  written.** The unfinished line is usually the shell's next prompt, and "77
+  passed" is what an operator wants to see rather than that the shell is ready
+  for something else. The unfinished line is used when it is all there is, which
+  keeps a progress meter visible.
+- **Ending a terminal takes only the means of ending it.** Dropping the write
+  end sends an end-of-file the terminal echoes as `^D`, which then became the
+  last thing the operator saw a deliberately stopped job say.
+
+A terminal the operator stopped is recorded as stopped, not as a failure. A
+killed process and a crashed one look identical from outside, so the difference
+is remembered rather than inferred, and a red light for a job the operator asked
+to end is a lie the surface would go on telling.
+
 ## Failures are classified, not stringified
 
 Every error carries a class: retryable, validation, permission,
@@ -230,6 +269,12 @@ answer, and it comes back as a failed action with the exit code.
 - **Nothing is permitted unless configured.** Permission is checked in the
   dispatcher rather than inside providers, so a provider is never the only thing
   standing between a binding and a capability.
+- **A terminal's program and arguments stay separate**, like everything else
+  PushOS starts. What the operator subsequently types into it is a different
+  matter, and is exactly what a terminal is for, so the namespace needs the same
+  permission a shell action does.
+- **Terminals PushOS started, PushOS stops.** Leaving them running when the
+  runtime exits would be a leak the operator has to clean up by hand.
 
 ## What is deliberately absent
 

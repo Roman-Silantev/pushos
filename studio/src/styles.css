@@ -361,14 +361,18 @@ body {
 }
 
 .gesture-form {
-  display: grid;
-  grid-template-columns: minmax(180px, 1.4fr) minmax(120px, 1fr) minmax(120px, 1fr) auto;
+  /* Wrapping rather than a fixed grid: a surface with sessions running carries
+     one more field than one without, and the row should tidy itself either
+     way. */
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
-  align-items: end;
+  align-items: flex-end;
 }
 
 .field {
   display: flex;
+  flex: 1 1 150px;
   flex-direction: column;
   gap: 4px;
   min-width: 0;
@@ -397,6 +401,7 @@ body {
 
 .gesture-buttons {
   display: flex;
+  flex: 0 0 auto;
   gap: 6px;
 }
 
@@ -461,4 +466,91 @@ body {
   background: var(--ground);
   color: var(--ink);
   font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+/* What is running now, and what a control can be pointed at. */
+.running {
+  border-top: 1px solid var(--line);
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+}
+
+.session-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+
+.session {
+  background: var(--raised);
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 0.5rem 0.625rem;
+}
+
+/* A session that has ended is still worth seeing; it is simply not something
+   to point a control at any more. */
+.session.ended {
+  border-left-color: var(--line);
+  opacity: 0.62;
+}
+
+.session.chosen {
+  border-left-color: var(--good);
+}
+
+.session-heading {
+  align-items: baseline;
+  display: flex;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.session-name {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.session-kind {
+  color: var(--muted);
+  font-size: 0.6875rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.session-status {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin: 0.125rem 0 0;
+}
+
+.session-detail,
+.session-target {
+  margin: 0.125rem 0 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.session-detail {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.session-target {
+  color: var(--muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.6875rem;
+}
+
+/* Spans the row, under everything it is talking about. */
+.field-warning {
+  color: var(--bad);
+  flex: 1 1 100%;
+  font-size: 0.75rem;
+  margin: 0.25rem 0 0;
 }

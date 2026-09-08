@@ -11,6 +11,7 @@
 import type {
   BindingSpec,
   EditReport,
+  SessionInfo,
   StatusReport,
   TestReport,
   Vocabulary,
@@ -107,11 +108,13 @@ const vocabulary: Vocabulary = {
     { id: "music", name: "Music", description: "Playback and volume" },
   ],
   providers: [
+    { name: "agent", verbs: ["start", "prompt", "cancel", "approve", "reject", "select", "stop"], requires: ["shell.execute"], permitted: true },
     { name: "app", verbs: ["launch", "focus", "open_path", "open_url"], requires: ["application.launch"], permitted: true },
     { name: "media", verbs: ["play_pause", "next_track", "previous_track", "volume_up", "volume_down", "set_volume", "now_playing"], requires: ["media.control"], permitted: true },
     { name: "page", verbs: ["show", "next", "previous", "home", "back"], requires: [], permitted: true },
     { name: "shell", verbs: ["run"], requires: ["shell.execute"], permitted: false },
     { name: "shortcut", verbs: ["run", "list"], requires: ["shortcuts.execute"], permitted: true },
+    { name: "terminal", verbs: ["open", "run", "send", "select", "close"], requires: ["shell.execute"], permitted: true },
   ],
 };
 
@@ -127,7 +130,8 @@ const bindings: BindingSpec[] = [
   { control: "pad.0", gesture: "tap", page: "development", action: "app.launch", target: "Cursor", label: "Cursor" },
   { control: "pad.0", gesture: "hold", page: "development", action: "app.open_url", target: "https://github.com", label: "Repository" },
   { control: "pad.1", gesture: "tap", page: "development", action: "app.launch", target: "Terminal", label: "Terminal" },
-  { control: "pad.9", gesture: "tap", page: "development", action: "shell.run", label: "Tests" },
+  { control: "pad.9", gesture: "tap", page: "development", action: "terminal.run", target: "name:tests", params: { text: "cargo test" }, label: "Tests" },
+  { control: "pad.10", gesture: "tap", page: "development", action: "agent.prompt", target: "role:builder", params: { text: "carry on" }, label: "Builder" },
   { control: "pad.0", gesture: "tap", page: "music", action: "media.play_pause", label: "Play/Pause" },
 ];
 
@@ -140,6 +144,41 @@ const status: StatusReport = {
   config_root: "~/.config/pushos",
   binding_count: bindings.length,
 };
+
+const sessions: SessionInfo[] = [
+  {
+    id: "sess-9f21",
+    kind: "agent",
+    name: "builder",
+    status: "working",
+    live: true,
+    selected: true,
+    target: "session:sess-9f21",
+    standing_target: "role:builder",
+    detail: "editing crates/pushos-terminal/src/pty.rs",
+  },
+  {
+    id: "term-c774",
+    kind: "terminal",
+    name: "tests",
+    status: "running",
+    live: true,
+    selected: false,
+    target: "session:term-c774",
+    standing_target: "name:tests",
+    detail: "77 passed",
+  },
+  {
+    id: "term-4a08",
+    kind: "terminal",
+    name: "server",
+    status: "stopped",
+    live: false,
+    selected: false,
+    target: "session:term-4a08",
+    standing_target: "name:server",
+  },
+];
 
 const refused = () => {
   throw {
@@ -157,4 +196,5 @@ export const preview = {
   bind: (): Promise<EditReport> => refused(),
   unbind: (): Promise<EditReport> => refused(),
   test: (): Promise<TestReport> => refused(),
+  sessions: (): Promise<{ sessions: SessionInfo[] }> => Promise.resolve({ sessions }),
 };
