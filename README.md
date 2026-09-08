@@ -78,7 +78,8 @@ pushos bindings  # list what it has bound
   hardware attached: `pushos run --fake`. It says so everywhere it appears; a
   stand-in is never presented as a Push 2.
 - **PushOS Studio**, a configuration application that talks to a running PushOS
-  over a local socket. See [`studio/`](studio/).
+  over a local socket. Build it with `npm run tauri build` in
+  [`studio/`](studio/).
 
 ## Installing
 

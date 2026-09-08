@@ -121,6 +121,9 @@ async fn test(address: BindingAddress) -> Result<TestReport, StudioError> {
 /// Panics if the window cannot be created, which means the graphical
 /// environment is unusable and there is nothing sensible to fall back to.
 pub fn run() {
+    let context = tauri::generate_context!();
+    announce_where_the_window_points(&context);
+
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             status, describe, bindings, bind, unbind, test
@@ -136,6 +139,25 @@ pub fn run() {
                 window.label()
             );
         })
-        .run(tauri::generate_context!())
+        .run(context)
         .expect("PushOS Studio could not open a window");
+}
+
+/// Says, at startup, where the window is about to look for its interface.
+///
+/// A development build points the window at the Vite dev server rather than at
+/// the files compiled into the binary. Running that build on its own gives an
+/// empty white window and no explanation at all, which is a genuinely hard
+/// thing to work out from the outside. A release build has no such dependency,
+/// so this says nothing.
+fn announce_where_the_window_points<R: tauri::Runtime>(context: &tauri::Context<R>) {
+    let Some(dev_url) = context.config().build.dev_url.as_ref() else {
+        return;
+    };
+
+    eprintln!("studio: this is a development build; the window loads its interface from {dev_url}");
+    eprintln!("studio: that server must be running, or the window will be empty");
+    eprintln!(
+        "studio: start it with `npm run tauri dev`, or build the application with `npm run tauri build`"
+    );
 }

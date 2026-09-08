@@ -27,24 +27,34 @@ each problem listed, and nothing is written.
 
 ## Running it
 
-Start PushOS first:
+Start PushOS first, because Studio configures a runtime that is already
+running:
 
 ```bash
 pushos run
 ```
 
-Then, from this directory:
+Then build the application and open it:
 
 ```bash
 npm install
+npm run tauri build
+open "src-tauri/target/release/bundle/macos/PushOS Studio.app"
+```
+
+That application is self-contained: the interface is compiled into it.
+
+To work on Studio itself:
+
+```bash
 npm run tauri dev
 ```
 
-To build the application:
-
-```bash
-npm run tauri build
-```
+A development build does **not** contain the interface. It loads it from the
+Vite dev server instead, which is what makes changes appear without a rebuild.
+Running that binary on its own therefore gives an empty window, so use
+`npm run tauri dev`, which starts both. The binary says as much on startup if
+you run it directly.
 
 ## Working on the interface
 
