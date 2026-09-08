@@ -15,7 +15,7 @@
         "title": "PushOS Studio",
         "width": 1180,
         "height": 820,
-        "minWidth": 980,
+        "minWidth": 1060,
         "minHeight": 640,
         "resizable": true
       }
