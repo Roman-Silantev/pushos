@@ -199,11 +199,11 @@ fn build_agents(
         }
 
         let mut definition = AgentDefinition::new(entry.id.as_str(), entry.name.as_str());
-        definition.objective = entry.objective.clone();
+        definition.objective.clone_from(&entry.objective);
         definition.preferred = entry
             .preferred
             .iter()
-            .map(|provider| pushos_domain::ids::ProviderName::new(provider))
+            .map(pushos_domain::ids::ProviderName::new)
             .collect();
         definition.permissions = entry.permissions.iter().copied().collect();
         agents.push(definition);

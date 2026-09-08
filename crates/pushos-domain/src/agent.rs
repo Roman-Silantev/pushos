@@ -258,10 +258,10 @@ impl std::str::FromStr for AgentTarget {
         // A session identifier is exact and cannot be combined with a role: the
         // two would disagree the moment the session ended.
         match (session, agent) {
-            (Some(_), Some(_)) => Err(MalformedTarget(text.to_owned())),
             (Some(session), None) => Ok(Self::Session(session)),
             (None, Some(agent)) => Ok(Self::Role { agent, workspace }),
-            (None, None) => Err(MalformedTarget(text.to_owned())),
+            // Naming both, or neither, says nothing PushOS can act on.
+            _ => Err(MalformedTarget(text.to_owned())),
         }
     }
 }
