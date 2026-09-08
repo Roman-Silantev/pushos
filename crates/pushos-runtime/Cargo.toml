@@ -13,6 +13,7 @@ pushos-domain = { workspace = true }
 pushos-actions = { workspace = true }
 pushos-agents = { workspace = true }
 pushos-terminal = { workspace = true }
+pushos-workflows = { workspace = true }
 pushos-workspaces = { workspace = true }
 pushos-api = { workspace = true }
 pushos-bindings = { workspace = true }

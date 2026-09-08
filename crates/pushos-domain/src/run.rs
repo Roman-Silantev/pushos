@@ -73,6 +73,14 @@ impl Run {
         }
     }
 
+    /// Whether it has stopped and needs a person.
+    ///
+    /// The one state that earns the operator's attention rather than a line on
+    /// the display, which is what makes a single approve pad useful.
+    pub const fn is_waiting_on_a_person(&self) -> bool {
+        matches!(self.state, RunState::Waiting(Waiting::Approval { .. }))
+    }
+
     /// What it is doing, in a few words, for the display.
     pub fn describe(&self) -> String {
         match &self.state {

@@ -14,12 +14,12 @@ mod shutdown;
 mod supervisor;
 
 pub use actors::{
-    AgentReporter, AgentTask, InputTask, RenderTask, SurfaceState, SurfaceView, TerminalReporter,
-    TerminalTask,
+    AgentReporter, AgentTask, InputTask, RenderTask, RunReporter, SurfaceState, SurfaceView,
+    TerminalReporter, TerminalTask, WorkflowTask,
 };
 pub use app::{RunningRuntime, Runtime};
 pub use bus::{EventBus, EventSubscription};
 pub use control::RuntimeControl;
-pub use sessions::{AgentSessions, TerminalSessions};
+pub use sessions::{AgentSessions, RunSessions, TerminalSessions};
 pub use shutdown::{SHUTDOWN_GRACE, Shutdown};
 pub use supervisor::{Backoff, INITIAL_BACKOFF, MAXIMUM_BACKOFF};

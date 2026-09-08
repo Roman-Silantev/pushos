@@ -12,6 +12,7 @@ use pushos_agents::AgentSupervisor;
 use pushos_api::SessionSource;
 use pushos_api::protocol::{SessionInfo, SessionKind};
 use pushos_terminal::TerminalSupervisor;
+use pushos_workflows::WorkflowEngine;
 
 /// The agent sessions, described for a control client.
 #[derive(Debug)]
@@ -91,6 +92,44 @@ impl SessionSource for TerminalSessions {
                 standing_target: Some(format!("name:{}", terminal.name)),
                 detail: terminal.last_line.clone(),
                 workspace: None,
+            })
+            .collect()
+    }
+}
+
+/// The workflow runs, described for a control client.
+#[derive(Debug)]
+pub struct RunSessions {
+    engine: Arc<WorkflowEngine>,
+}
+
+impl RunSessions {
+    /// Describes the runs an engine is driving.
+    pub const fn new(engine: Arc<WorkflowEngine>) -> Self {
+        Self { engine }
+    }
+}
+
+#[async_trait]
+impl SessionSource for RunSessions {
+    async fn sessions(&self) -> Vec<SessionInfo> {
+        self.engine
+            .runs()
+            .await
+            .into_iter()
+            .map(|run| SessionInfo {
+                id: run.id.to_string(),
+                kind: SessionKind::Workflow,
+                name: run.workflow.to_string(),
+                status: crate::actors::describe_run(&run).to_owned(),
+                live: run.is_live(),
+                // A run is not something unqualified actions act on the way a
+                // session is; the one that needs a person is chosen instead.
+                selected: run.is_waiting_on_a_person(),
+                target: format!("run:{}", run.id),
+                standing_target: Some(run.workflow.to_string()),
+                detail: Some(run.describe()),
+                workspace: run.workspace.as_ref().map(ToString::to_string),
             })
             .collect()
     }

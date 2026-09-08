@@ -52,6 +52,8 @@ pub struct AgentTask {
     supervisor: Arc<AgentSupervisor>,
     stream: mpsc::UnboundedReceiver<(SessionId, AgentEvent)>,
     bus: EventBus,
+    /// Workflows waiting on an agent, when any are configured.
+    workflows: Option<Arc<pushos_workflows::WorkflowEngine>>,
 }
 
 impl std::fmt::Debug for AgentTask {
@@ -71,7 +73,15 @@ impl AgentTask {
             supervisor,
             stream,
             bus,
+            workflows: None,
         }
+    }
+
+    /// Tells workflows when the agent they are waiting on has finished.
+    #[must_use]
+    pub fn feeding(mut self, workflows: Arc<pushos_workflows::WorkflowEngine>) -> Self {
+        self.workflows = Some(workflows);
+        self
     }
 
     /// Runs until the runtime stops.
@@ -108,6 +118,11 @@ impl AgentTask {
                     message: Some(format!("{} needs you", updated.agent)),
                 },
             ));
+        }
+
+        // A workflow parked on this agent is waiting for exactly this.
+        if let Some(workflows) = &self.workflows {
+            workflows.agent_finished(session, updated.state).await;
         }
 
         changed();

@@ -9,6 +9,7 @@ use std::sync::Arc;
 use pushos_agents::AgentSupervisor;
 use pushos_terminal::TerminalSupervisor;
 use pushos_ui::{SLOT_COUNT, SessionLine, Tone};
+use pushos_workflows::WorkflowEngine;
 
 use super::input::SessionRefresh;
 
@@ -21,6 +22,7 @@ use super::input::SessionRefresh;
 pub(crate) struct SessionPublisher {
     agents: Option<Arc<AgentSupervisor>>,
     terminals: Option<Arc<TerminalSupervisor>>,
+    workflows: Option<Arc<WorkflowEngine>>,
     refresh: SessionRefresh,
 }
 
@@ -29,6 +31,7 @@ impl std::fmt::Debug for SessionPublisher {
         f.debug_struct("SessionPublisher")
             .field("agents", &self.agents.is_some())
             .field("terminals", &self.terminals.is_some())
+            .field("workflows", &self.workflows.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -39,6 +42,7 @@ impl SessionPublisher {
         Self {
             agents: None,
             terminals: None,
+            workflows: None,
             refresh,
         }
     }
@@ -52,6 +56,12 @@ impl SessionPublisher {
     /// Includes the terminals.
     pub(crate) fn with_terminals(mut self, supervisor: Arc<TerminalSupervisor>) -> Self {
         self.terminals = Some(supervisor);
+        self
+    }
+
+    /// Includes the workflow runs.
+    pub(crate) fn with_workflows(mut self, engine: Arc<WorkflowEngine>) -> Self {
+        self.workflows = Some(engine);
         self
     }
 
@@ -78,6 +88,10 @@ impl SessionPublisher {
 
         if let Some(terminals) = &self.terminals {
             lines.extend(super::terminal_lines(&terminals.summaries().await));
+        }
+
+        if let Some(workflows) = &self.workflows {
+            lines.extend(super::run_lines(&workflows.runs().await));
         }
 
         merge(lines)

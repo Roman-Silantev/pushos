@@ -190,6 +190,41 @@ pub enum Problem {
         workspace: String,
     },
 
+    /// Two workflows share an identity.
+    #[error("workflow `{id}` is declared more than once")]
+    DuplicateWorkflow {
+        /// The contested identity.
+        id: String,
+    },
+
+    /// A workflow step is missing something its kind needs.
+    #[error("workflow `{workflow}`: step `{node}` is a `{kind}` step and needs `{missing}`")]
+    IncompleteStep {
+        /// The workflow.
+        workflow: String,
+        /// The step.
+        node: String,
+        /// What kind it said it was.
+        kind: String,
+        /// The field it did not have.
+        missing: String,
+    },
+
+    /// A workflow step says it is a kind PushOS does not have.
+    #[error("workflow `{workflow}`: step `{node}` is a `{kind}`, which is not a kind of step")]
+    UnknownStepKind {
+        /// The workflow.
+        workflow: String,
+        /// The step.
+        node: String,
+        /// What it claimed to be.
+        kind: String,
+    },
+
+    /// The graph itself does not hold together.
+    #[error(transparent)]
+    Workflow(#[from] pushos_domain::workflow::WorkflowProblem),
+
     /// Two bindings share an identity.
     #[error("binding id `{id}` is used more than once")]
     DuplicateBindingId {

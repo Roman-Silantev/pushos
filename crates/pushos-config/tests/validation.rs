@@ -754,3 +754,177 @@ fn a_leading_tilde_in_a_project_root_is_expanded() {
     assert!(!root.starts_with('~'), "{root}");
     assert!(root.ends_with("Projects/sydclaw"), "{root}");
 }
+
+// --- Workflows --------------------------------------------------------------
+
+const SHIP: &str = r#"
+[[workflows]]
+id = "ship"
+name = "Ship"
+start = "plan"
+max_steps = 40
+timeout_seconds = 1800
+
+[[workflows.nodes]]
+id = "plan"
+kind = "agent"
+agent = "architect"
+prompt = "Plan the change"
+next = "tests"
+
+[[workflows.nodes]]
+id = "tests"
+kind = "terminal"
+terminal = "tests"
+program = "cargo"
+args = ["test", "--workspace"]
+next = "ask"
+on_failure = "gave_up"
+
+[[workflows.nodes]]
+id = "ask"
+kind = "approval"
+question = "Ship it?"
+approve = "shipped"
+reject = "gave_up"
+
+[[workflows.nodes]]
+id = "shipped"
+kind = "end"
+outcome = "succeeded"
+
+[[workflows.nodes]]
+id = "gave_up"
+kind = "end"
+outcome = "failed"
+"#;
+
+#[test]
+fn a_workflow_is_built_from_what_the_file_says() {
+    let config = build(SHIP);
+    assert_eq!(config.workflows.len(), 1);
+
+    let flow = &config.workflows[0];
+    assert_eq!(flow.name, "Ship");
+    assert_eq!(flow.nodes.len(), 5);
+    assert_eq!(flow.limits.max_steps, 40);
+    assert_eq!(flow.limits.timeout, std::time::Duration::from_mins(30));
+    assert!(flow.problems().is_empty());
+}
+
+#[test]
+fn a_terminal_step_keeps_its_arguments_separate_from_its_program() {
+    // As everywhere else in PushOS: nothing configured is reinterpreted as
+    // shell syntax.
+    let config = build(SHIP);
+    let step = config.workflows[0]
+        .node(&pushos_domain::ids::NodeId::new("tests"))
+        .expect("the step is there");
+
+    let pushos_domain::workflow::NodeKind::Terminal { program, args, .. } = &step.kind else {
+        panic!("expected a terminal step");
+    };
+    assert_eq!(program, "cargo");
+    assert_eq!(args, &["test".to_owned(), "--workspace".to_owned()]);
+}
+
+#[test]
+fn a_step_missing_what_its_kind_needs_says_which_field() {
+    // The operator has to be told what to add, not that something is wrong.
+    let found = problems(
+        r#"
+        [[workflows]]
+        id = "ship"
+        name = "Ship"
+        start = "plan"
+
+        [[workflows.nodes]]
+        id = "plan"
+        kind = "agent"
+        agent = "architect"
+        "#,
+    );
+
+    let said = found
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("; ");
+    assert!(said.contains("prompt"), "{said}");
+    assert!(said.contains("next"), "{said}");
+}
+
+#[test]
+fn a_step_of_a_kind_pushos_does_not_have_is_refused() {
+    let found = problems(
+        r#"
+        [[workflows]]
+        id = "ship"
+        name = "Ship"
+        start = "plan"
+
+        [[workflows.nodes]]
+        id = "plan"
+        kind = "telepathy"
+        "#,
+    );
+    assert!(
+        found
+            .iter()
+            .any(|problem| matches!(problem, Problem::UnknownStepKind { .. })),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_workflow_leading_to_a_step_that_is_not_there_is_refused() {
+    let found = problems(
+        r#"
+        [[workflows]]
+        id = "ship"
+        name = "Ship"
+        start = "plan"
+
+        [[workflows.nodes]]
+        id = "plan"
+        kind = "emit"
+        message = "hello"
+        next = "nowhere"
+        "#,
+    );
+    assert!(
+        found
+            .iter()
+            .any(|problem| matches!(problem, Problem::Workflow(_))),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_workflow_declared_twice_is_refused() {
+    let found = problems(&format!("{SHIP}{SHIP}"));
+    assert!(
+        found
+            .iter()
+            .any(|problem| matches!(problem, Problem::DuplicateWorkflow { .. })),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_workflow_with_no_limits_of_its_own_gets_the_ones_that_ship() {
+    let config = build(
+        r#"
+        [[workflows]]
+        id = "ship"
+        name = "Ship"
+        start = "done"
+
+        [[workflows.nodes]]
+        id = "done"
+        kind = "end"
+        "#,
+    );
+    let limits = config.workflows[0].limits;
+    assert_eq!(limits, pushos_domain::workflow::Limits::DEFAULT);
+}

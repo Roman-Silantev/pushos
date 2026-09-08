@@ -20,6 +20,8 @@
 
 mod catalogue;
 mod engine;
+mod forgetful;
 
-pub use catalogue::{WorkflowCatalogue, WorkflowProblem, problems_with};
+pub use catalogue::WorkflowCatalogue;
 pub use engine::{RunObserver, SilentObserver, WorkflowEngine, WorkflowError};
+pub use forgetful::ForgetfulRuns;

@@ -204,6 +204,93 @@ granted = [
 # action = "terminal.close"
 # label = "Stop"
 
+# --- Workflows ---------------------------------------------------------------
+# A workflow is work that runs itself: plan, then build, then test, then review,
+# with somewhere to go when the tests fail. One pad starts it and it carries on
+# without anyone watching.
+#
+# A step is written down before the step after it runs, so a workflow survives
+# PushOS stopping. A run waiting on a person is still waiting when it comes back.
+#
+# Starting one needs "shell.execute", because its steps run agents and commands
+# on your behalf. Answering one does not.
+#
+# [[workflows]]
+# id = "ship"
+# name = "Ship"
+# start = "plan"
+# max_steps = 40
+# timeout_seconds = 3600
+
+# Ask a role to do something and wait for it to finish the turn.
+#
+# [[workflows.nodes]]
+# id = "plan"
+# kind = "agent"
+# agent = "builder"
+# prompt = "Make the change we discussed, then stop."
+# next = "tests"
+
+# Run a program and wait for it to exit. Program and arguments stay separate,
+# as everywhere else, and the terminal runs the program itself so that its exit
+# status is the command's.
+#
+# [[workflows.nodes]]
+# id = "tests"
+# kind = "terminal"
+# terminal = "tests"
+# program = "cargo"
+# args = ["test", "--workspace"]
+# next = "ask"
+# on_failure = "again?"
+
+# Loops need a way out. `attempts` is how many steps this run has taken, so a
+# retry that never succeeds still ends.
+#
+# [[workflows.nodes]]
+# id = "again?"
+# kind = "condition"
+# check = "attempts"
+# limit = 12
+# then = "plan"
+# otherwise = "gave_up"
+
+# The one step that stops for a person. Put one in front of anything you would
+# not want done while you were out of the room.
+#
+# [[workflows.nodes]]
+# id = "ask"
+# kind = "approval"
+# question = "Tests passed. Ship it?"
+# approve = "shipped"
+# reject = "gave_up"
+
+# [[workflows.nodes]]
+# id = "shipped"
+# kind = "end"
+# outcome = "succeeded"
+
+# [[workflows.nodes]]
+# id = "gave_up"
+# kind = "end"
+# outcome = "failed"
+
+# One pad starts it. One approve pad serves every workflow, because a binding
+# with no run named answers whichever one is asking.
+#
+# [[bindings]]
+# control = "pad.40"
+# gesture = "tap"
+# action = "workflow.start"
+# target = "ship"
+# label = "Ship"
+#
+# [[bindings]]
+# control = "button.upper_6"
+# gesture = "press"
+# action = "workflow.approve"
+# label = "Approve"
+
 # --- Pages -------------------------------------------------------------------
 # A page changes what the controls mean. Bindings reference a page by id.
 

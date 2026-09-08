@@ -41,7 +41,9 @@ pub(crate) async fn execute(requested: Option<&Path>, fake: bool) -> Result<(), 
     // terminals, projects and the control socket are not the hardware's to own:
     // a Push 2 unplugged and plugged back in must find its work still running,
     // and PushOS with nothing attached must still be configurable.
-    let running = build_runtime(&config, &storage, worktrees).start(&shutdown);
+    let running = build_runtime(&config, &storage, worktrees)
+        .start(&shutdown)
+        .await;
 
     if fake {
         run_once_on_fake_surface(&running, shutdown.clone()).await?;
@@ -149,6 +151,20 @@ fn build_runtime(
     runtime = runtime.with_terminals(Arc::clone(&terminals), terminal_updates);
     runtime = runtime.with_workspaces(Arc::clone(&workspaces));
 
+    // Workflows keep their runs in the same database everything else uses, so
+    // a run survives PushOS stopping.
+    let (run_reporter, run_updates) = pushos_runtime::RunReporter::new();
+    let workflows = host::workflows(
+        &current,
+        Arc::new(storage.handle()),
+        Arc::new(run_reporter),
+        agents.as_ref(),
+        &terminals,
+    );
+    if let Some(engine) = &workflows {
+        runtime = runtime.with_workflows(Arc::clone(engine), run_updates);
+    }
+
     // Without a socket PushOS still runs; it simply cannot be configured from
     // Studio. That is worth saying rather than refusing to start over.
     match open_control_socket() {
@@ -156,7 +172,13 @@ fn build_runtime(
         Err(reason) => warn!(reason, "PushOS Studio will not be able to connect"),
     }
 
-    for provider in host::providers(&current, agents.as_ref(), &terminals, &workspaces) {
+    for provider in host::providers(
+        &current,
+        agents.as_ref(),
+        &terminals,
+        &workspaces,
+        workflows.as_ref(),
+    ) {
         let name = provider.name();
         match runtime.with_provider(provider) {
             Ok(next) => runtime = next,

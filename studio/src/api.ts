@@ -80,7 +80,8 @@ export interface Vocabulary {
 }
 
 /** Whether a session is an agent or a terminal. */
-export type SessionKind = "agent" | "terminal";
+/** Whether a session is an agent, a terminal, or a workflow run. */
+export type SessionKind = "agent" | "terminal" | "workflow";
 
 /**
  * One session running now, described so a control can be bound to it.
@@ -221,7 +222,7 @@ export function describeSurface(surface: SurfaceReport): {
 
 /** The action namespace that drives a kind of session. */
 export function providerFor(kind: SessionKind): string {
-  return kind === "agent" ? "agent" : "terminal";
+  return kind;
 }
 
 /**

@@ -116,6 +116,7 @@ const vocabulary: Vocabulary = {
     { name: "shell", verbs: ["run"], requires: ["shell.execute"], permitted: false },
     { name: "shortcut", verbs: ["run", "list"], requires: ["shortcuts.execute"], permitted: true },
     { name: "terminal", verbs: ["open", "run", "send", "select", "close"], requires: ["shell.execute"], permitted: true },
+    { name: "workflow", verbs: ["start", "cancel", "approve", "reject"], requires: ["shell.execute"], permitted: true },
   ],
 };
 
@@ -168,6 +169,17 @@ const sessions: SessionInfo[] = [
     target: "session:term-c774",
     standing_target: "name:tests",
     detail: "77 passed",
+  },
+  {
+    id: "run-51c9",
+    kind: "workflow",
+    name: "ship",
+    status: "waiting",
+    live: true,
+    selected: true,
+    target: "run:run-51c9",
+    standing_target: "ship",
+    detail: "asking: Ship it?",
   },
   {
     id: "term-4a08",

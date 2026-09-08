@@ -38,6 +38,9 @@ pub struct ConfigFile {
     /// The projects that exist.
     #[serde(default)]
     pub workspaces: Vec<WorkspaceEntry>,
+    /// The workflows that exist.
+    #[serde(default)]
+    pub workflows: Vec<WorkflowEntry>,
 }
 
 impl ConfigFile {
@@ -56,6 +59,7 @@ impl ConfigFile {
         self.agents.extend(other.agents);
         self.providers.extend(other.providers);
         self.workspaces.extend(other.workspaces);
+        self.workflows.extend(other.workflows);
     }
 }
 
@@ -161,6 +165,116 @@ pub struct AgentEntry {
     /// two wins, so a role can narrow a provider but never widen it.
     #[serde(default)]
     pub permissions: Vec<Permission>,
+}
+
+/// One workflow: a graph of steps that runs itself.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkflowEntry {
+    /// Stable identity, referenced by bindings.
+    pub id: String,
+    /// What the operator calls it.
+    pub name: String,
+    /// What it is for, when a name is not enough.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// The step it begins at.
+    pub start: String,
+    /// How many steps one run may take before it is stopped.
+    #[serde(default)]
+    pub max_steps: Option<u32>,
+    /// How long one run may take, in seconds.
+    #[serde(default)]
+    pub timeout_seconds: Option<u64>,
+    /// The steps.
+    #[serde(default)]
+    pub nodes: Vec<NodeEntry>,
+}
+
+/// One step of a workflow.
+///
+/// Flat rather than nested by kind, because a step is a handful of fields and
+/// the file is meant to be readable by whoever wrote it. `kind` says which
+/// fields apply, and the validator says so plainly when one is missing.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NodeEntry {
+    /// What the step is called, in the file and on the display.
+    pub id: String,
+    /// What it does: `agent`, `terminal`, `action`, `approval`, `condition`,
+    /// `delay`, `emit` or `end`.
+    pub kind: String,
+
+    /// Where to go next, for the steps that have one way on.
+    #[serde(default)]
+    pub next: Option<String>,
+    /// Where to go when the step did not succeed.
+    #[serde(default)]
+    pub on_failure: Option<String>,
+
+    /// The role to ask, for an `agent` step.
+    #[serde(default)]
+    pub agent: Option<String>,
+    /// What to ask it.
+    #[serde(default)]
+    pub prompt: Option<String>,
+
+    /// What the terminal is called, for a `terminal` step.
+    #[serde(default)]
+    pub terminal: Option<String>,
+    /// The program to run in it.
+    #[serde(default)]
+    pub program: Option<String>,
+    /// Its arguments, passed without any shell interpretation.
+    #[serde(default)]
+    pub args: Vec<String>,
+
+    /// The action to run, for an `action` step, written as `provider.verb`.
+    #[serde(default)]
+    pub action: Option<String>,
+    /// Shorthand for the action's `target` parameter.
+    #[serde(default)]
+    pub target: Option<String>,
+    /// Everything else the action needs.
+    #[serde(default)]
+    pub params: BTreeMap<String, ParamValue>,
+
+    /// What to ask the operator, for an `approval` step.
+    #[serde(default)]
+    pub question: Option<String>,
+    /// Where to go when they say yes.
+    #[serde(default)]
+    pub approve: Option<String>,
+    /// Where to go when they say no.
+    #[serde(default)]
+    pub reject: Option<String>,
+
+    /// What to test, for a `condition` step: `succeeded`, `failed` or
+    /// `attempts`.
+    #[serde(default)]
+    pub check: Option<String>,
+    /// How many times round is still allowed, for an `attempts` check.
+    #[serde(default)]
+    pub limit: Option<u32>,
+    /// Where to go when the check holds.
+    #[serde(default)]
+    pub then: Option<String>,
+    /// Where to go when it does not.
+    #[serde(default)]
+    pub otherwise: Option<String>,
+
+    /// How long to wait, for a `delay` step.
+    #[serde(default)]
+    pub seconds: Option<u64>,
+
+    /// What to say, for an `emit` step.
+    #[serde(default)]
+    pub message: Option<String>,
+
+    /// How the run ended, for an `end` step: `succeeded`, `failed` or
+    /// `cancelled`.
+    #[serde(default)]
+    pub outcome: Option<String>,
 }
 
 /// One project.

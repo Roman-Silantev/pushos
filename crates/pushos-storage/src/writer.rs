@@ -15,6 +15,7 @@ use tracing::{debug, warn};
 use crate::connection;
 use crate::error::StorageError;
 use crate::records::{EventRecord, WorkspaceMemoryRow};
+use crate::runs::{RunRow, TransitionRow};
 
 /// How much work may queue before callers are told the writer is behind.
 ///
@@ -30,6 +31,17 @@ enum Request {
     PutSetting(String, String),
     GetSetting(String, oneshot::Sender<Option<String>>),
     RecentEvents(usize, oneshot::Sender<Vec<EventRecord>>),
+    /// Write a workflow run and say when it is safe to lose the process.
+    ///
+    /// Acknowledged rather than queued, because the engine runs the next step
+    /// only once this one is on disk.
+    SaveRun(Box<RunRow>, oneshot::Sender<Result<(), StorageError>>),
+    AppendTransition(
+        Box<TransitionRow>,
+        oneshot::Sender<Result<(), StorageError>>,
+    ),
+    UnfinishedRuns(oneshot::Sender<Result<Vec<RunRow>, StorageError>>),
+    ForgetRun(String, oneshot::Sender<Result<(), StorageError>>),
     /// Stop after everything already queued has been committed.
     Shutdown,
 }
@@ -43,6 +55,10 @@ impl std::fmt::Debug for Request {
             Self::PutSetting(..) => "PutSetting",
             Self::GetSetting(..) => "GetSetting",
             Self::RecentEvents(..) => "RecentEvents",
+            Self::SaveRun(..) => "SaveRun",
+            Self::AppendTransition(..) => "AppendTransition",
+            Self::UnfinishedRuns(..) => "UnfinishedRuns",
+            Self::ForgetRun(..) => "ForgetRun",
             Self::Shutdown => "Shutdown",
         };
         f.write_str(name)
@@ -150,6 +166,31 @@ impl Storage {
     /// Reads the most recent events, newest first.
     pub async fn recent_events(&self, limit: usize) -> Result<Vec<EventRecord>, StorageError> {
         self.ask(|reply| Request::RecentEvents(limit, reply)).await
+    }
+
+    /// Writes a workflow run, returning once it is committed.
+    ///
+    /// Waited on rather than queued: the engine runs the next step only when
+    /// this one is safe to lose the process over.
+    pub(crate) async fn save_run(&self, row: RunRow) -> Result<(), StorageError> {
+        self.ask(|reply| Request::SaveRun(Box::new(row), reply))
+            .await?
+    }
+
+    /// Appends one step to a run's history, returning once it is committed.
+    pub(crate) async fn append_transition(&self, row: TransitionRow) -> Result<(), StorageError> {
+        self.ask(|reply| Request::AppendTransition(Box::new(row), reply))
+            .await?
+    }
+
+    /// Every run that had not finished.
+    pub(crate) async fn unfinished_runs(&self) -> Result<Vec<RunRow>, StorageError> {
+        self.ask(Request::UnfinishedRuns).await?
+    }
+
+    /// Forgets a run and its history.
+    pub(crate) async fn forget_run(&self, id: String) -> Result<(), StorageError> {
+        self.ask(|reply| Request::ForgetRun(id, reply)).await?
     }
 
     fn send(&self, request: Request) -> Result<(), StorageError> {
@@ -271,10 +312,122 @@ fn handle(connection: &Connection, request: Request) -> Result<(), StorageError>
             let _ = reply.send(events);
         }
 
+        Request::SaveRun(row, reply) => {
+            let _ = reply.send(save_run(connection, &row));
+        }
+
+        Request::AppendTransition(row, reply) => {
+            let _ = reply.send(append_transition(connection, &row));
+        }
+
+        Request::UnfinishedRuns(reply) => {
+            let _ = reply.send(unfinished_runs(connection));
+        }
+
+        Request::ForgetRun(id, reply) => {
+            let _ = reply.send(forget_run(connection, &id));
+        }
+
         // Handled by the serve loop, which stops rather than dispatching it.
         Request::Shutdown => {}
     }
     Ok(())
+}
+
+fn save_run(connection: &Connection, row: &RunRow) -> Result<(), StorageError> {
+    connection
+        .execute(
+            "INSERT INTO workflow_runs
+               (id, workflow_id, workspace_id, node_id, state, waiting, outcome,
+                steps, last_succeeded, note, started_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+             ON CONFLICT(id) DO UPDATE SET
+               node_id = excluded.node_id,
+               state = excluded.state,
+               waiting = excluded.waiting,
+               outcome = excluded.outcome,
+               steps = excluded.steps,
+               last_succeeded = excluded.last_succeeded,
+               note = excluded.note,
+               updated_at = excluded.updated_at",
+            rusqlite::params![
+                row.id,
+                row.workflow_id,
+                row.workspace_id,
+                row.node_id,
+                row.state,
+                row.waiting,
+                row.outcome,
+                row.steps,
+                i64::from(row.last_succeeded),
+                row.note,
+                row.started_at,
+                row.updated_at,
+            ],
+        )
+        .map(|_| ())
+        .map_err(|source| StorageError::query("saving a workflow run", source))
+}
+
+fn append_transition(connection: &Connection, row: &TransitionRow) -> Result<(), StorageError> {
+    connection
+        .execute(
+            "INSERT INTO workflow_transitions (run_id, from_node, to_node, note, recorded_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            rusqlite::params![
+                row.run_id,
+                row.from_node,
+                row.to_node,
+                row.note,
+                row.recorded_at
+            ],
+        )
+        .map(|_| ())
+        .map_err(|source| StorageError::query("recording a workflow step", source))
+}
+
+fn unfinished_runs(connection: &Connection) -> Result<Vec<RunRow>, StorageError> {
+    let mut statement = connection
+        .prepare(
+            "SELECT id, workflow_id, workspace_id, node_id, state, waiting, outcome,
+                    steps, last_succeeded, note, started_at, updated_at
+               FROM workflow_runs
+              WHERE state <> 'finished'
+              ORDER BY started_at",
+        )
+        .map_err(|source| StorageError::query("reading what was running", source))?;
+
+    let rows = statement
+        .query_map([], |row| {
+            Ok(RunRow {
+                id: row.get(0)?,
+                workflow_id: row.get(1)?,
+                workspace_id: row.get(2)?,
+                node_id: row.get(3)?,
+                state: row.get(4)?,
+                waiting: row.get(5)?,
+                outcome: row.get(6)?,
+                steps: row.get(7)?,
+                last_succeeded: row.get::<_, i64>(8)? != 0,
+                note: row.get(9)?,
+                started_at: row.get(10)?,
+                updated_at: row.get(11)?,
+            })
+        })
+        .map_err(|source| StorageError::query("reading what was running", source))?;
+
+    rows.collect::<Result<Vec<_>, _>>()
+        .map_err(|source| StorageError::query("reading what was running", source))
+}
+
+fn forget_run(connection: &Connection, id: &str) -> Result<(), StorageError> {
+    connection
+        .execute("DELETE FROM workflow_transitions WHERE run_id = ?1", [id])
+        .map_err(|source| StorageError::query("forgetting a workflow's steps", source))?;
+    connection
+        .execute("DELETE FROM workflow_runs WHERE id = ?1", [id])
+        .map(|_| ())
+        .map_err(|source| StorageError::query("forgetting a workflow run", source))
 }
 
 fn read_recent(connection: &Connection, limit: usize) -> Result<Vec<EventRecord>, StorageError> {

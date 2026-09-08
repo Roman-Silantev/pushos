@@ -50,6 +50,8 @@ pub struct TerminalTask {
     supervisor: Arc<TerminalSupervisor>,
     stream: mpsc::UnboundedReceiver<(SessionId, TerminalEvent)>,
     bus: EventBus,
+    /// Workflows waiting on a command, when any are configured.
+    workflows: Option<Arc<pushos_workflows::WorkflowEngine>>,
 }
 
 impl std::fmt::Debug for TerminalTask {
@@ -69,7 +71,15 @@ impl TerminalTask {
             supervisor,
             stream,
             bus,
+            workflows: None,
         }
+    }
+
+    /// Tells workflows when the command they are waiting on has exited.
+    #[must_use]
+    pub fn feeding(mut self, workflows: Arc<pushos_workflows::WorkflowEngine>) -> Self {
+        self.workflows = Some(workflows);
+        self
     }
 
     /// Runs until the runtime stops.
@@ -110,6 +120,13 @@ impl TerminalTask {
                     message: Some(format!("{} {}", updated.name, describe(updated.status))),
                 },
             ));
+        }
+
+        // A workflow parked on this terminal is waiting for exactly this.
+        if let Some(workflows) = &self.workflows {
+            workflows
+                .terminal_finished(&updated.name, updated.status)
+                .await;
         }
 
         changed();

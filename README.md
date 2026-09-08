@@ -72,7 +72,7 @@ pushos workspaces # list the projects it knows about
 - **Bindings** with deterministic precedence: `workspace+page`, `workspace`,
   `page`, `global`.
 - **Actions**: page navigation, applications, Apple Shortcuts, media control,
-  shell commands and terminals.
+  shell commands, terminals, projects and workflows.
 - **The display**, drawn natively for 960x160.
 - **Hot reload**, validated. A bad edit is reported and ignored; the running
   surface is untouched.
@@ -89,6 +89,10 @@ pushos workspaces # list the projects it knows about
   A pad names the terminal, not the process.
 - **Assigning a session to a control** in Studio: everything running is listed,
   and either its name or the exact session can be bound to any control.
+- **Workflows** that run themselves and survive a restart: plan, build, test,
+  review, with somewhere to go when the tests fail. A step is written down
+  before the step after it runs, and a run waiting on a decision is still
+  waiting when PushOS comes back.
 - **Projects**, where one pad represents a whole coding project. Selecting it
   brings the project's bindings into force, starts agents and terminals in its
   directory with the providers it prefers, and puts you back on the page you
@@ -211,6 +215,7 @@ crates/
 ├── pushos-agents      agent roles, live sessions and the routing between them
 ├── pushos-acp         the Agent Client Protocol adapter
 ├── pushos-terminal    managed pseudo-terminals and what PushOS knows of them
+├── pushos-workflows   work that runs itself, and what it remembers
 ├── pushos-workspaces  projects, what each restores, and its working trees
 ├── pushos-api         the local control socket and its protocol
 ├── pushos-runtime     the event bus, supervision and wiring
@@ -266,9 +271,10 @@ Built and tested:
 | Phase 5 | Agents over the Agent Client Protocol |
 | Phase 6 | Sessions and terminals, and assigning one to a control |
 | Phase 7 | Projects: one pad for a whole codebase, with isolated worktrees |
+| Phase 8 | Durable workflows that survive a restart |
 
-Next, in order: durable workflows, voice and memory. `SPEC.md` holds the full
-plan.
+Next, in order: voice, memory, presets and the wider ecosystem. `SPEC.md` holds
+the full plan.
 
 ## Contributing
 

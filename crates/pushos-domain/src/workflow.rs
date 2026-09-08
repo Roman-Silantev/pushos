@@ -42,6 +42,74 @@ impl Workflow {
         self.nodes.get(id)
     }
 
+    /// Everything wrong with this workflow.
+    ///
+    /// Collected rather than returned one at a time, so a single editing pass
+    /// can fix a whole graph. Checked when configuration is read, so that a run
+    /// can never reach a step that is not there: finding that out halfway
+    /// through a build, after an agent has already changed files, is the
+    /// expensive way.
+    pub fn problems(&self) -> Vec<WorkflowProblem> {
+        let mut problems = Vec::new();
+
+        if self.nodes.is_empty() {
+            problems.push(WorkflowProblem::Empty {
+                workflow: self.id.clone(),
+            });
+            return problems;
+        }
+
+        if !self.nodes.contains_key(&self.start) {
+            problems.push(WorkflowProblem::UnknownStart {
+                workflow: self.id.clone(),
+                node: self.start.clone(),
+            });
+        }
+
+        for (id, node) in &self.nodes {
+            if node.id != *id {
+                problems.push(WorkflowProblem::Mislabelled {
+                    workflow: self.id.clone(),
+                    node: id.clone(),
+                });
+            }
+
+            for target in node.successors() {
+                if !self.nodes.contains_key(target) {
+                    problems.push(WorkflowProblem::UnknownStep {
+                        workflow: self.id.clone(),
+                        node: id.clone(),
+                        target: target.clone(),
+                    });
+                }
+            }
+        }
+
+        // A graph with no way out never finishes, and a workflow that never
+        // finishes is one nobody can tell has gone wrong.
+        if !self
+            .nodes
+            .values()
+            .any(|node| matches!(node.kind, NodeKind::End { .. }))
+        {
+            problems.push(WorkflowProblem::NoEnd {
+                workflow: self.id.clone(),
+            });
+        }
+
+        let reachable = self.reachable();
+        for id in self.nodes.keys() {
+            if !reachable.contains(id) {
+                problems.push(WorkflowProblem::Unreachable {
+                    workflow: self.id.clone(),
+                    node: id.clone(),
+                });
+            }
+        }
+
+        problems
+    }
+
     /// Every step the graph can reach from the start.
     ///
     /// Used by validation: a step nothing reaches is almost always a mistake in
@@ -319,6 +387,64 @@ impl fmt::Display for Outcome {
     }
 }
 
+/// Something wrong with a configured workflow.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+pub enum WorkflowProblem {
+    /// It has no steps at all.
+    #[error("workflow `{workflow}` has no steps")]
+    Empty {
+        /// The workflow.
+        workflow: WorkflowId,
+    },
+
+    /// It starts at a step that does not exist.
+    #[error("workflow `{workflow}` starts at `{node}`, which is not one of its steps")]
+    UnknownStart {
+        /// The workflow.
+        workflow: WorkflowId,
+        /// The step it named.
+        node: NodeId,
+    },
+
+    /// A step leads somewhere that does not exist.
+    #[error(
+        "workflow `{workflow}`: step `{node}` leads to `{target}`, which is not one of its steps"
+    )]
+    UnknownStep {
+        /// The workflow.
+        workflow: WorkflowId,
+        /// The step that leads there.
+        node: NodeId,
+        /// Where it leads.
+        target: NodeId,
+    },
+
+    /// A step is filed under a name that is not its own.
+    #[error("workflow `{workflow}`: step `{node}` is filed under another name")]
+    Mislabelled {
+        /// The workflow.
+        workflow: WorkflowId,
+        /// The name it is filed under.
+        node: NodeId,
+    },
+
+    /// Nothing in it ever ends.
+    #[error("workflow `{workflow}` has no ending step, so a run could never finish")]
+    NoEnd {
+        /// The workflow.
+        workflow: WorkflowId,
+    },
+
+    /// A step nothing leads to.
+    #[error("workflow `{workflow}`: nothing leads to step `{node}`")]
+    Unreachable {
+        /// The workflow.
+        workflow: WorkflowId,
+        /// The step.
+        node: NodeId,
+    },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -339,10 +465,9 @@ mod tests {
         }
     }
 
-    #[test]
-    fn a_chain_reaches_every_step_in_it() {
-        // The specification's own example: plan, build, test, review.
-        let flow = workflow(
+    /// The specification's own example: plan, build, test, review.
+    fn chain() -> Workflow {
+        workflow(
             vec![
                 node(
                     "plan",
@@ -395,9 +520,12 @@ mod tests {
                 ),
             ],
             "plan",
-        );
+        )
+    }
 
-        assert_eq!(flow.reachable().len(), 6);
+    #[test]
+    fn a_chain_reaches_every_step_in_it() {
+        assert_eq!(chain().reachable().len(), 6);
     }
 
     #[test]
@@ -465,6 +593,97 @@ mod tests {
         );
 
         assert_eq!(flow.reachable().len(), 4);
+    }
+
+    #[test]
+    fn a_workflow_that_holds_together_has_nothing_wrong_with_it() {
+        assert!(chain().problems().is_empty());
+    }
+
+    #[test]
+    fn a_step_that_leads_nowhere_real_is_reported_with_both_names() {
+        // The message has to say which step and where it points, or the
+        // operator is left searching the file.
+        let mut broken = chain();
+        broken.nodes.insert(
+            NodeId::new("plan"),
+            Node {
+                id: NodeId::new("plan"),
+                kind: NodeKind::Emit {
+                    message: "hi".to_owned(),
+                    next: NodeId::new("nowhere"),
+                },
+            },
+        );
+
+        let said = broken
+            .problems()
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>()
+            .join("; ");
+        assert!(said.contains("`plan`"), "{said}");
+        assert!(said.contains("`nowhere`"), "{said}");
+    }
+
+    #[test]
+    fn a_workflow_that_starts_nowhere_is_refused() {
+        let mut broken = chain();
+        broken.start = NodeId::new("missing");
+        assert!(
+            broken
+                .problems()
+                .iter()
+                .any(|problem| matches!(problem, WorkflowProblem::UnknownStart { .. }))
+        );
+    }
+
+    #[test]
+    fn a_workflow_with_no_ending_is_refused() {
+        // It could never finish, and a run nobody can tell has gone wrong is
+        // worse than one that fails.
+        let endless = workflow(
+            vec![node(
+                "round",
+                NodeKind::Emit {
+                    message: "again".to_owned(),
+                    next: NodeId::new("round"),
+                },
+            )],
+            "round",
+        );
+        assert!(
+            endless
+                .problems()
+                .iter()
+                .any(|problem| matches!(problem, WorkflowProblem::NoEnd { .. }))
+        );
+    }
+
+    #[test]
+    fn a_step_nothing_leads_to_is_reported_as_the_mistake_it_usually_is() {
+        let mut orphaned = chain();
+        orphaned.nodes.insert(
+            NodeId::new("stray"),
+            Node {
+                id: NodeId::new("stray"),
+                kind: NodeKind::End {
+                    outcome: Outcome::Failed,
+                },
+            },
+        );
+        assert!(
+            orphaned
+                .problems()
+                .iter()
+                .any(|problem| matches!(problem, WorkflowProblem::Unreachable { .. }))
+        );
+    }
+
+    #[test]
+    fn an_empty_workflow_is_reported_once_rather_than_as_everything_at_once() {
+        let empty = workflow(Vec::new(), "start");
+        assert_eq!(empty.problems().len(), 1);
     }
 
     #[test]

@@ -139,6 +139,15 @@ macro_rules! uuid_id {
                 write!(f, concat!(stringify!($name), "({})"), &self.0)
             }
         }
+
+        /// An identifier that is written down has to be readable back.
+        impl std::str::FromStr for $name {
+            type Err = uuid::Error;
+
+            fn from_str(text: &str) -> Result<Self, Self::Err> {
+                text.parse().map(Self)
+            }
+        }
     };
 }
 
@@ -156,6 +165,17 @@ mod tests {
         let id = WorkspaceId::new("sydclaw");
         assert_eq!(id.as_str(), "sydclaw");
         assert_eq!(id.to_string(), "sydclaw");
+    }
+
+    #[test]
+    fn a_generated_identifier_survives_being_written_down_and_read_back() {
+        use std::str::FromStr as _;
+
+        // Runs outlive the process, so their names have to make the trip
+        // through a database and back.
+        let id = RunId::generate();
+        assert_eq!(RunId::from_str(&id.to_string()).expect("it reads back"), id);
+        assert!(RunId::from_str("not an identifier").is_err());
     }
 
     #[test]

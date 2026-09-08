@@ -9,9 +9,11 @@ mod connection;
 mod error;
 mod memory;
 mod records;
+mod runs;
 mod schema;
 mod writer;
 
 pub use error::StorageError;
 pub use records::{EventRecord, WorkspaceMemoryRow};
+pub use runs::{RunRow, TransitionRow};
 pub use writer::{Storage, StorageWriter};

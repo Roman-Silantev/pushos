@@ -8,6 +8,7 @@ mod sessions;
 pub(crate) mod slots;
 mod surface;
 mod terminals;
+mod workflows;
 
 pub(crate) use agents::lines_for as agent_lines;
 pub use agents::{AgentReporter, AgentTask};
@@ -18,3 +19,6 @@ pub use surface::SurfaceState;
 pub(crate) use terminals::describe as describe_terminal;
 pub(crate) use terminals::lines_for as terminal_lines;
 pub use terminals::{TerminalReporter, TerminalTask};
+pub(crate) use workflows::describe as describe_run;
+pub(crate) use workflows::lines_for as run_lines;
+pub use workflows::{RunReporter, WorkflowTask};

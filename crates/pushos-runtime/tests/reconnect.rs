@@ -81,7 +81,7 @@ struct Harness {
 }
 
 impl Harness {
-    fn start() -> Self {
+    async fn start() -> Self {
         let config = store();
         let current = config.current();
 
@@ -117,7 +117,7 @@ impl Harness {
             .expect("the namespace is free");
 
         Self {
-            running: runtime.start(&shutdown),
+            running: runtime.start(&shutdown).await,
             manager,
             terminals,
             socket: path,
@@ -174,7 +174,7 @@ async fn tap(surface: &FakePush, index: u8) {
 async fn work_started_on_one_surface_is_still_running_on_the_next() {
     // Unplugging a cable is not a reason to lose a terminal or forget which
     // project the operator is in.
-    let harness = Harness::start();
+    let harness = Harness::start().await;
 
     harness
         .with_surface(|surface| async move {
@@ -215,7 +215,7 @@ async fn work_started_on_one_surface_is_still_running_on_the_next() {
 async fn studio_can_reach_pushos_while_no_surface_is_attached() {
     // A Push 2 in a bag is not a reason for the configuration application to
     // say the machine is not running.
-    let harness = Harness::start();
+    let harness = Harness::start().await;
 
     let Response::Status(status) = harness.ask(&Request::Status).await else {
         panic!("expected a status report");
@@ -239,7 +239,7 @@ async fn studio_can_reach_pushos_while_no_surface_is_attached() {
 async fn the_socket_keeps_answering_across_a_surface_coming_and_going() {
     // The control socket is bound once. Binding it per connection would fail
     // the second time, and Studio would go quiet after the first unplug.
-    let harness = Harness::start();
+    let harness = Harness::start().await;
 
     harness
         .with_surface(|surface| async move {

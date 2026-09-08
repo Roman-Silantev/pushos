@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use pushos_acp::{AcpBackend, AgentCommand};
 use pushos_actions::providers::{
-    agent, application, media, page, shell, shortcut, terminal, workspace,
+    agent, application, media, page, shell, shortcut, terminal, workflow, workspace,
 };
 use pushos_agents::{AgentRoster, AgentSupervisor};
 use pushos_config::RuntimeConfig;
@@ -17,6 +17,7 @@ use pushos_domain::ports::{
 };
 use pushos_macos::{AppleScriptMedia, OpenLauncher, ShortcutsCli, SystemProcessRunner};
 use pushos_terminal::{PtyTerminals, TerminalSupervisor};
+use pushos_workflows::{WorkflowCatalogue, WorkflowEngine};
 use pushos_workspaces::{GitRepository, WorkspaceManager, WorkspaceRegistry, warn_if_missing};
 use tracing::{info, warn};
 
@@ -122,6 +123,36 @@ pub(crate) fn terminals(
     Arc::new(supervisor)
 }
 
+/// Builds the workflow engine from configuration.
+///
+/// Returns `None` when nothing is configured, because a surface with no
+/// workflows should not carry a namespace that refuses every binding.
+pub(crate) fn workflows(
+    config: &RuntimeConfig,
+    store: Arc<dyn pushos_domain::ports::RunStore>,
+    observer: Arc<dyn pushos_workflows::RunObserver>,
+    agents: Option<&Arc<AgentSupervisor>>,
+    terminals: &Arc<TerminalSupervisor>,
+) -> Option<Arc<WorkflowEngine>> {
+    if config.workflows.is_empty() {
+        return None;
+    }
+
+    info!(workflows = config.workflows.len(), "workflows available");
+    let mut engine = WorkflowEngine::new(
+        WorkflowCatalogue::new(config.workflows.clone()),
+        store,
+        observer,
+    )
+    .with_terminals(Arc::clone(terminals));
+
+    if let Some(supervisor) = agents {
+        engine = engine.with_agents(Arc::clone(supervisor));
+    }
+
+    Some(Arc::new(engine))
+}
+
 /// The command that starts a configured provider.
 fn command_for(entry: &pushos_config::model::ProviderEntry) -> Option<AgentCommand> {
     let command = match &entry.program {
@@ -144,6 +175,7 @@ pub(crate) fn providers(
     agents: Option<&Arc<AgentSupervisor>>,
     terminals: &Arc<TerminalSupervisor>,
     workspaces: &Arc<WorkspaceManager>,
+    workflows: Option<&Arc<WorkflowEngine>>,
 ) -> Vec<Arc<dyn ActionProvider>> {
     let processes: Arc<dyn ProcessRunner> = Arc::new(SystemProcessRunner::new());
     let launcher: Arc<dyn pushos_domain::ports::ApplicationLauncher> =
@@ -167,6 +199,14 @@ pub(crate) fn providers(
     // binding fails with "no provider" rather than "unknown verb".
     if let Some(supervisor) = agents {
         providers.push(Arc::new(agent::AgentProvider::new(Arc::clone(supervisor))));
+    }
+
+    // The same for workflows: a namespace that refuses every binding would
+    // report "unknown verb" rather than "none are configured".
+    if let Some(engine) = workflows {
+        providers.push(Arc::new(workflow::WorkflowProvider::new(Arc::clone(
+            engine,
+        ))));
     }
 
     if let Some(controller) = media_controller(config, &processes) {
@@ -203,18 +243,32 @@ pub(crate) fn shipped_namespaces(
     );
     let agents = agents(config, Arc::new(agent_reporter), Arc::clone(&manager) as _);
 
-    providers(config, agents.as_ref(), &terminals, &manager)
-        .into_iter()
-        .map(|provider| {
-            let verbs = provider
-                .capabilities()
-                .verbs()
-                .iter()
-                .map(ToString::to_string)
-                .collect();
-            (provider.name().to_string(), verbs)
-        })
-        .collect()
+    let engine = workflows(
+        config,
+        Arc::new(pushos_workflows::ForgetfulRuns),
+        Arc::new(pushos_workflows::SilentObserver),
+        agents.as_ref(),
+        &terminals,
+    );
+
+    providers(
+        config,
+        agents.as_ref(),
+        &terminals,
+        &manager,
+        engine.as_ref(),
+    )
+    .into_iter()
+    .map(|provider| {
+        let verbs = provider
+            .capabilities()
+            .verbs()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        (provider.name().to_string(), verbs)
+    })
+    .collect()
 }
 
 fn media_controller(
@@ -258,6 +312,20 @@ mod tests {
         terminals(config, Arc::new(reporter), manager(config))
     }
 
+    /// The engine a configuration produces, over a store that keeps nothing.
+    fn engine(
+        config: &RuntimeConfig,
+        terminals: &Arc<TerminalSupervisor>,
+    ) -> Option<Arc<WorkflowEngine>> {
+        workflows(
+            config,
+            Arc::new(pushos_testkit::FakeRunStore::new()),
+            Arc::new(pushos_workflows::SilentObserver),
+            None,
+            terminals,
+        )
+    }
+
     #[test]
     fn every_shipped_namespace_is_present_by_default() {
         let settings = config("");
@@ -266,6 +334,7 @@ mod tests {
             None,
             &idle_terminals(&settings),
             &manager(&settings),
+            engine(&settings, &idle_terminals(&settings)).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -287,6 +356,7 @@ mod tests {
             None,
             &idle_terminals(&settings),
             &manager(&settings),
+            engine(&settings, &idle_terminals(&settings)).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -307,6 +377,7 @@ mod tests {
             None,
             &idle_terminals(&settings),
             &manager(&settings),
+            engine(&settings, &idle_terminals(&settings)).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -423,6 +494,7 @@ mod tests {
             None,
             &idle_terminals(&settings),
             &manager(&settings),
+            engine(&settings, &idle_terminals(&settings)).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -448,6 +520,7 @@ mod tests {
             None,
             &idle_terminals(&unusable),
             &manager(&unusable),
+            engine(&unusable, &idle_terminals(&unusable)).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())

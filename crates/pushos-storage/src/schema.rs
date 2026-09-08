@@ -15,40 +15,78 @@ pub(crate) struct Migration {
 }
 
 /// Every migration, in the order they must be applied.
-pub(crate) const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "initial",
-    sql: "
-        CREATE TABLE settings (
-            key         TEXT PRIMARY KEY NOT NULL,
-            value       TEXT NOT NULL,
-            updated_at  INTEGER NOT NULL
-        ) STRICT;
+pub(crate) const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "initial",
+        sql: "
+            CREATE TABLE settings (
+                key         TEXT PRIMARY KEY NOT NULL,
+                value       TEXT NOT NULL,
+                updated_at  INTEGER NOT NULL
+            ) STRICT;
 
-        -- What a workspace restores when the operator returns to it.
-        CREATE TABLE workspace_memory (
-            workspace_id      TEXT PRIMARY KEY NOT NULL,
-            last_page         TEXT,
-            selected_session  TEXT,
-            updated_at        INTEGER NOT NULL
-        ) STRICT;
+            -- What a workspace restores when the operator returns to it.
+            CREATE TABLE workspace_memory (
+                workspace_id      TEXT PRIMARY KEY NOT NULL,
+                last_page         TEXT,
+                selected_session  TEXT,
+                updated_at        INTEGER NOT NULL
+            ) STRICT;
 
-        -- The audit trail. Correlation ties every row produced by one gesture
-        -- together, and causation records what led to what.
-        CREATE TABLE events (
+            -- The audit trail. Correlation ties every row produced by one gesture
+            -- together, and causation records what led to what.
+            CREATE TABLE events (
+                id              TEXT PRIMARY KEY NOT NULL,
+                correlation_id  TEXT NOT NULL,
+                causation_id    TEXT,
+                recorded_at     INTEGER NOT NULL,
+                source          TEXT NOT NULL,
+                kind            TEXT NOT NULL,
+                detail          TEXT
+            ) STRICT;
+
+            CREATE INDEX events_by_correlation ON events (correlation_id);
+            CREATE INDEX events_by_time ON events (recorded_at DESC);
+        ",
+    },
+    Migration {
+        version: 2,
+        name: "workflow runs",
+        sql: "
+        -- Where each run of a workflow has got to. Read at startup: what is
+        -- here and unfinished is what PushOS was in the middle of.
+        CREATE TABLE workflow_runs (
             id              TEXT PRIMARY KEY NOT NULL,
-            correlation_id  TEXT NOT NULL,
-            causation_id    TEXT,
-            recorded_at     INTEGER NOT NULL,
-            source          TEXT NOT NULL,
-            kind            TEXT NOT NULL,
-            detail          TEXT
+            workflow_id     TEXT NOT NULL,
+            workspace_id    TEXT,
+            node_id         TEXT NOT NULL,
+            state           TEXT NOT NULL,
+            waiting         TEXT,
+            outcome         TEXT,
+            steps           INTEGER NOT NULL,
+            last_succeeded  INTEGER NOT NULL,
+            note            TEXT,
+            started_at      INTEGER NOT NULL,
+            updated_at      INTEGER NOT NULL
         ) STRICT;
 
-        CREATE INDEX events_by_correlation ON events (correlation_id);
-        CREATE INDEX events_by_time ON events (recorded_at DESC);
+        CREATE INDEX workflow_runs_unfinished ON workflow_runs (state);
+
+        -- Every step every run took, written before the step after it runs.
+        CREATE TABLE workflow_transitions (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_id       TEXT NOT NULL,
+            from_node    TEXT,
+            to_node      TEXT NOT NULL,
+            note         TEXT,
+            recorded_at  INTEGER NOT NULL
+        ) STRICT;
+
+        CREATE INDEX workflow_transitions_by_run ON workflow_transitions (run_id, id);
     ",
-}];
+    },
+];
 
 /// The schema version this build expects.
 pub(crate) fn target_version() -> i64 {

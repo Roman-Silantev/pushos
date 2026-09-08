@@ -16,11 +16,11 @@ use tokio::sync::watch;
 use tracing::{info, warn};
 
 use crate::actors::{
-    AgentTask, InputTask, RenderTask, SessionPublisher, SurfaceView, TerminalTask,
+    AgentTask, InputTask, RenderTask, SessionPublisher, SurfaceView, TerminalTask, WorkflowTask,
 };
 use crate::bus::EventBus;
 use crate::control::RuntimeControl;
-use crate::sessions::{AgentSessions, TerminalSessions};
+use crate::sessions::{AgentSessions, RunSessions, TerminalSessions};
 use crate::shutdown::Shutdown;
 
 /// A configured but not yet running PushOS.
@@ -32,7 +32,14 @@ pub struct Runtime {
     agents: Option<AgentWiring>,
     terminals: Option<TerminalWiring>,
     workspaces: Option<Arc<pushos_workspaces::WorkspaceManager>>,
+    workflows: Option<WorkflowWiring>,
     bus: EventBus,
+}
+
+/// The workflow engine and the stream it reports runs on.
+struct WorkflowWiring {
+    engine: Arc<pushos_workflows::WorkflowEngine>,
+    updates: tokio::sync::mpsc::UnboundedReceiver<pushos_domain::run::Run>,
 }
 
 /// The agent supervisor and the stream its backends report on.
@@ -73,6 +80,7 @@ impl Runtime {
             agents: None,
             terminals: None,
             workspaces: None,
+            workflows: None,
             bus: EventBus::new(),
         }
     }
@@ -125,6 +133,19 @@ impl Runtime {
         self
     }
 
+    /// Runs workflows, and puts what they are doing on the surface.
+    ///
+    /// Optional: PushOS runs without workflows, it simply has none to start.
+    #[must_use]
+    pub fn with_workflows(
+        mut self,
+        engine: Arc<pushos_workflows::WorkflowEngine>,
+        updates: tokio::sync::mpsc::UnboundedReceiver<pushos_domain::run::Run>,
+    ) -> Self {
+        self.workflows = Some(WorkflowWiring { engine, updates });
+        self
+    }
+
     /// Installs an action provider.
     pub fn with_provider(
         mut self,
@@ -166,10 +187,17 @@ impl Runtime {
     /// still running and its project still selected, and PushOS with nothing
     /// attached must still be configurable, or Studio could not reach a machine
     /// whose device is in a bag.
-    pub fn start(self, shutdown: &Shutdown) -> RunningRuntime {
+    pub async fn start(self, shutdown: &Shutdown) -> RunningRuntime {
         let granted = self.config.current().permissions.clone();
         let providers = Arc::new(self.providers);
         let dispatcher = Arc::new(ActionDispatcher::new(Arc::clone(&providers), granted));
+
+        // Given after construction, because the dispatcher this points at
+        // contains the provider that points back at the engine.
+        if let Some(wiring) = &self.workflows {
+            let runner: Arc<dyn pushos_domain::ports::ActionRunner> = Arc::clone(&dispatcher) as _;
+            wiring.engine.use_actions(&runner).await;
+        }
 
         // Created once, for the life of the process. A surface publishes into
         // the view; with none attached it holds the waiting screen.
@@ -187,6 +215,10 @@ impl Runtime {
             sources.push(Arc::new(TerminalSessions::new(Arc::clone(
                 &wiring.supervisor,
             ))));
+        }
+        if let Some(wiring) = &self.workflows {
+            publisher = publisher.with_workflows(Arc::clone(&wiring.engine));
+            sources.push(Arc::new(RunSessions::new(Arc::clone(&wiring.engine))));
         }
 
         if let Some(server) = self.control {
@@ -230,18 +262,41 @@ impl Runtime {
             });
         }
 
+        let engine = self
+            .workflows
+            .as_ref()
+            .map(|wiring| Arc::clone(&wiring.engine));
+
         if let Some(wiring) = self.agents {
-            let task = AgentTask::new(wiring.supervisor, wiring.updates, self.bus.clone());
+            let mut task = AgentTask::new(wiring.supervisor, wiring.updates, self.bus.clone());
+            if let Some(engine) = &engine {
+                task = task.feeding(Arc::clone(engine));
+            }
             let watched = shutdown.clone();
             let publishing = publisher.clone();
             shutdown.spawn(async move { task.run(watched, move || publishing.publish()).await });
         }
 
         if let Some(wiring) = self.terminals {
-            let task = TerminalTask::new(wiring.supervisor, wiring.updates, self.bus.clone());
+            let mut task = TerminalTask::new(wiring.supervisor, wiring.updates, self.bus.clone());
+            if let Some(engine) = &engine {
+                task = task.feeding(Arc::clone(engine));
+            }
             let watched = shutdown.clone();
             let publishing = publisher.clone();
             shutdown.spawn(async move { task.run(watched, move || publishing.publish()).await });
+        }
+
+        if let Some(wiring) = self.workflows {
+            let task = WorkflowTask::new(wiring.updates, self.bus.clone());
+            let watched = shutdown.clone();
+            let publishing = publisher.clone();
+            shutdown.spawn(async move { task.run(watched, move || publishing.publish()).await });
+
+            // Picked up after everything that can advance them is listening, so
+            // a run resumed here finds its agents and terminals ready.
+            let resuming = wiring.engine;
+            shutdown.spawn(async move { resuming.resume().await });
         }
 
         RunningRuntime {
@@ -266,7 +321,7 @@ impl Runtime {
         renderer: PushRenderer,
         shutdown: Shutdown,
     ) {
-        let running = self.start(&shutdown);
+        let running = self.start(&shutdown).await;
         running.serve(input, output, renderer, &shutdown).await;
         running.stop().await;
 

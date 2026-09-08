@@ -162,6 +162,8 @@ pub enum SessionKind {
     Agent,
     /// A terminal PushOS is running.
     Terminal,
+    /// A workflow run.
+    Workflow,
 }
 
 impl SessionKind {
@@ -170,6 +172,7 @@ impl SessionKind {
         match self {
             Self::Agent => "agent",
             Self::Terminal => "terminal",
+            Self::Workflow => "workflow",
         }
     }
 }

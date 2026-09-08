@@ -301,6 +301,43 @@ hooks and their credentials. PushOS never commits, pushes, merges or resolves
 anything: those are decisions, and decisions belong to the operator or to an
 agent they are watching.
 
+## A workflow is written down before it runs
+
+A workflow is work that runs itself: plan, then build, then test, then review,
+with somewhere to go when the tests fail. One rule holds the whole thing
+together: a step is written down before the step after it runs. A crash
+therefore loses at most the step that was in flight, never one that had already
+been reported as taken, and what a restart reads is never ahead of what actually
+happened.
+
+Steps that wait, which is most of the interesting ones, hold no task open. The
+run is parked with a note saying what it is waiting for, and something outside
+tells the engine when that thing is done. That is what lets a run survive a
+restart: there is nothing to resume except a fact.
+
+On resume, a step that was in flight is entered again, because what PushOS knows
+is that it started and not that it finished. Steps must therefore be safe to
+re-enter, which is a real constraint on what belongs in a workflow, and is why
+the one step that stops for a person is the one to put in front of anything
+irreversible.
+
+Three decisions worth stating:
+
+- **Branches that run at once are absent rather than pretended at.** They need a
+  run to be in several places, which is a change to what a run is, not another
+  kind of step.
+- **A terminal step names a program and its arguments**, not a shell line, and
+  the terminal runs that program rather than typing at a shell. That is the only
+  way the terminal's exit status is the command's.
+- **A workflow goes through the same dispatcher and the same permission check a
+  gesture does**, so it can never do something a control could not. Starting one
+  needs the permission its steps would need; answering one does not, because
+  saying yes to something already permitted is not a new capability.
+
+Limits are not optional. A graph with a loop in it can loop for ever, and an
+agent that costs money on every turn is not something to leave unbounded, so
+every workflow has a step count and a deadline whether or not it names them.
+
 ## Failures are classified, not stringified
 
 Every error carries a class: retryable, validation, permission,
