@@ -29,10 +29,18 @@ export interface BindingSpec {
   priority?: number;
 }
 
+/**
+ * What the runtime is driving.
+ *
+ * Three states, not a boolean. A stand-in surface is neither attached nor
+ * unattached, and calling it either would be untrue.
+ */
+export type SurfaceReport = "push2" | "simulated" | "absent";
+
 export interface StatusReport {
   protocol: number;
   version: string;
-  push_connected: boolean;
+  surface: SurfaceReport;
   page: string | null;
   workspace: string | null;
   config_root: string;
@@ -138,6 +146,21 @@ export async function client(): Promise<Client> {
     resolved = usePreview() ? (await import("./preview")).preview : live;
   }
   return resolved;
+}
+
+/** How a surface should be described, and how urgently. */
+export function describeSurface(surface: SurfaceReport): {
+  text: string;
+  tone: "good" | "idle" | "bad";
+} {
+  switch (surface) {
+    case "push2":
+      return { text: "Push 2 attached", tone: "good" };
+    case "simulated":
+      return { text: "Simulated surface — no hardware", tone: "bad" };
+    case "absent":
+      return { text: "No surface attached", tone: "idle" };
+  }
 }
 
 /** Whether two addresses point at the same binding. */

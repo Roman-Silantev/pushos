@@ -7,6 +7,7 @@
 import {
   client,
   describeError,
+  describeSurface,
   type BindingAddress,
   type BindingSpec,
   type EditReport,
@@ -187,12 +188,9 @@ function header(): HTMLElement {
     status.append(pill("PushOS not running", "bad"));
   } else {
     status.append(pill(`PushOS ${state.status.version}`, "good"));
-    status.append(
-      pill(
-        state.status.push_connected ? "Push 2 attached" : "Push 2 not attached",
-        state.status.push_connected ? "good" : "idle",
-      ),
-    );
+
+    const surface = describeSurface(state.status.surface);
+    status.append(pill(surface.text, surface.tone));
     status.append(pill(`${state.status.binding_count} bindings`, "idle"));
   }
   bar.append(status);

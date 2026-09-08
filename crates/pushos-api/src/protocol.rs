@@ -7,6 +7,39 @@
 use pushos_config::{BindingAddress, BindingSpec};
 use serde::{Deserialize, Serialize};
 
+/// What a running PushOS is driving.
+///
+/// Three states rather than a boolean. A stand-in surface is neither attached
+/// nor unattached, and reporting it as either would tell an operator something
+/// untrue about their own machine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum SurfaceReport {
+    /// A real Push 2 is attached.
+    Push2,
+    /// A simulated surface is standing in for the hardware.
+    Simulated,
+    /// Nothing is attached.
+    Absent,
+}
+
+impl SurfaceReport {
+    /// Whether this is genuine hardware.
+    pub const fn is_hardware(self) -> bool {
+        matches!(self, Self::Push2)
+    }
+
+    /// A sentence an operator can read without further interpretation.
+    pub const fn describe(self) -> &'static str {
+        match self {
+            Self::Push2 => "Push 2 attached",
+            Self::Simulated => "simulated surface, no hardware",
+            Self::Absent => "no surface attached",
+        }
+    }
+}
+
 /// The protocol version this build speaks.
 ///
 /// Studio checks it against its own and refuses to run against a PushOS it does
@@ -89,8 +122,8 @@ pub struct StatusReport {
     pub protocol: u32,
     /// The PushOS version running.
     pub version: String,
-    /// Whether a Push 2 is attached.
-    pub push_connected: bool,
+    /// What the runtime is driving.
+    pub surface: SurfaceReport,
     /// The page currently in effect.
     pub page: Option<String>,
     /// The workspace currently in effect.
@@ -299,7 +332,7 @@ mod tests {
             Response::Status(StatusReport {
                 protocol: PROTOCOL_VERSION,
                 version: "0.1.0".to_owned(),
-                push_connected: true,
+                surface: SurfaceReport::Push2,
                 page: Some("home".to_owned()),
                 workspace: None,
                 config_root: "/tmp".to_owned(),
@@ -354,6 +387,31 @@ mod tests {
                 response
             );
         }
+    }
+
+    #[test]
+    fn a_simulated_surface_is_never_described_as_attached_hardware() {
+        assert!(SurfaceReport::Push2.is_hardware());
+        assert!(!SurfaceReport::Simulated.is_hardware());
+        assert!(!SurfaceReport::Absent.is_hardware());
+
+        for report in [SurfaceReport::Simulated, SurfaceReport::Absent] {
+            assert!(
+                !report.describe().contains("Push 2 attached"),
+                "`{}` reads as attached hardware",
+                report.describe()
+            );
+        }
+    }
+
+    #[test]
+    fn the_surface_round_trips_as_a_readable_name() {
+        let encoded = serde_json::to_string(&SurfaceReport::Simulated).expect("serialisable");
+        assert_eq!(encoded, "\"simulated\"");
+        assert_eq!(
+            serde_json::from_str::<SurfaceReport>(&encoded).expect("deserialisable"),
+            SurfaceReport::Simulated
+        );
     }
 
     #[test]

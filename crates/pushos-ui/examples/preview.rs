@@ -8,7 +8,9 @@
 use std::io::Write as _;
 
 use pushos_domain::ports::{DISPLAY_HEIGHT, DISPLAY_WIDTH, DisplayFrame};
-use pushos_ui::{Notice, Overlay, PageView, PushRenderer, Slot, Splash, Tone, UiSnapshot};
+use pushos_ui::{
+    Notice, Overlay, PageView, PushRenderer, Slot, Splash, SurfacePresence, Tone, UiSnapshot,
+};
 
 fn main() -> std::io::Result<()> {
     let path = std::env::args()
@@ -50,7 +52,7 @@ fn page() -> UiSnapshot {
     UiSnapshot {
         page: PageView::new("development", "Development").at(2, 3),
         workspace: Some("sydclaw".to_owned()),
-        connected: true,
+        surface: SurfacePresence::Hardware,
         slots: [
             Some(Slot::new("Home").with_value("Play/Pause")),
             Some(Slot::new("Develop").with_value("Terminal")),

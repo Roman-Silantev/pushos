@@ -19,8 +19,8 @@ pub struct UiSnapshot {
     pub page: PageView,
     /// The workspace in effect, when one is selected.
     pub workspace: Option<String>,
-    /// Whether the surface is attached.
-    pub connected: bool,
+    /// What is on the other end, if anything.
+    pub surface: SurfacePresence,
     /// The eight labelled columns.
     pub slots: [Option<Slot>; SLOT_COUNT],
     /// The line at the foot of the display.
@@ -38,7 +38,7 @@ impl UiSnapshot {
     pub fn disconnected() -> Self {
         Self {
             page: PageView::default(),
-            connected: false,
+            surface: SurfacePresence::Absent,
             splash: Some(Splash::new("PushOS", 0).with_detail("waiting for Push 2")),
             ..Self::default()
         }
@@ -58,6 +58,48 @@ impl UiSnapshot {
     /// keeps an idle PushOS near zero processor use.
     pub fn differs_from(&self, other: &Self) -> bool {
         self != other
+    }
+}
+
+/// What the display is attached to.
+///
+/// Three states, not a boolean: a stand-in is neither "attached" nor "not
+/// attached", and calling it either would be a lie to whoever is reading the
+/// panel.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SurfacePresence {
+    /// A real Push 2.
+    Hardware,
+    /// A stand-in, used for development and testing.
+    Simulated,
+    /// Nothing.
+    #[default]
+    Absent,
+}
+
+impl SurfacePresence {
+    /// What the status bar says about it.
+    pub const fn caption(self) -> Option<&'static str> {
+        match self {
+            // Real hardware needs no label: the panel is on it.
+            Self::Hardware => None,
+            Self::Simulated => Some("SIMULATED"),
+            Self::Absent => Some("PUSH OFFLINE"),
+        }
+    }
+
+    /// Whether this is genuine hardware.
+    pub const fn is_hardware(self) -> bool {
+        matches!(self, Self::Hardware)
+    }
+}
+
+impl From<pushos_domain::ports::SurfaceKind> for SurfacePresence {
+    fn from(kind: pushos_domain::ports::SurfaceKind) -> Self {
+        match kind {
+            pushos_domain::ports::SurfaceKind::Hardware => Self::Hardware,
+            pushos_domain::ports::SurfaceKind::Simulated => Self::Simulated,
+        }
     }
 }
 
@@ -398,6 +440,14 @@ mod tests {
         let mut plan = LedPlan::new();
         plan.set(pad(0), LedState::solid(Rgb::WHITE));
         assert!(plan.changes_from(&plan.clone()).is_empty());
+    }
+
+    #[test]
+    fn a_stand_in_is_labelled_and_real_hardware_is_not() {
+        assert_eq!(SurfacePresence::Hardware.caption(), None);
+        assert_eq!(SurfacePresence::Simulated.caption(), Some("SIMULATED"));
+        assert_eq!(SurfacePresence::Absent.caption(), Some("PUSH OFFLINE"));
+        assert!(!SurfacePresence::Simulated.is_hardware());
     }
 
     #[test]

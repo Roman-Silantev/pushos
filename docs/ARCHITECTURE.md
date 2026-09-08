@@ -158,6 +158,18 @@ Two decisions about what the socket will do are worth stating:
 The runtime is reloaded after a successful edit, so Studio cannot report success
 while the operator's pads carry on unchanged.
 
+## A stand-in is never presented as hardware
+
+The surface reports what it is, and PushOS carries that answer all the way to
+the panel, the command line and Studio. There are three states, not a boolean:
+real hardware, a simulated stand-in, and nothing. A stand-in is neither attached
+nor unattached, and calling it either tells an operator something untrue about
+their own machine.
+
+This started as exactly that bug. Studio reported "Push 2 attached" while
+running against a fake surface, because the only thing the protocol could say
+was yes or no. Tests now cover it at the socket and on the display.
+
 ## Failures are classified, not stringified
 
 Every error carries a class: retryable, validation, permission,

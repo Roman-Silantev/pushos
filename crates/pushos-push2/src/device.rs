@@ -10,7 +10,7 @@ use async_trait::async_trait;
 use pushos_domain::color::{LedState, Rgb};
 use pushos_domain::controls::ControlId;
 use pushos_domain::input::ControlEvent;
-use pushos_domain::ports::{DisplayFrame, PushInput, PushOutput, PushSurfaceError};
+use pushos_domain::ports::{DisplayFrame, PushInput, PushOutput, PushSurfaceError, SurfaceKind};
 use tokio::sync::mpsc;
 use tracing::info;
 
@@ -92,6 +92,10 @@ impl Drop for Push2Device {
 
 #[async_trait]
 impl PushOutput for Push2Device {
+    fn kind(&self) -> SurfaceKind {
+        SurfaceKind::Hardware
+    }
+
     async fn set_led(&self, control: ControlId, state: LedState) -> Result<(), PushSurfaceError> {
         let mut messages = Vec::with_capacity(encode::MAX_MESSAGES_PER_LED);
         encode::led_messages(control, state, &mut messages)?;

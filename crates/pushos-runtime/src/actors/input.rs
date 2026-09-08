@@ -22,7 +22,7 @@ use pushos_domain::event::{DomainEvent, EventEnvelope, EventSource};
 use pushos_domain::ids::CorrelationId;
 use pushos_domain::input::ControlEvent;
 use pushos_domain::ports::PushInput;
-use pushos_ui::{Tone, UiSnapshot};
+use pushos_ui::{SurfacePresence, Tone, UiSnapshot};
 use tokio::sync::watch;
 use tracing::{debug, info, warn};
 
@@ -43,6 +43,7 @@ pub struct SurfaceView {
 /// Runs the input pipeline.
 pub struct InputTask {
     input: Box<dyn PushInput>,
+    surface_kind: SurfacePresence,
     recognizer: GestureRecognizer,
     surface: SurfaceState,
     dispatcher: Arc<ActionDispatcher>,
@@ -65,6 +66,7 @@ impl InputTask {
     /// Builds the pipeline.
     pub fn new(
         input: Box<dyn PushInput>,
+        surface_kind: SurfacePresence,
         dispatcher: Arc<ActionDispatcher>,
         config: Arc<ConfigStore>,
         bus: EventBus,
@@ -78,6 +80,7 @@ impl InputTask {
 
         let task = Self {
             input,
+            surface_kind,
             recognizer,
             surface,
             dispatcher,
@@ -92,7 +95,7 @@ impl InputTask {
 
     /// Runs until the surface goes away or shutdown begins.
     pub async fn run(mut self, shutdown: Shutdown) {
-        self.surface.set_connected(true, Instant::now());
+        self.surface.set_surface(self.surface_kind, Instant::now());
         self.publish();
         self.bus.publish(EventEnvelope::root(
             EventSource::Push,
@@ -132,7 +135,8 @@ impl InputTask {
             }
         }
 
-        self.surface.set_connected(false, Instant::now());
+        self.surface
+            .set_surface(SurfacePresence::Absent, Instant::now());
         self.recognizer.reset();
         self.publish();
     }

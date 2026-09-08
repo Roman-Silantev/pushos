@@ -134,7 +134,7 @@ const bindings: BindingSpec[] = [
 const status: StatusReport = {
   protocol: 1,
   version: "0.1.0 (sample data)",
-  push_connected: true,
+  surface: "simulated",
   page: "development",
   workspace: null,
   config_root: "~/.config/pushos",

@@ -75,7 +75,8 @@ pushos bindings  # list what it has bound
 - **Hot reload**, validated. A bad edit is reported and ignored; the running
   surface is untouched.
 - **A simulated surface**, so you can work on pages and bindings with no
-  hardware attached: `pushos run --fake`.
+  hardware attached: `pushos run --fake`. It says so everywhere it appears; a
+  stand-in is never presented as a Push 2.
 - **PushOS Studio**, a configuration application that talks to a running PushOS
   over a local socket. See [`studio/`](studio/).
 

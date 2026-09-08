@@ -99,6 +99,7 @@ impl Runtime {
 
         let (pipeline, view) = InputTask::new(
             input,
+            output.kind().into(),
             Arc::clone(&dispatcher),
             Arc::clone(&self.config),
             self.bus.clone(),

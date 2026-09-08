@@ -132,7 +132,7 @@ pub enum RendererUnavailable {
 
 #[cfg(test)]
 mod tests {
-    use crate::snapshot::{Notice, Overlay, PageView, Slot, Tone};
+    use crate::snapshot::{Notice, Overlay, PageView, Slot, SurfacePresence, Tone};
 
     use super::*;
 
@@ -144,7 +144,7 @@ mod tests {
         UiSnapshot {
             page: PageView::new("development", "Development").at(2, 6),
             workspace: Some("sydclaw".to_owned()),
-            connected: true,
+            surface: SurfacePresence::Hardware,
             slots: [
                 Some(
                     Slot::new("Builder")
@@ -341,6 +341,25 @@ mod tests {
         assert!(
             count(&with_bar) > count(&without),
             "the progress bar should be drawn"
+        );
+    }
+
+    #[test]
+    fn a_stand_in_is_never_presented_as_a_push_2() {
+        let mut renderer = renderer();
+        let mut hardware = DisplayFrame::blank();
+        let mut simulated = DisplayFrame::blank();
+
+        renderer.render(&populated(), &mut hardware);
+
+        let mut snapshot = populated();
+        snapshot.surface = SurfacePresence::Simulated;
+        renderer.render(&snapshot, &mut simulated);
+
+        assert_ne!(
+            hardware.pixels(),
+            simulated.pixels(),
+            "a simulated surface must be marked on the panel"
         );
     }
 

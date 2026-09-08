@@ -12,7 +12,7 @@ use pushos_domain::action::DisplayIntent;
 use pushos_domain::context::SurfaceContext;
 use pushos_domain::ids::{PageId, WorkspaceId};
 use pushos_domain::page::PageTarget;
-use pushos_ui::{Notice, Overlay, PageView, Splash, Tone, UiSnapshot};
+use pushos_ui::{Notice, Overlay, PageView, Splash, SurfacePresence, Tone, UiSnapshot};
 
 /// How long a transient message stays on screen.
 pub(crate) const NOTICE_LIFETIME: Duration = Duration::from_secs(4);
@@ -31,7 +31,7 @@ pub struct SurfaceState {
     page: Option<PageId>,
     previous_page: Option<PageId>,
     workspace: Option<WorkspaceId>,
-    connected: bool,
+    surface: SurfacePresence,
     notice: Option<Timed<Notice>>,
     overlay: Option<Timed<Overlay>>,
     splash_until: Option<Instant>,
@@ -56,7 +56,7 @@ impl SurfaceState {
             page,
             previous_page: None,
             workspace: None,
-            connected: false,
+            surface: SurfacePresence::Absent,
             notice: None,
             overlay: None,
             splash_until: None,
@@ -98,18 +98,24 @@ impl SurfaceState {
         }
     }
 
-    /// Records whether the surface is attached.
+    /// Records what the display is attached to.
     ///
-    /// Arriving raises the waiting screen for a moment, which is the one time
-    /// the display has nothing more useful to say.
-    pub fn set_connected(&mut self, connected: bool, now: Instant) {
-        if connected && !self.connected {
+    /// A surface arriving raises the waiting screen for a moment, which is the
+    /// one time the display has nothing more useful to say.
+    pub fn set_surface(&mut self, surface: SurfacePresence, now: Instant) {
+        let arriving = surface != SurfacePresence::Absent;
+        if arriving && self.surface == SurfacePresence::Absent {
             self.splash_until = Some(now + SPLASH_LIFETIME);
         }
-        if !connected {
+        if !arriving {
             self.splash_until = None;
         }
-        self.connected = connected;
+        self.surface = surface;
+    }
+
+    /// What the display is attached to.
+    pub const fn surface(&self) -> SurfacePresence {
+        self.surface
     }
 
     /// Moves to a workspace.
@@ -215,7 +221,7 @@ impl SurfaceState {
         UiSnapshot {
             page: view,
             workspace: self.workspace.as_ref().map(ToString::to_string),
-            connected: self.connected,
+            surface: self.surface,
             slots: crate::actors::slots::labels_for(&self.config, &self.context(false)),
             footer: page.and_then(|page| page.description.clone()),
             notice: self.notice.as_ref().map(|timed| timed.value.clone()),

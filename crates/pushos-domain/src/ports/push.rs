@@ -67,12 +67,46 @@ impl std::fmt::Debug for DisplayFrame {
     }
 }
 
+/// What kind of surface is on the other end of the port.
+///
+/// A boolean cannot express this: "attached" is not the opposite of
+/// "simulated", and presenting a stand-in as real hardware is exactly the kind
+/// of thing an operator should never have to discover for themselves.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SurfaceKind {
+    /// A real Push 2.
+    Hardware,
+    /// A stand-in, used for development and testing.
+    Simulated,
+}
+
+impl SurfaceKind {
+    /// Whether this is genuine hardware.
+    pub const fn is_hardware(self) -> bool {
+        matches!(self, Self::Hardware)
+    }
+
+    /// A short name for logs and reports.
+    pub const fn slug(self) -> &'static str {
+        match self {
+            Self::Hardware => "push2",
+            Self::Simulated => "simulated",
+        }
+    }
+}
+
 /// Drives the lights and the display.
 ///
 /// Implementations must be cheap enough to call from the render loop: no
 /// blocking IO, no allocation per LED.
 #[async_trait]
 pub trait PushOutput: Send + Sync + std::fmt::Debug {
+    /// What kind of surface this is.
+    ///
+    /// Reported to the operator and to configuration tools, so a simulated
+    /// surface is never presented as a Push 2.
+    fn kind(&self) -> SurfaceKind;
+
     /// Sets one control's light.
     async fn set_led(&self, control: ControlId, state: LedState) -> Result<(), PushSurfaceError>;
 
@@ -145,6 +179,13 @@ impl PushSurfaceError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_real_hardware_calls_itself_hardware() {
+        assert!(SurfaceKind::Hardware.is_hardware());
+        assert!(!SurfaceKind::Simulated.is_hardware());
+        assert_ne!(SurfaceKind::Hardware.slug(), SurfaceKind::Simulated.slug());
+    }
 
     #[test]
     fn a_blank_frame_is_the_native_display_size_and_is_black() {

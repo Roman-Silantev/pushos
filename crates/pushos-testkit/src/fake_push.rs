@@ -13,7 +13,7 @@ use async_trait::async_trait;
 use pushos_domain::color::LedState;
 use pushos_domain::controls::{ControlId, PadIndex};
 use pushos_domain::input::{ControlEvent, InputPhase};
-use pushos_domain::ports::{DisplayFrame, PushInput, PushOutput, PushSurfaceError};
+use pushos_domain::ports::{DisplayFrame, PushInput, PushOutput, PushSurfaceError, SurfaceKind};
 use tokio::sync::{Mutex, mpsc};
 
 /// How many injected events may queue before a test is producing faster than
@@ -140,6 +140,10 @@ impl FakePush {
 
 #[async_trait]
 impl PushOutput for FakePush {
+    fn kind(&self) -> SurfaceKind {
+        SurfaceKind::Simulated
+    }
+
     async fn set_led(&self, control: ControlId, state: LedState) -> Result<(), PushSurfaceError> {
         self.require_connected().await?;
         if !control.is_illuminated() {
@@ -199,6 +203,13 @@ mod tests {
 
     fn pad(index: u8) -> PadIndex {
         PadIndex::new(index).expect("test pad index is in range")
+    }
+
+    #[tokio::test]
+    async fn a_fake_surface_never_claims_to_be_hardware() {
+        let (surface, _input) = FakePush::new();
+        assert_eq!(surface.kind(), SurfaceKind::Simulated);
+        assert!(!surface.kind().is_hardware());
     }
 
     #[tokio::test]

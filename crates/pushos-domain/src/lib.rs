@@ -51,5 +51,5 @@ pub mod prelude {
     pub use crate::input::{ControlEvent, InputPhase};
     pub use crate::page::{Page, PageTarget};
     pub use crate::permissions::{Permission, PermissionSet};
-    pub use crate::ports::{ActionProvider, Clock, PushInput, PushOutput};
+    pub use crate::ports::{ActionProvider, Clock, PushInput, PushOutput, SurfaceKind};
 }

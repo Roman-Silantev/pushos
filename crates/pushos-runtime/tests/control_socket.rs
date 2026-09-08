@@ -142,7 +142,30 @@ async fn a_client_can_ask_how_the_runtime_is_doing() {
         .expect("the protocols match");
     assert_eq!(status.binding_count, 1);
     assert_eq!(status.page.as_deref(), Some("home"));
+    assert!(!status.surface.is_hardware(), "the harness has no Push 2");
     assert!(!status.version.is_empty());
+
+    harness.stop().await;
+}
+
+/// The harness runs on a stand-in. Reporting that as an attached Push 2 would
+/// tell an operator something untrue about their own machine, which is exactly
+/// what this once did.
+#[tokio::test]
+async fn a_simulated_surface_is_reported_as_simulated_not_as_a_push_2() {
+    let mut harness = Harness::start().await;
+
+    let status = harness
+        .client
+        .handshake()
+        .await
+        .expect("the protocols match");
+    assert_eq!(
+        status.surface,
+        pushos_api::protocol::SurfaceReport::Simulated
+    );
+    assert!(!status.surface.is_hardware());
+    assert!(!status.surface.describe().contains("Push 2 attached"));
 
     harness.stop().await;
 }

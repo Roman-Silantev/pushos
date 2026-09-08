@@ -46,10 +46,10 @@ pub(crate) fn draw_status(
     text.draw(canvas, &snapshot.page.name, (left, baseline), caption);
 
     let right = area.x + area.width - SLOT_PADDING;
-    if !snapshot.connected {
+    if let Some(label) = snapshot.surface.caption() {
         text.draw(
             canvas,
-            "PUSH OFFLINE",
+            label,
             (right, baseline),
             TextStyle {
                 max_width: 200.0,

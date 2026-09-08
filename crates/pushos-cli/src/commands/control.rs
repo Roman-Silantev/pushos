@@ -15,14 +15,7 @@ pub(crate) async fn status() -> Result<(), String> {
     let status = client.handshake().await.map_err(|error| describe(&error))?;
 
     println!("PushOS {} on protocol {}", status.version, status.protocol);
-    println!(
-        "  Push 2:       {}",
-        if status.push_connected {
-            "attached"
-        } else {
-            "not attached"
-        }
-    );
+    println!("  surface:      {}", status.surface.describe());
     println!(
         "  page:         {}",
         status.page.as_deref().unwrap_or("none")

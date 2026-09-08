@@ -12,7 +12,7 @@ use pushos_actions::{ActionDispatcher, ProviderRegistry};
 use pushos_api::ControlPlane;
 use pushos_api::protocol::{
     BindingList, ControlInfo, EditReport, Failure, FailureKind, GridPosition, PROTOCOL_VERSION,
-    PageInfo, ProviderInfo, StatusReport, TestReport, Vocabulary,
+    PageInfo, ProviderInfo, StatusReport, SurfaceReport, TestReport, Vocabulary,
 };
 use pushos_config::{
     BindingAddress, BindingSpec, ConfigDocuments, ConfigError, ConfigStore, RuntimeConfig,
@@ -22,6 +22,7 @@ use pushos_domain::context::SurfaceContext;
 use pushos_domain::controls::ControlId;
 use pushos_domain::gesture::Gesture;
 use pushos_domain::ids::CorrelationId;
+use pushos_ui::SurfacePresence;
 use tokio::sync::watch;
 use tracing::info;
 
@@ -60,7 +61,11 @@ impl RuntimeControl {
         StatusReport {
             protocol: PROTOCOL_VERSION,
             version: VERSION.to_owned(),
-            push_connected: view.snapshot.connected,
+            surface: match view.snapshot.surface {
+                SurfacePresence::Hardware => SurfaceReport::Push2,
+                SurfacePresence::Simulated => SurfaceReport::Simulated,
+                SurfacePresence::Absent => SurfaceReport::Absent,
+            },
             page: view.snapshot.page.id.as_ref().map(ToString::to_string),
             workspace: view.snapshot.workspace.clone(),
             config_root: self.config.root().display().to_string(),

@@ -12,6 +12,7 @@ pub use action_provider::{ActionProvider, ProviderCapabilities};
 pub use clock::{Clock, SystemClock};
 pub use push::{
     DISPLAY_HEIGHT, DISPLAY_WIDTH, DisplayFrame, PushInput, PushOutput, PushSurfaceError,
+    SurfaceKind,
 };
 pub use system::{
     ApplicationLauncher, ApplicationTarget, MediaController, MediaSnapshot, ProcessOutcome,
