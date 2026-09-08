@@ -12,6 +12,7 @@ mod fake_push;
 mod fake_runs;
 mod fake_system;
 mod fake_terminal;
+mod fake_voice;
 mod fake_workspace;
 mod recording_provider;
 
@@ -21,5 +22,6 @@ pub use fake_push::{FakePush, FakePushInput, SurfaceState};
 pub use fake_runs::FakeRunStore;
 pub use fake_system::{FakeApplications, FakeMedia, FakeProcesses, FakeShortcuts, MediaCall};
 pub use fake_terminal::{FakeTerminal, RecordingTerminalObserver};
+pub use fake_voice::{FakeMicrophone, FakeTranscriber, speech};
 pub use fake_workspace::{FakeRepository, FakeWorkspaceMemory, FixedRoot};
 pub use recording_provider::{RecordingProvider, ScriptedOutcome};

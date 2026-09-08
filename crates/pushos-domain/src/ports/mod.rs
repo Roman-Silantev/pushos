@@ -9,6 +9,7 @@ mod clock;
 mod push;
 mod system;
 mod terminal;
+mod voice;
 mod workflow;
 mod workspace;
 
@@ -30,6 +31,7 @@ pub use terminal::{
     TerminalError, TerminalEvent, TerminalHandle, TerminalHost, TerminalObserver, TerminalSize,
     TerminalSpec, TerminalStatus,
 };
+pub use voice::{Microphone, Recording, SAMPLE_RATE, Transcriber, VoiceError};
 pub use workflow::{ActionRunner, RunStore, RunStoreError};
 pub use workspace::{
     ClaimError, Repository, RepositoryError, WorkspaceContext, WorkspaceMemoryStore, Worktree,
