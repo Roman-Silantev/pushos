@@ -20,7 +20,9 @@ use pushos_domain::ids::{ExecutionId, WorkspaceId};
 use pushos_domain::ports::{PushOutput, WorkspaceContext};
 use pushos_runtime::{RunningRuntime, Runtime, Shutdown, TerminalReporter};
 use pushos_terminal::TerminalSupervisor;
-use pushos_testkit::{FakeApplications, FakePush, FakeRepository, FakeTerminal, FakeWorkspaceMemory};
+use pushos_testkit::{
+    FakeApplications, FakePush, FakeRepository, FakeTerminal, FakeWorkspaceMemory,
+};
 use pushos_ui::PushRenderer;
 use pushos_workspaces::{WorkspaceManager, WorkspaceRegistry};
 
@@ -133,12 +135,9 @@ impl Harness {
         let output: Arc<dyn PushOutput> = Arc::new(surface.clone());
         let renderer = PushRenderer::new().expect("the renderer builds");
 
-        let serving = self.running.serve(
-            Box::new(input),
-            output,
-            renderer,
-            &self.shutdown,
-        );
+        let serving = self
+            .running
+            .serve(Box::new(input), output, renderer, &self.shutdown);
 
         let driving = async {
             use_it(surface.clone()).await;
@@ -204,7 +203,11 @@ async fn work_started_on_one_surface_is_still_running_on_the_next() {
         })
         .await;
 
-    assert_eq!(harness.terminals.open_count(), 1, "not started a second time");
+    assert_eq!(
+        harness.terminals.open_count(),
+        1,
+        "not started a second time"
+    );
     harness.stop().await;
 }
 
