@@ -60,6 +60,7 @@ pushos run       # run it
 pushos status    # ask a running PushOS what it is doing
 pushos bindings  # list what it has bound
 pushos sessions  # list the agents and terminals it is driving
+pushos workspaces # list the projects it knows about
 ```
 
 - **All 141 Push 2 controls**, addressed by name. `pad.0`, `button.play`,
@@ -88,6 +89,11 @@ pushos sessions  # list the agents and terminals it is driving
   A pad names the terminal, not the process.
 - **Assigning a session to a control** in Studio: everything running is listed,
   and either its name or the exact session can be bound to any control.
+- **Projects**, where one pad represents a whole coding project. Selecting it
+  brings the project's bindings into force, starts agents and terminals in its
+  directory with the providers it prefers, and puts you back on the page you
+  were last on. A project that runs several coding agents can give each its own
+  git working tree, so two of them never edit the same checkout.
 
 ## Installing
 
@@ -155,6 +161,29 @@ page = "development"
 action = "terminal.run"
 target = "name:tests"
 params = { text = "cargo test" }
+
+# A project. One pad selects it, and everything afterwards happens in it.
+[[workspaces]]
+id = "sydclaw"
+name = "Sydclaw"
+root = "~/Projects/sydclaw"
+home_page = "development"
+
+[[bindings]]
+control = "button.upper_5"
+gesture = "press"
+action = "workspace.select"
+target = "sydclaw"
+label = "Sydclaw"
+
+# A binding scoped to a project only fires while that project is selected.
+[[bindings]]
+control = "pad.32"
+gesture = "tap"
+workspace = "sydclaw"
+action = "terminal.run"
+target = "name:tests"
+params = { text = "npm test" }
 ```
 
 Two rules the configuration enforces, both so that you can predict what a pad
@@ -182,6 +211,7 @@ crates/
 ├── pushos-agents      agent roles, live sessions and the routing between them
 ├── pushos-acp         the Agent Client Protocol adapter
 ├── pushos-terminal    managed pseudo-terminals and what PushOS knows of them
+├── pushos-workspaces  projects, what each restores, and its working trees
 ├── pushos-api         the local control socket and its protocol
 ├── pushos-runtime     the event bus, supervision and wiring
 ├── pushos-macos       the macOS half: processes, media, apps, Shortcuts
@@ -214,8 +244,13 @@ press is in flight.
 
 Some things cannot be faked and are not. The pseudo-terminal adapter is tested
 against real processes: a program is started, typed into, read from, stopped and
-its exit status collected. Three bugs in this milestone were found that way and
-by no other means.
+its exit status collected. Three bugs were found that way and by no other means.
+Worktree isolation is likewise proved against a real repository, because the
+question is whether the operator's own git does what PushOS asks of it:
+
+```bash
+cargo run -p pushos-workspaces --example isolate -- <repository> <where to put trees>
+```
 
 ## Where this is up to
 
@@ -230,9 +265,10 @@ Built and tested:
 | Phase 4 | PushOS Studio and the control socket it talks to |
 | Phase 5 | Agents over the Agent Client Protocol |
 | Phase 6 | Sessions and terminals, and assigning one to a control |
+| Phase 7 | Projects: one pad for a whole codebase, with isolated worktrees |
 
-Next, in order: workspaces, durable workflows, voice and memory. `SPEC.md` holds
-the full plan.
+Next, in order: durable workflows, voice and memory. `SPEC.md` holds the full
+plan.
 
 ## Contributing
 

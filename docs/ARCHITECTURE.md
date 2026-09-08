@@ -240,6 +240,45 @@ killed process and a crashed one look identical from outside, so the difference
 is remembered rather than inferred, and a red light for a job the operator asked
 to end is a lie the surface would go on telling.
 
+## A project is what a pad means
+
+A workspace answers "which project am I in", and one pad selects it. Everything
+downstream follows from that one answer: bindings scoped to the project come
+into force, agents start in its repository with the providers it prefers,
+terminals open there, and the page it was last on comes back.
+
+The project in effect has exactly one owner. The manager decides it and
+announces it; the surface follows on a watch rather than keeping an answer of
+its own. Two owners is how two parts of a system come to disagree about where
+the operator is, and here that would mean a pad resolving against one project
+while an agent started in another. The action that moves between projects
+therefore returns only the page to restore; the project itself arrives by the
+same route whether the move came from a gesture or from the control socket.
+
+What a project *is* comes from configuration the operator wrote, and PushOS
+never edits it. What it *was doing* is state PushOS accumulated, and lives in
+the database. Losing the second is an inconvenience. The first is not PushOS's
+to lose.
+
+Two coding agents editing one checkout produce a conflict nobody can untangle,
+so a project that runs several says `isolate_agents` and each role gets its own
+working tree. The lease is held by the role rather than by the session: a role
+has one live session at a time, so that gives the guarantee that matters, and it
+lets the tree outlive any one session. A builder restarted tomorrow gets back
+the branch it was working on rather than a new one.
+
+Trees are reused when they are free and are never deleted. A checkout may hold
+work nobody has committed, and removing that to tidy up would be the worst thing
+PushOS could do. When a project asks for isolation and PushOS cannot arrange it,
+the agent does not start: handing back the shared tree instead would silently
+give up the one guarantee the project asked for.
+
+Git is driven through the process port rather than a library, because the
+operator's own `git` is the one that knows about their configuration, their
+hooks and their credentials. PushOS never commits, pushes, merges or resolves
+anything: those are decisions, and decisions belong to the operator or to an
+agent they are watching.
+
 ## Failures are classified, not stringified
 
 Every error carries a class: retryable, validation, permission,
@@ -268,7 +307,11 @@ answer, and it comes back as a failed action with the exit code.
   play is the deliberate exception.
 - **Nothing is permitted unless configured.** Permission is checked in the
   dispatcher rather than inside providers, so a provider is never the only thing
-  standing between a binding and a capability.
+  standing between a binding and a capability. A capability can be required by
+  one verb rather than by a whole namespace: moving between projects starts
+  nothing and needs nothing, while opening one launches an application and does.
+  Gating the harmless verb behind the permission its sibling needs would teach
+  the operator to grant more than they meant to.
 - **A terminal's program and arguments stay separate**, like everything else
   PushOS starts. What the operator subsequently types into it is a different
   matter, and is exactly what a terminal is for, so the namespace needs the same

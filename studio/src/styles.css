@@ -888,3 +888,37 @@ body {
   font-size: 0.75rem;
   margin: 0.25rem 0 0;
 }
+
+/* Which project's bindings are being edited. */
+.projects {
+  margin-bottom: 1.25rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+/* The project PushOS is actually in, as opposed to the one being edited. */
+.page.in-effect .page-name {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  justify-content: space-between;
+}
+
+.here {
+  color: var(--good);
+  font-size: 0.625rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* A gesture whose behaviour comes from a binding written more widely. */
+.gesture.inherited {
+  border-left: 2px solid color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+.gesture-inherited {
+  color: var(--muted);
+  font-size: 0.75rem;
+  margin: 0.25rem 0 0.5rem;
+}

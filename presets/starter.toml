@@ -90,6 +90,76 @@ granted = [
 # action = "agent.approve"
 # label = "Approve"
 
+# --- Projects ----------------------------------------------------------------
+# A project is what a pad means when it says "Sydclaw": where work happens,
+# what opens it, who fills each role there, and where the surface should be on
+# arrival. One pad can then represent the whole thing.
+#
+# Selecting a project brings its bindings into force, starts agents and
+# terminals in its directory, and puts you back on the page you were last on.
+#
+# [[workspaces]]
+# id = "sydclaw"
+# name = "Sydclaw"
+# root = "~/Projects/sydclaw"
+# home_page = "development"
+
+# The applications this project opens in, by the name a binding uses.
+#
+# [workspaces.apps]
+# Cursor = "~/Projects/sydclaw"
+
+# Which provider fills each role here. The same role can be one agent in one
+# project and another elsewhere, which is why a binding names the role.
+#
+# [workspaces.roles]
+# builder = "claude"
+
+# Environment given to everything started in this project.
+#
+# [workspaces.env]
+# PROJECT = "sydclaw"
+
+# A project that runs several coding agents should give each its own working
+# tree. Two of them editing one checkout produce a conflict nobody can untangle.
+# The project must be a git repository for this.
+#
+# [[workspaces]]
+# id = "pushos"
+# name = "PushOS"
+# root = "~/Projects/pushos"
+# isolate_agents = true
+
+# One pad, one project. Hold it to open the project in an application.
+#
+# [[bindings]]
+# control = "button.upper_5"
+# gesture = "press"
+# action = "workspace.select"
+# target = "sydclaw"
+# label = "Sydclaw"
+#
+# [[bindings]]
+# control = "button.upper_5"
+# gesture = "hold"
+# action = "workspace.open"
+# label = "Open"
+# [bindings.params]
+# app = "Cursor"
+
+# A binding scoped to a project only fires while that project is selected, so
+# the same pad can mean something different in each one.
+#
+# [[bindings]]
+# control = "pad.32"
+# gesture = "tap"
+# workspace = "sydclaw"
+# action = "terminal.run"
+# target = "name:tests"
+# label = "Sydclaw tests"
+# [bindings.params]
+# text = "npm test"
+
 # --- Terminals ---------------------------------------------------------------
 # PushOS runs terminals itself rather than opening windows. They start with
 # nothing appearing on screen, keep running when nothing is looking, and a pad

@@ -7,6 +7,7 @@
 
 use pushos_api::protocol::{
     BindingList, EditReport, Request, Response, SessionList, StatusReport, TestReport, Vocabulary,
+    WorkspaceList,
 };
 use pushos_api::{ClientError, ControlClient};
 use pushos_config::{BindingAddress, BindingSpec};
@@ -116,6 +117,16 @@ async fn sessions() -> Result<SessionList, StudioError> {
     }
 }
 
+/// Every configured project, and which one is in effect.
+#[tauri::command]
+async fn workspaces() -> Result<WorkspaceList, StudioError> {
+    match ask(Request::Workspaces).await? {
+        Response::Workspaces(list) => Ok(list),
+        Response::Failed(failure) => Err(ClientError::Refused(failure).into()),
+        other => Err(StudioError::unexpected(&other)),
+    }
+}
+
 /// Runs a configured binding once, so its effect can be seen before committing
 /// to it on the hardware.
 #[tauri::command]
@@ -139,7 +150,7 @@ pub fn run() {
 
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
-            status, describe, bindings, bind, unbind, test, sessions
+            status, describe, bindings, bind, unbind, test, sessions, workspaces
         ])
         // A window that shows nothing is the hardest kind of failure to report,
         // because there is nowhere on screen to report it. Recording what the

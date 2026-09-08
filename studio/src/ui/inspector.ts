@@ -19,6 +19,8 @@ import { element } from "./surface";
 export interface InspectorModel {
   control: string | null;
   page: string | null;
+  /** The project being edited, or null for bindings that apply in every one. */
+  workspace: string | null;
   vocabulary: Vocabulary;
   bindings: BindingSpec[];
   /** What is running now, so a control can be pointed at one of them. */
@@ -73,15 +75,7 @@ export function renderInspector(
 
   const header = element("div", "inspector-header");
   header.append(element("h2", "inspector-title", model.control));
-  header.append(
-    element(
-      "p",
-      "inspector-scope",
-      model.page === null
-        ? "Editing bindings that apply everywhere"
-        : `Editing bindings on the ${pageName(model, model.page)} page`,
-    ),
-  );
+  header.append(element("p", "inspector-scope", describeScope(model)));
   panel.append(header);
 
   for (const gesture of gesturesFor(model.control, model.vocabulary.gestures)) {
@@ -95,6 +89,55 @@ function pageName(model: InspectorModel, id: string): string {
   return model.vocabulary.pages.find((page) => page.id === id)?.name ?? id;
 }
 
+/**
+ * The binding that would fire here, written at a wider scope than the one
+ * being edited.
+ *
+ * The narrowest wins, so the most specific match is the one that matters.
+ */
+function inForce(
+  model: InspectorModel,
+  control: string,
+  gesture: string,
+): BindingSpec | undefined {
+  const candidates = model.bindings.filter(
+    (binding) =>
+      binding.control === control &&
+      binding.gesture === gesture &&
+      (binding.page === undefined || binding.page === model.page) &&
+      (binding.workspace === undefined || binding.workspace === model.workspace),
+  );
+
+  // Same precedence the runtime uses: workspace and page beats workspace beats
+  // page beats everywhere.
+  return candidates.sort((a, b) => specificity(b) - specificity(a))[0];
+}
+
+function specificity(binding: BindingSpec): number {
+  return (binding.page === undefined ? 0 : 1) + (binding.workspace === undefined ? 0 : 2);
+}
+
+/** Where a binding was written, in words. */
+function scopeOf(binding: BindingSpec): string {
+  if (binding.workspace !== undefined && binding.page !== undefined) {
+    return `${binding.workspace}, ${binding.page}`;
+  }
+  if (binding.workspace !== undefined) return binding.workspace;
+  if (binding.page !== undefined) return `the ${binding.page} page`;
+  return "everywhere";
+}
+
+/** What the operator is editing, said in full so it is never in doubt. */
+function describeScope(model: InspectorModel): string {
+  const where =
+    model.page === null
+      ? "on every page"
+      : `on the ${pageName(model, model.page)} page`;
+  const project =
+    model.workspace === null ? "in every project" : `in ${model.workspace}`;
+  return `Editing bindings ${where}, ${project}`;
+}
+
 function renderGesture(
   model: InspectorModel,
   actions: InspectorActions,
@@ -105,16 +148,24 @@ function renderGesture(
     control,
     gesture,
     ...(model.page === null ? {} : { page: model.page }),
+    ...(model.workspace === null ? {} : { workspace: model.workspace }),
   };
   const existing = model.bindings.find(
     (binding) =>
       binding.control === control &&
       binding.gesture === gesture &&
-      (binding.page ?? null) === model.page,
+      (binding.page ?? null) === model.page &&
+      (binding.workspace ?? null) === model.workspace,
   );
+
+  // What is actually in force here, which may be a binding written at a wider
+  // scope. Without this the surface would show a lit pad while this row said
+  // "not assigned", and both would be telling the truth about different things.
+  const inherited = existing ? undefined : inForce(model, control, gesture);
 
   const row = element("div", "gesture");
   if (existing) row.classList.add("assigned");
+  else if (inherited) row.classList.add("inherited");
 
   const heading = element("div", "gesture-heading");
   heading.append(element("span", "gesture-name", readable(gesture)));
@@ -122,6 +173,15 @@ function renderGesture(
     element("span", "gesture-state", existing ? existing.action : "not assigned"),
   );
   row.append(heading);
+
+  if (inherited) {
+    const note = element(
+      "p",
+      "gesture-inherited",
+      `In force from ${scopeOf(inherited)}: ${inherited.action}. Saving here adds a narrower binding that wins.`,
+    );
+    row.append(note);
+  }
 
   const form = document.createElement("form");
   form.className = "gesture-form";

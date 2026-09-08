@@ -15,6 +15,7 @@ import type {
   StatusReport,
   TestReport,
   Vocabulary,
+  WorkspaceInfo,
 } from "./api";
 
 const controls: Vocabulary["controls"] = [
@@ -140,7 +141,7 @@ const status: StatusReport = {
   version: "0.1.0 (sample data)",
   surface: "simulated",
   page: "development",
-  workspace: null,
+  workspace: "sydclaw",
   config_root: "~/.config/pushos",
   binding_count: bindings.length,
 };
@@ -180,6 +181,37 @@ const sessions: SessionInfo[] = [
   },
 ];
 
+const workspaces: WorkspaceInfo[] = [
+  {
+    id: "sydclaw",
+    name: "Sydclaw",
+    root: "~/Projects/sydclaw",
+    home_page: "development",
+    current: true,
+    isolate_agents: false,
+    apps: ["Cursor"],
+    root_exists: true,
+  },
+  {
+    id: "pushos",
+    name: "PushOS",
+    root: "~/Projects/pushos",
+    description: "The surface itself",
+    current: false,
+    isolate_agents: true,
+    apps: ["Cursor"],
+    root_exists: true,
+  },
+  {
+    id: "website",
+    name: "Website",
+    root: "~/Projects/website",
+    current: false,
+    isolate_agents: false,
+    root_exists: false,
+  },
+];
+
 const refused = () => {
   throw {
     message: "Studio is showing sample data; there is nothing to change.",
@@ -197,4 +229,6 @@ export const preview = {
   unbind: (): Promise<EditReport> => refused(),
   test: (): Promise<TestReport> => refused(),
   sessions: (): Promise<{ sessions: SessionInfo[] }> => Promise.resolve({ sessions }),
+  workspaces: (): Promise<{ workspaces: WorkspaceInfo[] }> =>
+    Promise.resolve({ workspaces }),
 };

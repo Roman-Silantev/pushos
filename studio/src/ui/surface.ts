@@ -16,6 +16,8 @@ export interface SurfaceModel {
   bindings: BindingSpec[];
   /** The page whose bindings are shown, or null for global only. */
   page: string | null;
+  /** The project whose bindings are shown, or null for every project. */
+  workspace: string | null;
   /** The control currently being edited. */
   selected: string | null;
 }
@@ -36,6 +38,7 @@ export function renderSurface(
     available: new Set(model.controls.map((control) => control.id)),
     selected: model.selected,
     page: model.page,
+    workspace: model.workspace,
     onSelect,
   };
 
@@ -67,6 +70,7 @@ interface Context {
   available: Set<string>;
   selected: string | null;
   page: string | null;
+  workspace: string | null;
   onSelect: (control: string) => void;
 }
 
@@ -241,9 +245,7 @@ function boundControls(model: SurfaceModel): Map<string, number> {
   const counts = new Map<string, number>();
 
   for (const binding of model.bindings) {
-    // A global binding applies wherever you are, so it shows on every page.
-    const applies = binding.page === undefined || binding.page === model.page;
-    if (!applies) continue;
+    if (!applies(binding, model)) continue;
     counts.set(binding.control, (counts.get(binding.control) ?? 0) + 1);
   }
 
@@ -255,16 +257,28 @@ function labelsByControl(model: SurfaceModel): Map<string, string> {
   const labels = new Map<string, string>();
 
   for (const binding of model.bindings) {
-    const applies = binding.page === undefined || binding.page === model.page;
-    if (!applies || binding.label === undefined) continue;
-    // A page's own caption wins over one that applies everywhere, which is what
-    // the hardware shows.
+    if (!applies(binding, model) || binding.label === undefined) continue;
+    // The narrower caption wins over one that applies more widely, which is
+    // what the hardware shows.
     if (binding.page !== undefined || !labels.has(binding.control)) {
       labels.set(binding.control, binding.label);
     }
   }
 
   return labels;
+}
+
+/**
+ * Whether a binding is in force where the operator is looking.
+ *
+ * A binding that applies everywhere shows on every page and in every project,
+ * which is what "everywhere" means.
+ */
+function applies(binding: BindingSpec, model: SurfaceModel): boolean {
+  const onPage = binding.page === undefined || binding.page === model.page;
+  const inProject =
+    binding.workspace === undefined || binding.workspace === model.workspace;
+  return onPage && inProject;
 }
 
 /** Pads in hardware order, so `pad.10` does not land between `pad.1` and `pad.2`. */

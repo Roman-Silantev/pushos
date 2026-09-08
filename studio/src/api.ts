@@ -103,6 +103,24 @@ export interface SessionInfo {
   workspace?: string;
 }
 
+/**
+ * One project.
+ *
+ * A workspace is what a pad means when it says "Sydclaw": where work happens,
+ * what opens it, and what the surface shows on arrival.
+ */
+export interface WorkspaceInfo {
+  id: string;
+  name: string;
+  root: string;
+  description?: string;
+  home_page?: string;
+  current: boolean;
+  isolate_agents: boolean;
+  apps?: string[];
+  root_exists: boolean;
+}
+
 export interface EditReport {
   file: string;
   replaced: boolean;
@@ -150,6 +168,7 @@ const live = {
   unbind: (address: BindingAddress) => invoke<EditReport>("unbind", { address }),
   test: (address: BindingAddress) => invoke<TestReport>("test", { address }),
   sessions: () => invoke<{ sessions: SessionInfo[] }>("sessions"),
+  workspaces: () => invoke<{ workspaces: WorkspaceInfo[] }>("workspaces"),
 };
 
 /** What Studio talks to. */

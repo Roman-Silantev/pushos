@@ -51,43 +51,40 @@ mod tests {
 
     /// Every commented-out setting and binding in the preset, uncommented.
     ///
-    /// Only lines that look like TOML are taken, so the prose around them stays
-    /// as prose.
+    /// A line counts as an example when what it says, with the comment marker
+    /// removed, is a table header or an assignment. Prose never is, and a rule
+    /// rather than a list of key names means a new setting cannot be
+    /// documented without also being checked.
     fn with_every_example_enabled() -> String {
-        const KEYS: [&str; 13] = [
-            "control",
-            "gesture",
-            "page",
-            "action",
-            "target",
-            "label",
-            "name",
-            "text",
-            "id",
-            "objective",
-            "preferred",
-            "permissions",
-            "program",
-        ];
-
         STARTER
             .lines()
             .map(|line| {
                 let Some(uncommented) = line.trim_start().strip_prefix("# ") else {
                     return line;
                 };
-                let looks_like_toml = uncommented.starts_with("[[")
-                    || uncommented.starts_with('[')
-                    || KEYS
-                        .iter()
-                        .any(|key| uncommented.starts_with(&format!("{key} = ")))
-                    || uncommented.starts_with("workspace_root = ")
-                    || uncommented.starts_with("shell = ");
-
-                if looks_like_toml { uncommented } else { line }
+                if looks_like_toml(uncommented) {
+                    uncommented
+                } else {
+                    line
+                }
             })
             .collect::<Vec<_>>()
             .join("\n")
+    }
+
+    /// Whether a line is a table header or an assignment.
+    fn looks_like_toml(line: &str) -> bool {
+        if line.starts_with('[') {
+            return true;
+        }
+
+        let Some((key, _)) = line.split_once(" = ") else {
+            return false;
+        };
+        !key.is_empty()
+            && key
+                .chars()
+                .all(|character| character.is_alphanumeric() || "_-.".contains(character))
     }
 
     #[test]
@@ -124,24 +121,29 @@ mod tests {
     }
 
     #[test]
-    fn every_action_the_starter_names_exists_in_a_shipped_provider() {
-        // Documentation that names a verb PushOS does not have would fail only
-        // when the operator finally pressed the control.
+    fn every_action_the_starter_documents_exists_and_declares_that_verb() {
+        // Checked against the providers PushOS actually ships rather than a
+        // list written here, so documentation cannot name something that was
+        // renamed or removed. A verb that does not exist would fail only when
+        // the operator finally pressed the control.
         let enabled = with_every_example_enabled();
         let parsed: ConfigFile = toml::from_str(&enabled).expect("valid TOML");
+        let config = RuntimeConfig::build(&parsed).expect("valid");
 
-        let namespaces = [
-            "agent", "app", "media", "page", "shell", "shortcut", "terminal",
-        ];
+        let shipped = crate::host::shipped_namespaces(&config);
+
         for binding in &parsed.bindings {
-            let provider = binding
+            let (provider, verb) = binding
                 .action
                 .split_once('.')
-                .map(|(provider, _)| provider)
-                .unwrap_or_default();
+                .unwrap_or_else(|| panic!("`{}` is not written as provider.verb", binding.action));
+
+            let verbs = shipped.get(provider).unwrap_or_else(|| {
+                panic!("`{}` names a provider PushOS does not ship", binding.action)
+            });
             assert!(
-                namespaces.contains(&provider),
-                "`{}` names a provider PushOS does not ship",
+                verbs.iter().any(|shipped| shipped == verb),
+                "`{}` names a verb `{provider}` does not have",
                 binding.action
             );
         }

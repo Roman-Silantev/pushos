@@ -14,6 +14,7 @@ import {
   type SessionInfo,
   type StatusReport,
   type Vocabulary,
+  type WorkspaceInfo,
 } from "./api";
 import { usePreview } from "./bridge";
 import { renderInspector } from "./ui/inspector";
@@ -26,6 +27,10 @@ interface State {
   bindings: BindingSpec[];
   /** The page being edited, or null for bindings that apply everywhere. */
   page: string | null;
+  /** The project being edited, or null for bindings that apply in every one. */
+  workspace: string | null;
+  /** The projects PushOS knows about. */
+  workspaces: WorkspaceInfo[];
   selected: string | null;
   notice: Notice | null;
   /** What is running now. Refreshed on its own, because it changes while the
@@ -44,6 +49,8 @@ const state: State = {
   vocabulary: null,
   bindings: [],
   page: null,
+  workspace: null,
+  workspaces: [],
   selected: null,
   notice: null,
   sessions: [],
@@ -58,17 +65,26 @@ const SESSION_POLL_MS = 3000;
 async function refresh(): Promise<void> {
   try {
     const api = await client();
-    const [status, vocabulary, bindings, sessions] = await Promise.all([
+    const [status, vocabulary, bindings, sessions, workspaces] = await Promise.all([
       api.status(),
       api.describe(),
       api.bindings(),
       api.sessions(),
+      api.workspaces(),
     ]);
 
     state.status = status;
     state.vocabulary = vocabulary;
     state.bindings = bindings.bindings;
     state.sessions = sessions.sessions;
+    state.workspaces = workspaces.workspaces;
+
+    // Start in the project PushOS is in, so Studio opens where the operator
+    // already is rather than somewhere arbitrary.
+    if (state.workspace === null && status.workspace !== null) {
+      const known = workspaces.workspaces.some((w) => w.id === status.workspace);
+      if (known) state.workspace = status.workspace;
+    }
 
     // Start on the page PushOS is showing, so Studio opens where the operator
     // already is rather than somewhere arbitrary.
@@ -80,6 +96,7 @@ async function refresh(): Promise<void> {
     const failure = describeError(error);
     state.status = null;
     state.sessions = [];
+    state.workspaces = [];
     state.notice = {
       text: failure.message,
       detail: failure.problems,
@@ -184,6 +201,7 @@ function draw(): void {
         controls: state.vocabulary.controls,
         bindings: state.bindings,
         page: state.page,
+        workspace: state.workspace,
         selected: state.selected,
       },
       (control) => {
@@ -197,6 +215,7 @@ function draw(): void {
       {
         control: state.selected,
         page: state.page,
+        workspace: state.workspace,
         vocabulary: state.vocabulary,
         bindings: state.bindings,
         sessions: state.sessions,
@@ -266,6 +285,9 @@ function disconnected(): HTMLElement {
 
 function sidebar(vocabulary: Vocabulary): HTMLElement {
   const aside = element("aside", "sidebar");
+
+  if (state.workspaces.length > 0) aside.append(projects());
+
   aside.append(element("h2", "sidebar-title", "Pages"));
 
   const list = element("nav", "pages");
@@ -344,6 +366,66 @@ function runningPanel(): HTMLElement {
   }
   panel.append(list);
   return panel;
+}
+
+/**
+ * Which project's bindings are being edited.
+ *
+ * Separate from which project PushOS is in: an operator can set up a project
+ * they are not currently working in, and the one they are in is marked so the
+ * difference is never in doubt.
+ */
+function projects(): HTMLElement {
+  const panel = element("div", "projects");
+  panel.append(element("h2", "sidebar-title", "Projects"));
+
+  const list = element("nav", "pages");
+  list.append(
+    scopeButton("Every project", "Bindings that apply in all of them", null, false),
+  );
+
+  for (const project of state.workspaces) {
+    const notes: string[] = [];
+    if (!project.root_exists) notes.push("directory missing");
+    if (project.isolate_agents) notes.push("a tree per agent");
+
+    list.append(
+      scopeButton(
+        project.name,
+        notes.length > 0 ? notes.join(" \u2014 ") : project.root,
+        project.id,
+        project.current,
+      ),
+    );
+  }
+
+  panel.append(list);
+  return panel;
+}
+
+function scopeButton(
+  name: string,
+  detail: string,
+  id: string | null,
+  current: boolean,
+): HTMLElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "page";
+  if (state.workspace === id) button.classList.add("current");
+  if (current) button.classList.add("in-effect");
+  button.setAttribute("aria-pressed", String(state.workspace === id));
+
+  const heading = element("span", "page-name", name);
+  if (current) heading.append(element("span", "here", "in effect"));
+  button.append(heading);
+  if (detail !== "") button.append(element("span", "page-detail", detail));
+
+  button.addEventListener("click", () => {
+    state.workspace = id;
+    draw();
+  });
+  return button;
 }
 
 function pageButton(name: string, detail: string, id: string | null): HTMLElement {
