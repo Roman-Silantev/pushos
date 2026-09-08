@@ -14,7 +14,17 @@ import struct
 import sys
 import zlib
 
+# Apple's icon grid: the artwork sits on a 1024 canvas but the rounded body
+# occupies only 824 of it, centred, with the rest transparent. Filling the whole
+# canvas is what makes an icon look oversized next to native ones in the Dock.
 SIZE = 1024
+BODY = 824
+BODY_LEFT = (SIZE - BODY) // 2
+BODY_RADIUS = 185
+
+# How far the pad grid sits inside the body.
+PAD_INSET = 108
+
 # The same palette the display uses, so Studio and the panel look related.
 GROUND = (14, 15, 19)
 PAD_DIM = (38, 41, 50)
@@ -49,10 +59,10 @@ def rounded(x, y, left, top, size, radius):
 
 
 def render():
-    margin = SIZE // 8
-    body = SIZE - margin * 2
-    gap = body // 24
-    cell = (body - gap * 3) // 4
+    grid = BODY - PAD_INSET * 2
+    gap = grid // 24
+    cell = (grid - gap * 3) // 4
+    origin = BODY_LEFT + PAD_INSET
 
     rows = []
     for y in range(SIZE):
@@ -60,13 +70,13 @@ def render():
         for x in range(SIZE):
             colour, alpha = (0, 0, 0), 0
 
-            if rounded(x, y, 0, 0, SIZE, SIZE // 5):
+            if rounded(x, y, BODY_LEFT, BODY_LEFT, BODY, BODY_RADIUS):
                 colour, alpha = GROUND, 255
 
                 for grid_y in range(4):
                     for grid_x in range(4):
-                        left = margin + grid_x * (cell + gap)
-                        top = margin + grid_y * (cell + gap)
+                        left = origin + grid_x * (cell + gap)
+                        top = origin + grid_y * (cell + gap)
                         if rounded(x, y, left, top, cell, cell // 4):
                             if (grid_x, grid_y) in WARM:
                                 colour = PAD_WARM

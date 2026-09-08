@@ -61,7 +61,11 @@ npm run check    # types
 ## The icon
 
 `icons/icon.png` is drawn by `icons/generate.py`, using only the standard
-library, so it can be changed without a graphics application:
+library, so it can be changed without a graphics application.
+
+The artwork follows Apple's icon grid: the rounded body occupies 824 pixels of a
+1024 canvas, centred, with the rest transparent. Filling the whole canvas is
+what makes an icon look oversized next to native ones in the Dock.
 
 ```bash
 python3 icons/generate.py icons/icon.png
