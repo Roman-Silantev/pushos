@@ -1,0 +1,25 @@
+[package]
+name = "pushos-workflows"
+description = "The durable workflow runtime: what runs itself, and what it remembers across a restart."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+[dependencies]
+pushos-domain = { workspace = true }
+pushos-agents = { workspace = true }
+pushos-terminal = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true, features = ["sync", "rt", "time", "macros"] }
+tracing = { workspace = true }
+
+[dev-dependencies]
+pushos-testkit = { workspace = true }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
+
+[lints]
+workspace = true

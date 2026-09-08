@@ -9,6 +9,7 @@
 mod clock;
 mod fake_agent;
 mod fake_push;
+mod fake_runs;
 mod fake_system;
 mod fake_terminal;
 mod fake_workspace;
@@ -17,6 +18,7 @@ mod recording_provider;
 pub use clock::ManualClock;
 pub use fake_agent::{AgentCall, FakeAgent};
 pub use fake_push::{FakePush, FakePushInput, SurfaceState};
+pub use fake_runs::FakeRunStore;
 pub use fake_system::{FakeApplications, FakeMedia, FakeProcesses, FakeShortcuts, MediaCall};
 pub use fake_terminal::{FakeTerminal, RecordingTerminalObserver};
 pub use fake_workspace::{FakeRepository, FakeWorkspaceMemory, FixedRoot};

@@ -32,7 +32,9 @@ pub mod input;
 pub mod page;
 pub mod permissions;
 pub mod ports;
+pub mod run;
 pub mod terminal;
+pub mod workflow;
 pub mod workspace;
 
 /// The types most callers need.

@@ -79,6 +79,10 @@ string_id!(
     WorkflowId
 );
 string_id!(
+    /// Identifies one step of a workflow.
+    NodeId
+);
+string_id!(
     /// Identifies an action provider namespace, such as `media` or `agent`.
     ProviderName
 );
@@ -101,6 +105,14 @@ pub struct CorrelationId(uuid::Uuid);
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ExecutionId(uuid::Uuid);
+
+/// Identifies one run of a workflow.
+///
+/// From the gesture that started it to wherever it ends, across a restart:
+/// the run outlives the process, so its name has to as well.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct RunId(uuid::Uuid);
 
 macro_rules! uuid_id {
     ($name:ident) => {
@@ -133,6 +145,7 @@ macro_rules! uuid_id {
 uuid_id!(EventId);
 uuid_id!(CorrelationId);
 uuid_id!(ExecutionId);
+uuid_id!(RunId);
 
 #[cfg(test)]
 mod tests {

@@ -1825,6 +1825,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pushos-workflows"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "pushos-agents",
+ "pushos-domain",
+ "pushos-terminal",
+ "pushos-testkit",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "pushos-workspaces"
 version = "0.1.0"
 dependencies = [

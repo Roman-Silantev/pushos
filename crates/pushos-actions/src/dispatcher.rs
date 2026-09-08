@@ -91,6 +91,22 @@ impl ActionDispatcher {
     }
 }
 
+/// Lets a workflow run what a pad can run.
+///
+/// The same dispatcher, so the same permission check: a workflow can never do
+/// something the operator did not permit a control to do.
+#[async_trait::async_trait]
+impl pushos_domain::ports::ActionRunner for ActionDispatcher {
+    async fn run(
+        &self,
+        definition: ActionDefinition,
+        surface: SurfaceContext,
+    ) -> Result<ActionResult, ActionError> {
+        self.dispatch(definition, surface, CorrelationId::generate())
+            .await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use async_trait::async_trait;
