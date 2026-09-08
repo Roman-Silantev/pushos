@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use pushos_domain::agent::{AgentDefinition, AgentTarget};
 use pushos_domain::ids::{AgentId, ProviderName, SessionId, WorkspaceId};
-use pushos_domain::ports::{AgentBackend, AgentError, SessionRequest};
+use pushos_domain::ports::{AgentBackend, AgentError};
 
 /// The agent roles configured, and the backends that can fill them.
 #[derive(Debug, Default)]
@@ -92,12 +92,20 @@ pub enum Resolution {
 }
 
 /// What to open, and with which backend.
+///
+/// The directory is deliberately absent: which one a role works in depends on
+/// the project in effect, and the router does not know about projects. The
+/// supervisor asks and fills it in.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StartRequest {
     /// The provider that will run it.
     pub provider: ProviderName,
-    /// What to ask the backend for.
-    pub request: SessionRequest,
+    /// The role to fill.
+    pub agent: AgentId,
+    /// The project it belongs to.
+    pub workspace: Option<WorkspaceId>,
+    /// The role's standing instruction.
+    pub objective: String,
 }
 
 /// Why a target could not be resolved.
@@ -156,12 +164,17 @@ impl AgentRouter {
     ///
     /// Holds no state of its own: everything it needs is passed in, which is
     /// what makes routing decisions reproducible from a log.
+    /// Works out what a target means.
+    ///
+    /// `preferred` is the provider the project in effect wants for the role,
+    /// when it names one. It beats the role's own preference, because the same
+    /// role is one agent in one project and another elsewhere.
     pub fn resolve(
         self,
         roster: &AgentRoster,
         sessions: &crate::SessionRegistry,
         target: &AgentTarget,
-        workspace_root: &std::path::Path,
+        preferred: Option<&ProviderName>,
     ) -> Result<Resolution, RoutingError> {
         match target {
             AgentTarget::Session(session) => {
@@ -180,7 +193,7 @@ impl AgentRouter {
                 .ok_or(RoutingError::NothingSelected),
 
             AgentTarget::Role { agent, workspace } => {
-                Self::resolve_role(roster, sessions, agent, workspace.as_ref(), workspace_root)
+                Self::resolve_role(roster, sessions, agent, workspace.as_ref(), preferred)
             }
         }
     }
@@ -190,7 +203,7 @@ impl AgentRouter {
         sessions: &crate::SessionRegistry,
         agent: &AgentId,
         workspace: Option<&WorkspaceId>,
-        workspace_root: &std::path::Path,
+        preferred: Option<&ProviderName>,
     ) -> Result<Resolution, RoutingError> {
         // An existing session wins. Starting a second builder because the first
         // was busy is how an operator ends up with six of them.
@@ -203,31 +216,31 @@ impl AgentRouter {
             .ok_or_else(|| RoutingError::UnknownRole {
                 agent: agent.clone(),
             })?;
-        let backend = roster
-            .backend_for(definition)
+        // What the project wants first, then what the role wants. A project
+        // naming a provider it cannot have falls back rather than refusing:
+        // the role is still fillable, just not the preferred way.
+        let backend = preferred
+            .and_then(|provider| roster.backend_named(provider))
+            .or_else(|| roster.backend_for(definition))
             .ok_or_else(|| RoutingError::NoProvider {
                 agent: agent.clone(),
             })?;
 
         Ok(Resolution::Start(Box::new(StartRequest {
             provider: backend.provider(),
-            request: SessionRequest {
-                agent: agent.clone(),
-                workspace: workspace.cloned(),
-                cwd: workspace_root.to_path_buf(),
-                objective: definition.objective.clone(),
-            },
+            agent: agent.clone(),
+            workspace: workspace.cloned(),
+            objective: definition.objective.clone(),
         })))
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
     use std::time::Instant;
 
     use async_trait::async_trait;
-    use pushos_domain::ports::{AgentCapabilities, ApprovalId, SessionHandle};
+    use pushos_domain::ports::{AgentCapabilities, ApprovalId, SessionHandle, SessionRequest};
 
     use super::*;
     use crate::SessionRegistry;
@@ -293,7 +306,21 @@ mod tests {
         sessions: &SessionRegistry,
         target: &AgentTarget,
     ) -> Result<Resolution, RoutingError> {
-        AgentRouter::new().resolve(roster, sessions, target, Path::new("/tmp/project"))
+        AgentRouter::new().resolve(roster, sessions, target, None)
+    }
+
+    /// Resolves with the provider a project wants for the role.
+    fn resolve_preferring(
+        roster: &AgentRoster,
+        target: &AgentTarget,
+        preferred: &str,
+    ) -> Result<Resolution, RoutingError> {
+        AgentRouter::new().resolve(
+            roster,
+            &SessionRegistry::new(),
+            target,
+            Some(&ProviderName::new(preferred)),
+        )
     }
 
     #[test]
@@ -308,8 +335,38 @@ mod tests {
         };
 
         assert_eq!(start.provider.as_str(), "claude");
-        assert_eq!(start.request.objective, "Build things");
-        assert_eq!(start.request.cwd, Path::new("/tmp/project"));
+        assert_eq!(start.objective, "Build things");
+        assert_eq!(start.agent, AgentId::new("builder"));
+    }
+
+    #[test]
+    fn the_project_beats_the_role_when_it_names_a_provider() {
+        // The same role is one agent in one project and another elsewhere,
+        // which is the point of a binding naming a role.
+        let roster = roster(&["claude"], &["claude", "codex"]);
+        let Resolution::Start(start) =
+            resolve_preferring(&roster, &AgentTarget::role("builder"), "codex")
+                .expect("resolvable")
+        else {
+            panic!("expected a start request");
+        };
+
+        assert_eq!(start.provider.as_str(), "codex");
+    }
+
+    #[test]
+    fn a_project_wanting_a_provider_that_is_not_installed_falls_back() {
+        // The role is still fillable, just not the preferred way; refusing
+        // would leave a pad doing nothing over a preference.
+        let roster = roster(&["claude"], &["claude"]);
+        let Resolution::Start(start) =
+            resolve_preferring(&roster, &AgentTarget::role("builder"), "codex")
+                .expect("resolvable")
+        else {
+            panic!("expected a start request");
+        };
+
+        assert_eq!(start.provider.as_str(), "claude");
     }
 
     #[test]

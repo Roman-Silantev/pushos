@@ -37,6 +37,8 @@ pub struct RuntimeConfig {
     pub agents: Vec<AgentDefinition>,
     /// The agent providers PushOS may start.
     pub providers: Vec<crate::model::ProviderEntry>,
+    /// The projects that exist, in declaration order.
+    pub workspaces: Vec<pushos_domain::workspace::Workspace>,
     /// Where agents work when a role does not name a workspace.
     pub workspace_root: Option<std::path::PathBuf>,
     /// The program a terminal runs when a binding does not name one.
@@ -63,11 +65,18 @@ impl RuntimeConfig {
             problems.push(Problem::UnknownHomePage { page: home.clone() });
         }
 
-        let bindings = build_bindings(file, &page_ids, &mut problems);
-        problems.extend(find_conflicts(&bindings).into_iter().map(Problem::Conflict));
-
         let providers = build_providers(file, &mut problems);
         let agents = build_agents(file, &providers, &mut problems);
+        let workspaces = build_workspaces(file, &providers, &page_ids, &mut problems);
+        let workspace_ids: HashSet<String> = workspaces
+            .iter()
+            .map(|workspace| workspace.id.to_string())
+            .collect();
+
+        // Built last, because a binding may be scoped to a page or a project
+        // and both have to exist before it can be checked against them.
+        let bindings = build_bindings(file, &page_ids, &workspace_ids, &mut problems);
+        problems.extend(find_conflicts(&bindings).into_iter().map(Problem::Conflict));
 
         if !problems.is_empty() {
             return Err(ConfigError::Invalid { problems });
@@ -82,6 +91,7 @@ impl RuntimeConfig {
             media_player: file.runtime.media_player.clone(),
             agents,
             providers,
+            workspaces,
             workspace_root: file
                 .runtime
                 .workspace_root
@@ -102,6 +112,7 @@ impl RuntimeConfig {
             media_player: None,
             agents: Vec::new(),
             providers: Vec::new(),
+            workspaces: Vec::new(),
             workspace_root: None,
             shell: None,
         }
@@ -269,9 +280,77 @@ fn build_pages(file: &ConfigFile, problems: &mut Vec<Problem>) -> (Vec<Page>, Ha
     (pages, ids)
 }
 
+/// Builds the projects, refusing two with one identity and anything that
+/// references something undeclared.
+fn build_workspaces(
+    file: &ConfigFile,
+    providers: &[crate::model::ProviderEntry],
+    pages: &HashSet<String>,
+    problems: &mut Vec<Problem>,
+) -> Vec<pushos_domain::workspace::Workspace> {
+    use pushos_domain::ids::{AgentId, PageId, ProviderName, WorkspaceId};
+    use pushos_domain::workspace::Workspace;
+
+    let known: HashSet<_> = providers
+        .iter()
+        .map(|provider| provider.id.as_str())
+        .collect();
+    let mut seen = HashSet::with_capacity(file.workspaces.len());
+    let mut workspaces = Vec::with_capacity(file.workspaces.len());
+
+    for entry in &file.workspaces {
+        if !seen.insert(entry.id.clone()) {
+            problems.push(Problem::DuplicateWorkspace {
+                id: entry.id.clone(),
+            });
+            continue;
+        }
+
+        if let Some(page) = &entry.home_page
+            && !pages.contains(page.as_str())
+        {
+            problems.push(Problem::UnknownWorkspacePage {
+                workspace: entry.id.clone(),
+                page: page.clone(),
+            });
+        }
+
+        let mut roles = std::collections::BTreeMap::new();
+        for (agent, provider) in &entry.roles {
+            if known.contains(provider.as_str()) {
+                roles.insert(AgentId::new(agent), ProviderName::new(provider));
+            } else {
+                // Left out rather than kept: a role pointing at a provider that
+                // does not exist would silently fall back to the global
+                // preference, which is not what the file says.
+                problems.push(Problem::UnknownWorkspaceProvider {
+                    workspace: entry.id.clone(),
+                    agent: agent.clone(),
+                    provider: provider.clone(),
+                });
+            }
+        }
+
+        workspaces.push(Workspace {
+            id: WorkspaceId::new(&entry.id),
+            name: entry.name.clone(),
+            root: crate::paths::expand_home(&entry.root),
+            description: entry.description.clone(),
+            home_page: entry.home_page.as_deref().map(PageId::new),
+            apps: entry.apps.clone(),
+            roles,
+            env: entry.env.clone(),
+            isolate_agents: entry.isolate_agents,
+        });
+    }
+
+    workspaces
+}
+
 fn build_bindings(
     file: &ConfigFile,
     pages: &HashSet<String>,
+    workspaces: &HashSet<String>,
     problems: &mut Vec<Problem>,
 ) -> Vec<Binding> {
     let mut bindings = Vec::with_capacity(file.bindings.len());
@@ -290,7 +369,7 @@ fn build_bindings(
         let selector = entry.action.parse::<ActionSelector>().map_err(|source| {
             problems.push(Problem::Action { index, source });
         });
-        let scope = resolve_scope(entry, index, pages, problems);
+        let scope = resolve_scope(entry, index, pages, workspaces, problems);
 
         let identity = entry.id.clone().unwrap_or_else(|| derived_id(entry, index));
         if let Some(first) = seen_ids.insert(identity.clone(), index) {
@@ -344,6 +423,7 @@ fn resolve_scope(
     entry: &BindingEntry,
     index: usize,
     pages: &HashSet<String>,
+    workspaces: &HashSet<String>,
     problems: &mut Vec<Problem>,
 ) -> Option<BindingScope> {
     if let Some(page) = &entry.page
@@ -352,6 +432,18 @@ fn resolve_scope(
         problems.push(Problem::UnknownPage {
             index,
             page: page.clone(),
+        });
+        return None;
+    }
+
+    // A binding scoped to a project nothing declares can never fire, and
+    // finding that out by pressing the pad is the expensive way.
+    if let Some(workspace) = &entry.workspace
+        && !workspaces.contains(workspace.as_str())
+    {
+        problems.push(Problem::UnknownBindingWorkspace {
+            index,
+            workspace: workspace.clone(),
         });
         return None;
     }

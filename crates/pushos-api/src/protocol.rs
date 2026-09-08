@@ -77,6 +77,8 @@ pub enum Request {
     },
     /// Every live agent and terminal session.
     Sessions,
+    /// Every configured project, and which one is in effect.
+    Workspaces,
     /// Re-read the configuration from disk.
     Reload,
 }
@@ -105,6 +107,8 @@ pub enum Response {
     /// Wrapped for the same reason the bindings are: an internally tagged
     /// enum has nowhere to write its tag on a bare sequence.
     Sessions(SessionList),
+    /// The configured projects.
+    Workspaces(WorkspaceList),
     /// The request could not be carried out.
     Failed(Failure),
 }
@@ -187,6 +191,48 @@ pub struct SessionInfo {
     /// The workspace it belongs to.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub workspace: Option<String>,
+}
+
+/// The projects PushOS knows about.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceList {
+    /// Every project, in configured order.
+    pub workspaces: Vec<WorkspaceInfo>,
+}
+
+impl From<Vec<WorkspaceInfo>> for WorkspaceList {
+    fn from(workspaces: Vec<WorkspaceInfo>) -> Self {
+        Self { workspaces }
+    }
+}
+
+/// One project, described so a client can bind a control to it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkspaceInfo {
+    /// What bindings and targets call it.
+    pub id: String,
+    /// What the operator calls it.
+    pub name: String,
+    /// Where work happens.
+    pub root: String,
+    /// What it is, when a name is not enough.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// The page it shows on arrival, when nothing was remembered.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub home_page: Option<String>,
+    /// Whether it is the one in effect.
+    pub current: bool,
+    /// Whether each agent here gets its own working tree.
+    pub isolate_agents: bool,
+    /// The applications it can be opened in, by the name a binding uses.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub apps: Vec<String>,
+    /// Whether the directory it points at is actually there.
+    ///
+    /// Reported rather than assumed: a project pointing at a directory that
+    /// has been moved would otherwise fail only when a pad was pressed.
+    pub root_exists: bool,
 }
 
 /// How the runtime is doing.
@@ -464,6 +510,20 @@ mod tests {
                 }]
                 .into(),
             ),
+            Response::Workspaces(
+                vec![WorkspaceInfo {
+                    id: "sydclaw".to_owned(),
+                    name: "Sydclaw".to_owned(),
+                    root: "/tmp/sydclaw".to_owned(),
+                    description: None,
+                    home_page: Some("development".to_owned()),
+                    current: true,
+                    isolate_agents: false,
+                    apps: vec!["Cursor".to_owned()],
+                    root_exists: true,
+                }]
+                .into(),
+            ),
             Response::Failed(Failure::new(FailureKind::NotFound, "nothing there")),
         ];
 
@@ -497,6 +557,7 @@ mod tests {
                 address: BindingAddress::new("pad.0", "tap"),
             },
             Request::Sessions,
+            Request::Workspaces,
             Request::Reload,
         ];
 

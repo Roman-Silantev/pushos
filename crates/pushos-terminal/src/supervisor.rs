@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use pushos_domain::ids::{ExecutionId, SessionId, WorkspaceId};
 use pushos_domain::ports::{
-    TerminalError, TerminalEvent, TerminalHost, TerminalSize, TerminalSpec,
+    TerminalError, TerminalEvent, TerminalHost, TerminalSize, TerminalSpec, WorkspaceContext,
 };
 use pushos_domain::terminal::TerminalTarget;
 use tokio::sync::Mutex;
@@ -55,19 +55,20 @@ impl OpenTerminal {
 pub struct TerminalSupervisor {
     host: Arc<dyn TerminalHost>,
     registry: Mutex<TerminalRegistry>,
-    /// Where a terminal starts when the request does not say.
-    root: PathBuf,
+    /// Which project is in effect, which is where a terminal starts when the
+    /// request does not say.
+    workspaces: Arc<dyn WorkspaceContext>,
     /// What a terminal runs when the request does not say.
     shell: String,
 }
 
 impl TerminalSupervisor {
     /// Builds a supervisor over `host`.
-    pub fn new(host: Arc<dyn TerminalHost>, root: impl Into<PathBuf>) -> Self {
+    pub fn new(host: Arc<dyn TerminalHost>, workspaces: Arc<dyn WorkspaceContext>) -> Self {
         Self {
             host,
             registry: Mutex::new(TerminalRegistry::new()),
-            root: root.into(),
+            workspaces,
             shell: default_shell(),
         }
     }
@@ -90,7 +91,7 @@ impl TerminalSupervisor {
         }
 
         let id = SessionId::new(format!("term-{}", short(&ExecutionId::generate())));
-        let spec = self.specify(&request);
+        let spec = self.specify(&request).await;
         let workspace = request.workspace.clone();
 
         let handle = self.host.open(id, spec.clone()).await?;
@@ -227,20 +228,30 @@ impl TerminalSupervisor {
         }
     }
 
-    /// Fills a request in from how PushOS is configured.
-    fn specify(&self, request: &OpenTerminal) -> TerminalSpec {
+    /// Fills a request in from the project in effect.
+    ///
+    /// A terminal opened while a project is selected opens in that project,
+    /// with its environment. That is what makes one pad mean the whole thing.
+    async fn specify(&self, request: &OpenTerminal) -> TerminalSpec {
         let program = request
             .program
             .clone()
             .unwrap_or_else(|| self.shell.clone());
-        let cwd = request.cwd.clone().unwrap_or_else(|| self.root.clone());
+
+        let cwd = match &request.cwd {
+            Some(cwd) => cwd.clone(),
+            None => self.workspaces.root(request.workspace.as_ref()).await,
+        };
 
         TerminalSpec {
             name: request.name.clone(),
             program,
             args: request.args.clone(),
             cwd,
-            env: std::collections::BTreeMap::new(),
+            env: self
+                .workspaces
+                .environment(request.workspace.as_ref())
+                .await,
             size: TerminalSize::DEFAULT,
         }
     }
@@ -284,8 +295,11 @@ mod tests {
         fn new() -> Self {
             let observer = RecordingTerminalObserver::new();
             let host = FakeTerminal::new(Arc::new(observer.clone()));
-            let supervisor =
-                TerminalSupervisor::new(Arc::new(host.clone()), "/tmp").with_shell("/bin/zsh");
+            let supervisor = TerminalSupervisor::new(
+                Arc::new(host.clone()),
+                Arc::new(pushos_testkit::FixedRoot::new("/tmp")),
+            )
+            .with_shell("/bin/zsh");
             Self {
                 supervisor,
                 host,

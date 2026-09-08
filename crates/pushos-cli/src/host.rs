@@ -6,13 +6,46 @@
 use std::sync::Arc;
 
 use pushos_acp::{AcpBackend, AgentCommand};
-use pushos_actions::providers::{agent, application, media, page, shell, shortcut, terminal};
+use pushos_actions::providers::{
+    agent, application, media, page, shell, shortcut, terminal, workspace,
+};
 use pushos_agents::{AgentRoster, AgentSupervisor};
 use pushos_config::RuntimeConfig;
-use pushos_domain::ports::{ActionProvider, AgentObserver, ProcessRunner, TerminalObserver};
+use pushos_domain::ports::{
+    ActionProvider, AgentObserver, ProcessRunner, TerminalObserver, WorkspaceContext,
+    WorkspaceMemoryStore,
+};
 use pushos_macos::{AppleScriptMedia, OpenLauncher, ShortcutsCli, SystemProcessRunner};
 use pushos_terminal::{PtyTerminals, TerminalSupervisor};
+use pushos_workspaces::{GitRepository, WorkspaceManager, WorkspaceRegistry, warn_if_missing};
 use tracing::{info, warn};
+
+/// Builds the workspace manager from configuration.
+///
+/// Always built, even with no projects configured: everything downstream asks
+/// it where to work, and a PushOS with no projects is simply one whose answer
+/// is always the same directory.
+pub(crate) fn workspaces(
+    config: &RuntimeConfig,
+    memory: Arc<dyn WorkspaceMemoryStore>,
+    processes: Arc<dyn ProcessRunner>,
+    worktree_root: std::path::PathBuf,
+) -> Arc<WorkspaceManager> {
+    for workspace in &config.workspaces {
+        warn_if_missing(workspace);
+    }
+    if !config.workspaces.is_empty() {
+        info!(projects = config.workspaces.len(), "projects configured");
+    }
+
+    Arc::new(WorkspaceManager::new(
+        WorkspaceRegistry::new(config.workspaces.clone()),
+        memory,
+        Arc::new(GitRepository::new(processes)),
+        config.workspace_root(),
+        worktree_root,
+    ))
+}
 
 /// Builds the agent supervisor from configuration.
 ///
@@ -21,7 +54,7 @@ use tracing::{info, warn};
 pub(crate) fn agents(
     config: &RuntimeConfig,
     observer: Arc<dyn AgentObserver>,
-    workspace_root: &std::path::Path,
+    workspaces: Arc<dyn WorkspaceContext>,
 ) -> Option<Arc<AgentSupervisor>> {
     if config.agents.is_empty() {
         return None;
@@ -65,7 +98,7 @@ pub(crate) fn agents(
     Some(Arc::new(AgentSupervisor::new(
         Arc::new(roster),
         observer,
-        workspace_root,
+        workspaces,
     )))
 }
 
@@ -76,9 +109,10 @@ pub(crate) fn agents(
 pub(crate) fn terminals(
     config: &RuntimeConfig,
     observer: Arc<dyn TerminalObserver>,
+    workspaces: Arc<dyn WorkspaceContext>,
 ) -> Arc<TerminalSupervisor> {
     let host = Arc::new(PtyTerminals::new(observer));
-    let mut supervisor = TerminalSupervisor::new(host, config.workspace_root());
+    let mut supervisor = TerminalSupervisor::new(host, workspaces);
 
     if let Some(shell) = &config.shell {
         info!(%shell, "terminals will run the configured shell");
@@ -109,14 +143,19 @@ pub(crate) fn providers(
     config: &RuntimeConfig,
     agents: Option<&Arc<AgentSupervisor>>,
     terminals: &Arc<TerminalSupervisor>,
+    workspaces: &Arc<WorkspaceManager>,
 ) -> Vec<Arc<dyn ActionProvider>> {
     let processes: Arc<dyn ProcessRunner> = Arc::new(SystemProcessRunner::new());
+    let launcher: Arc<dyn pushos_domain::ports::ApplicationLauncher> =
+        Arc::new(OpenLauncher::new(Arc::clone(&processes)));
 
     let mut providers: Vec<Arc<dyn ActionProvider>> = vec![
         Arc::new(page::PageProvider::new()),
-        Arc::new(application::ApplicationProvider::new(Arc::new(
-            OpenLauncher::new(Arc::clone(&processes)),
-        ))),
+        Arc::new(workspace::WorkspaceProvider::new(
+            Arc::clone(workspaces),
+            Arc::clone(&launcher),
+        )),
+        Arc::new(application::ApplicationProvider::new(Arc::clone(&launcher))),
         Arc::new(shortcut::ShortcutProvider::new(Arc::new(
             ShortcutsCli::new(Arc::clone(&processes)),
         ))),
@@ -137,6 +176,45 @@ pub(crate) fn providers(
     }
 
     providers
+}
+
+/// Every namespace PushOS ships, and the verbs each one has.
+///
+/// Built from the providers themselves, so nothing can claim an action exists
+/// after it was renamed or removed. Only the tests need this: a running PushOS
+/// answers the same question over the control socket.
+#[cfg(test)]
+pub(crate) fn shipped_namespaces(
+    config: &RuntimeConfig,
+) -> std::collections::BTreeMap<String, Vec<String>> {
+    let (terminal_reporter, _terminal_updates) = pushos_runtime::TerminalReporter::new();
+    let (agent_reporter, _agent_updates) = pushos_runtime::AgentReporter::new();
+
+    let manager = workspaces(
+        config,
+        Arc::new(pushos_workspaces::ForgetfulMemory),
+        Arc::new(SystemProcessRunner::new()),
+        std::env::temp_dir().join("pushos-namespaces"),
+    );
+    let terminals = terminals(
+        config,
+        Arc::new(terminal_reporter),
+        Arc::clone(&manager) as _,
+    );
+    let agents = agents(config, Arc::new(agent_reporter), Arc::clone(&manager) as _);
+
+    providers(config, agents.as_ref(), &terminals, &manager)
+        .into_iter()
+        .map(|provider| {
+            let verbs = provider
+                .capabilities()
+                .verbs()
+                .iter()
+                .map(ToString::to_string)
+                .collect();
+            (provider.name().to_string(), verbs)
+        })
+        .collect()
 }
 
 fn media_controller(
@@ -163,20 +241,35 @@ mod tests {
         RuntimeConfig::build(&parsed).expect("valid")
     }
 
+    /// The manager a configuration produces, with nothing on disk touched.
+    fn manager(config: &RuntimeConfig) -> Arc<WorkspaceManager> {
+        workspaces(
+            config,
+            Arc::new(pushos_testkit::FakeWorkspaceMemory::new()),
+            Arc::new(pushos_testkit::FakeProcesses::new()),
+            std::path::PathBuf::from("/tmp/pushos-test-trees"),
+        )
+    }
+
     /// A supervisor over a real pseudo-terminal host that is never asked to
     /// open anything, so no process is started.
     fn idle_terminals(config: &RuntimeConfig) -> Arc<TerminalSupervisor> {
         let (reporter, _updates) = pushos_runtime::TerminalReporter::new();
-        terminals(config, Arc::new(reporter))
+        terminals(config, Arc::new(reporter), manager(config))
     }
 
     #[test]
     fn every_shipped_namespace_is_present_by_default() {
         let settings = config("");
-        let namespaces: Vec<_> = providers(&settings, None, &idle_terminals(&settings))
-            .iter()
-            .map(|provider| provider.name().to_string())
-            .collect();
+        let namespaces: Vec<_> = providers(
+            &settings,
+            None,
+            &idle_terminals(&settings),
+            &manager(&settings),
+        )
+        .iter()
+        .map(|provider| provider.name().to_string())
+        .collect();
 
         for expected in ["page", "app", "shortcut", "shell", "media", "terminal"] {
             assert!(
@@ -189,10 +282,15 @@ mod tests {
     #[test]
     fn namespaces_are_unique_so_the_registry_will_accept_them_all() {
         let settings = config("");
-        let mut namespaces: Vec<_> = providers(&settings, None, &idle_terminals(&settings))
-            .iter()
-            .map(|provider| provider.name().to_string())
-            .collect();
+        let mut namespaces: Vec<_> = providers(
+            &settings,
+            None,
+            &idle_terminals(&settings),
+            &manager(&settings),
+        )
+        .iter()
+        .map(|provider| provider.name().to_string())
+        .collect();
         namespaces.sort();
         let total = namespaces.len();
         namespaces.dedup();
@@ -204,10 +302,15 @@ mod tests {
         // A namespace that refuses every binding is worse than none: the
         // failure would say "unknown verb" rather than "no agents configured".
         let settings = config("");
-        let namespaces: Vec<_> = providers(&settings, None, &idle_terminals(&settings))
-            .iter()
-            .map(|provider| provider.name().to_string())
-            .collect();
+        let namespaces: Vec<_> = providers(
+            &settings,
+            None,
+            &idle_terminals(&settings),
+            &manager(&settings),
+        )
+        .iter()
+        .map(|provider| provider.name().to_string())
+        .collect();
         assert!(!namespaces.contains(&"agent".to_owned()));
     }
 
@@ -226,8 +329,12 @@ mod tests {
         );
 
         let (reporter, _updates) = pushos_runtime::AgentReporter::new();
-        let supervisor = agents(&named, Arc::new(reporter), std::path::Path::new("/tmp"))
-            .expect("a name PushOS knows needs no command repeated");
+        let supervisor = agents(
+            &named,
+            Arc::new(reporter),
+            Arc::new(pushos_testkit::FixedRoot::new("/tmp")),
+        )
+        .expect("a name PushOS knows needs no command repeated");
         assert_eq!(supervisor.roster().providers().len(), 1);
     }
 
@@ -244,7 +351,14 @@ mod tests {
         );
 
         let (reporter, _updates) = pushos_runtime::AgentReporter::new();
-        assert!(agents(&orphaned, Arc::new(reporter), std::path::Path::new("/tmp")).is_none());
+        assert!(
+            agents(
+                &orphaned,
+                Arc::new(reporter),
+                Arc::new(pushos_testkit::FixedRoot::new("/tmp"))
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -262,7 +376,14 @@ mod tests {
         );
 
         let (reporter, _updates) = pushos_runtime::AgentReporter::new();
-        assert!(agents(&unknown, Arc::new(reporter), std::path::Path::new("/tmp")).is_none());
+        assert!(
+            agents(
+                &unknown,
+                Arc::new(reporter),
+                Arc::new(pushos_testkit::FixedRoot::new("/tmp"))
+            )
+            .is_none()
+        );
     }
 
     #[test]
@@ -286,7 +407,7 @@ mod tests {
         let supervisor = agents(
             &with_roles,
             Arc::new(reporter),
-            std::path::Path::new("/tmp"),
+            Arc::new(pushos_testkit::FixedRoot::new("/tmp")),
         )
         .expect("the declared provider is installed as written");
         assert_eq!(supervisor.roster().providers().len(), 1);
@@ -297,10 +418,15 @@ mod tests {
         // Unlike agents, a terminal needs no provider installed: the
         // operator's own shell is always there.
         let settings = config("");
-        let namespaces: Vec<_> = providers(&settings, None, &idle_terminals(&settings))
-            .iter()
-            .map(|provider| provider.name().to_string())
-            .collect();
+        let namespaces: Vec<_> = providers(
+            &settings,
+            None,
+            &idle_terminals(&settings),
+            &manager(&settings),
+        )
+        .iter()
+        .map(|provider| provider.name().to_string())
+        .collect();
         assert!(namespaces.contains(&"terminal".to_owned()));
     }
 
@@ -317,10 +443,15 @@ mod tests {
     #[test]
     fn an_unusable_media_player_leaves_the_namespace_unclaimed() {
         let unusable = config("[runtime]\nmedia_player = \"Music\\\" to quit\"\n");
-        let namespaces: Vec<_> = providers(&unusable, None, &idle_terminals(&unusable))
-            .iter()
-            .map(|provider| provider.name().to_string())
-            .collect();
+        let namespaces: Vec<_> = providers(
+            &unusable,
+            None,
+            &idle_terminals(&unusable),
+            &manager(&unusable),
+        )
+        .iter()
+        .map(|provider| provider.name().to_string())
+        .collect();
 
         assert!(
             !namespaces.contains(&"media".to_owned()),

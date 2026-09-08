@@ -12,6 +12,7 @@ use pushos_actions::{ActionDispatcher, ProviderRegistry};
 use pushos_api::protocol::{
     BindingList, ControlInfo, EditReport, Failure, FailureKind, GridPosition, PROTOCOL_VERSION,
     PageInfo, ProviderInfo, SessionList, StatusReport, SurfaceReport, TestReport, Vocabulary,
+    WorkspaceInfo, WorkspaceList,
 };
 use pushos_api::{ControlPlane, SessionSource};
 use pushos_config::{
@@ -40,6 +41,8 @@ pub struct RuntimeControl {
     view: watch::Receiver<SurfaceView>,
     /// Where live sessions are read from, one source per kind of work.
     sessions: Vec<Arc<dyn SessionSource>>,
+    /// The projects, when any are configured.
+    workspaces: Option<Arc<pushos_workspaces::WorkspaceManager>>,
 }
 
 impl RuntimeControl {
@@ -56,7 +59,15 @@ impl RuntimeControl {
             dispatcher,
             view,
             sessions: Vec::new(),
+            workspaces: None,
         }
+    }
+
+    /// Reports the projects this manager knows about.
+    #[must_use]
+    pub fn with_workspaces(mut self, manager: Arc<pushos_workspaces::WorkspaceManager>) -> Self {
+        self.workspaces = Some(manager);
+        self
     }
 
     /// Reports the sessions these sources are running.
@@ -240,6 +251,35 @@ impl ControlPlane for RuntimeControl {
             sessions.extend(source.sessions().await);
         }
         Ok(SessionList { sessions })
+    }
+
+    async fn workspaces(&self) -> Result<WorkspaceList, Failure> {
+        let Some(manager) = &self.workspaces else {
+            return Ok(WorkspaceList::default());
+        };
+
+        let current = manager.current().await;
+        let workspaces = manager
+            .registry()
+            .all()
+            .iter()
+            .map(|workspace| WorkspaceInfo {
+                id: workspace.id.to_string(),
+                name: workspace.name.clone(),
+                root: workspace.root.display().to_string(),
+                description: workspace.description.clone(),
+                home_page: workspace.home_page.as_ref().map(ToString::to_string),
+                current: current.as_ref() == Some(&workspace.id),
+                isolate_agents: workspace.isolate_agents,
+                apps: workspace.apps.keys().cloned().collect(),
+                // Checked rather than assumed: a project pointing somewhere
+                // that has been moved would otherwise fail only when a pad was
+                // pressed.
+                root_exists: workspace.root.is_dir(),
+            })
+            .collect();
+
+        Ok(WorkspaceList { workspaces })
     }
 
     async fn reload(&self) -> Result<StatusReport, Failure> {

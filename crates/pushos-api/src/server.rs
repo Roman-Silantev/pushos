@@ -182,6 +182,10 @@ async fn answer(request: Request, plane: &dyn ControlPlane) -> Response {
             Ok(sessions) => Response::Sessions(sessions),
             Err(failure) => Response::Failed(failure),
         },
+        Request::Workspaces => match plane.workspaces().await {
+            Ok(workspaces) => Response::Workspaces(workspaces),
+            Err(failure) => Response::Failed(failure),
+        },
         Request::Reload => match plane.reload().await {
             Ok(status) => Response::Status(status),
             Err(failure) => Response::Failed(failure),

@@ -49,6 +49,9 @@ pub(crate) enum Command {
     /// List the agent and terminal sessions a running PushOS is driving.
     Sessions,
 
+    /// List the projects a running PushOS knows about.
+    Workspaces,
+
     /// Write a starting configuration.
     Init {
         /// Overwrite an existing configuration.
@@ -134,7 +137,14 @@ mod tests {
 
     #[test]
     fn every_read_only_command_needs_no_arguments() {
-        for name in ["status", "bindings", "sessions", "check", "doctor"] {
+        for name in [
+            "status",
+            "bindings",
+            "sessions",
+            "workspaces",
+            "check",
+            "doctor",
+        ] {
             Cli::try_parse_from(["pushos", name])
                 .unwrap_or_else(|error| panic!("`pushos {name}` should parse: {error}"));
         }

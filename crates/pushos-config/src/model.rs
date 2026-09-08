@@ -35,6 +35,9 @@ pub struct ConfigFile {
     /// The agent providers PushOS may start.
     #[serde(default)]
     pub providers: Vec<ProviderEntry>,
+    /// The projects that exist.
+    #[serde(default)]
+    pub workspaces: Vec<WorkspaceEntry>,
 }
 
 impl ConfigFile {
@@ -52,6 +55,7 @@ impl ConfigFile {
         self.bindings.extend(other.bindings);
         self.agents.extend(other.agents);
         self.providers.extend(other.providers);
+        self.workspaces.extend(other.workspaces);
     }
 }
 
@@ -157,6 +161,43 @@ pub struct AgentEntry {
     /// two wins, so a role can narrow a provider but never widen it.
     #[serde(default)]
     pub permissions: Vec<Permission>,
+}
+
+/// One project.
+///
+/// A workspace is what a pad means when it says "Sydclaw": where work happens,
+/// what opens it, who fills each role there, and what the surface should show
+/// on arrival.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct WorkspaceEntry {
+    /// Stable identity, referenced by bindings and targets.
+    pub id: String,
+    /// Name shown on the display.
+    pub name: String,
+    /// Where work happens. A leading `~` is expanded.
+    pub root: String,
+    /// What it is, when a name is not enough.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// The page to show on arrival, when nothing was remembered.
+    #[serde(default)]
+    pub home_page: Option<String>,
+    /// Whether each agent here gets its own working tree.
+    ///
+    /// Two coding agents editing one checkout produce a conflict nobody can
+    /// untangle, so a project that runs several says so.
+    #[serde(default)]
+    pub isolate_agents: bool,
+    /// What each application should open, by the name a binding uses.
+    #[serde(default)]
+    pub apps: BTreeMap<String, String>,
+    /// Which provider fills each role here.
+    #[serde(default)]
+    pub roles: BTreeMap<String, String>,
+    /// Environment given to everything started here.
+    #[serde(default)]
+    pub env: BTreeMap<String, String>,
 }
 
 /// An agent provider PushOS may start.

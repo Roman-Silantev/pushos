@@ -107,7 +107,10 @@ mod tests {
     async fn a_terminal_is_described_both_exactly_and_by_name() {
         let observer = RecordingTerminalObserver::new();
         let host = FakeTerminal::new(Arc::new(observer));
-        let supervisor = Arc::new(TerminalSupervisor::new(Arc::new(host), "/tmp"));
+        let supervisor = Arc::new(TerminalSupervisor::new(
+            Arc::new(host),
+            Arc::new(pushos_testkit::FixedRoot::new("/tmp")),
+        ));
         supervisor
             .open(OpenTerminal::named("tests"))
             .await
@@ -129,7 +132,10 @@ mod tests {
         // would be binding to something that has ended.
         let observer = RecordingTerminalObserver::new();
         let host = FakeTerminal::new(Arc::new(observer.clone()));
-        let supervisor = Arc::new(TerminalSupervisor::new(Arc::new(host.clone()), "/tmp"));
+        let supervisor = Arc::new(TerminalSupervisor::new(
+            Arc::new(host.clone()),
+            Arc::new(pushos_testkit::FixedRoot::new("/tmp")),
+        ));
         let opened = supervisor
             .open(OpenTerminal::named("tests"))
             .await
@@ -150,7 +156,10 @@ mod tests {
     async fn a_runtime_with_no_terminals_lists_none() {
         let observer = RecordingTerminalObserver::new();
         let host = FakeTerminal::new(Arc::new(observer));
-        let supervisor = Arc::new(TerminalSupervisor::new(Arc::new(host), "/tmp"));
+        let supervisor = Arc::new(TerminalSupervisor::new(
+            Arc::new(host),
+            Arc::new(pushos_testkit::FixedRoot::new("/tmp")),
+        ));
         assert!(
             TerminalSessions::new(supervisor)
                 .sessions()

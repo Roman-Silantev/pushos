@@ -50,8 +50,8 @@ pub enum DomainEvent {
     },
     /// The active workspace changed.
     WorkspaceChanged {
-        /// The workspace now in effect.
-        workspace: WorkspaceId,
+        /// The workspace now in effect, or none if the operator left one.
+        workspace: Option<WorkspaceId>,
     },
     /// The Push 2 became available.
     PushConnected,
@@ -108,7 +108,11 @@ impl DomainEvent {
                 None => format!("{selector} {status:?}"),
             }),
             Self::PageChanged { page } => Some(page.to_string()),
-            Self::WorkspaceChanged { workspace } => Some(workspace.to_string()),
+            Self::WorkspaceChanged { workspace } => Some(
+                workspace
+                    .as_ref()
+                    .map_or_else(|| "none".to_owned(), ToString::to_string),
+            ),
             Self::PushDisconnected { reason } | Self::ConfigRejected { reason } => {
                 Some(reason.clone())
             }
@@ -230,8 +234,10 @@ mod tests {
                 page: "home".into(),
             },
             DomainEvent::WorkspaceChanged {
-                workspace: "syd".into(),
+                workspace: Some("syd".into()),
             },
+            // Leaving a project is a thing that happened, and is recorded.
+            DomainEvent::WorkspaceChanged { workspace: None },
             DomainEvent::ConfigUpdated { binding_count: 0 },
             DomainEvent::ConfigRejected {
                 reason: String::new(),

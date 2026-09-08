@@ -7,6 +7,7 @@ use async_trait::async_trait;
 
 use crate::protocol::{
     BindingList, EditReport, Failure, SessionList, StatusReport, TestReport, Vocabulary,
+    WorkspaceList,
 };
 use pushos_config::{BindingAddress, BindingSpec};
 
@@ -37,6 +38,14 @@ pub trait ControlPlane: Send + Sync + std::fmt::Debug {
     /// terminals open has no sessions, and that is not a failure.
     async fn sessions(&self) -> Result<SessionList, Failure> {
         Ok(SessionList::default())
+    }
+
+    /// Every configured project, and which one is in effect.
+    ///
+    /// Defaulted to nothing: a PushOS with no projects configured has none,
+    /// and that is not a failure.
+    async fn workspaces(&self) -> Result<WorkspaceList, Failure> {
+        Ok(WorkspaceList::default())
     }
 
     /// Re-reads the configuration from disk.

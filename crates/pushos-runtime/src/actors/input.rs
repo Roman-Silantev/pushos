@@ -38,6 +38,8 @@ pub struct SurfaceView {
     pub snapshot: Arc<UiSnapshot>,
     /// What the lights should say.
     pub leds: Arc<pushos_ui::LedPlan>,
+    /// Where the operator is, for anything that needs to record it.
+    pub context: pushos_domain::context::SurfaceContext,
 }
 
 /// Runs the input pipeline.
@@ -51,6 +53,11 @@ pub struct InputTask {
     bus: EventBus,
     view: watch::Sender<SurfaceView>,
     reloads: watch::Receiver<u64>,
+    /// Which project is in effect, published by the one thing that decides.
+    ///
+    /// Followed rather than tracked: the surface keeping its own answer is how
+    /// two parts of PushOS come to disagree about where the operator is.
+    projects: Option<watch::Receiver<Option<pushos_domain::ids::WorkspaceId>>>,
     /// What the sessions are doing, published by whoever is watching them.
     sessions: tokio::sync::mpsc::UnboundedReceiver<Vec<pushos_ui::SessionLine>>,
     gestures: Vec<GestureEvent>,
@@ -91,6 +98,7 @@ impl InputTask {
             surface,
             dispatcher,
             reloads: config.subscribe(),
+            projects: None,
             config,
             bus,
             view,
@@ -98,6 +106,16 @@ impl InputTask {
             gestures: Vec::with_capacity(4),
         };
         (task, receiver, refresh)
+    }
+
+    /// Follows the project in effect.
+    #[must_use]
+    pub fn following(
+        mut self,
+        projects: watch::Receiver<Option<pushos_domain::ids::WorkspaceId>>,
+    ) -> Self {
+        self.projects = Some(projects);
+        self
     }
 
     /// Runs until the surface goes away or shutdown begins.
@@ -125,6 +143,14 @@ impl InputTask {
                     if reloaded.is_ok() {
                         let config = self.config.current();
                         self.reconfigure(config);
+                    }
+                }
+
+                // For the same reason: a pad pressed after switching project
+                // must be resolved in the project it was pressed in.
+                moved = wait_for_project(self.projects.as_mut()) => {
+                    if moved {
+                        self.follow_project();
                     }
                 }
 
@@ -162,6 +188,22 @@ impl InputTask {
         self.recognizer
             .set_interest(config.bindings.gesture_interest().clone());
         self.surface.adopt(config);
+        self.publish();
+    }
+
+    /// Takes the project the manager most recently announced.
+    fn follow_project(&mut self) {
+        let Some(projects) = self.projects.as_mut() else {
+            return;
+        };
+        let workspace = projects.borrow_and_update().clone();
+
+        self.surface.select_workspace(workspace.clone());
+        self.bus.publish(EventEnvelope::root(
+            EventSource::Actions,
+            CorrelationId::generate(),
+            DomainEvent::WorkspaceChanged { workspace },
+        ));
         self.publish();
     }
 
@@ -259,6 +301,16 @@ impl InputTask {
     ) {
         let now = Instant::now();
 
+        // Before the display instruction, so that an action which moved
+        // project and restored a page lands as one change rather than two.
+        if self
+            .projects
+            .as_ref()
+            .is_some_and(|projects| projects.has_changed().unwrap_or(false))
+        {
+            self.follow_project();
+        }
+
         if let Some(display) = result.display
             && let Some(page) = self.surface.apply(display, now)
         {
@@ -306,6 +358,17 @@ fn build_view(surface: &SurfaceState) -> SurfaceView {
     SurfaceView {
         leds: Arc::new(leds::plan_for(surface.config(), &context)),
         snapshot: Arc::new(surface.snapshot()),
+        context,
+    }
+}
+
+/// Waits for the project in effect to change, or forever when nothing says.
+async fn wait_for_project(
+    projects: Option<&mut watch::Receiver<Option<pushos_domain::ids::WorkspaceId>>>,
+) -> bool {
+    match projects {
+        Some(projects) => projects.changed().await.is_ok(),
+        None => std::future::pending().await,
     }
 }
 

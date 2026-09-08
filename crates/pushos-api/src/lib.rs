@@ -20,6 +20,6 @@ pub use plane::{ControlPlane, SessionSource};
 pub use protocol::{
     BindingList, ControlInfo, EditReport, Failure, FailureKind, GridPosition, PROTOCOL_VERSION,
     PageInfo, ProviderInfo, Request, Response, SessionInfo, SessionKind, SessionList, StatusReport,
-    TestReport, Vocabulary,
+    TestReport, Vocabulary, WorkspaceInfo, WorkspaceList,
 };
 pub use server::{ControlServer, ServerError};

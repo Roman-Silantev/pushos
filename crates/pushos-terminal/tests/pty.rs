@@ -16,6 +16,7 @@ use pushos_domain::ports::{
 };
 use pushos_domain::terminal::TerminalTarget;
 use pushos_terminal::{OpenTerminal, PtyTerminals, TerminalSupervisor};
+use pushos_testkit::FixedRoot;
 use tokio::sync::mpsc;
 
 /// How long a test waits for a real process to say something.
@@ -276,7 +277,8 @@ async fn the_supervisor_runs_a_command_in_a_real_shell_and_keeps_the_answer() {
     // the surface would show.
     let (sender, mut events) = mpsc::unbounded_channel();
     let host = Arc::new(PtyTerminals::new(Arc::new(Channel(sender))));
-    let supervisor = TerminalSupervisor::new(host, std::env::temp_dir()).with_shell("/bin/sh");
+    let supervisor = TerminalSupervisor::new(host, Arc::new(FixedRoot::new(std::env::temp_dir())))
+        .with_shell("/bin/sh");
 
     let opened = supervisor
         .open(OpenTerminal::named("scratch"))

@@ -589,3 +589,168 @@ fn bindings_can_name_a_role_as_their_target() {
         pushos_domain::agent::AgentTarget::role("builder").in_workspace("sydclaw")
     );
 }
+
+// --- Projects ---------------------------------------------------------------
+
+#[test]
+fn a_project_is_built_from_what_the_file_says() {
+    let config = build(&format!(
+        r#"
+        {PAGES}
+
+        [[providers]]
+        id = "claude"
+
+        [[workspaces]]
+        id = "sydclaw"
+        name = "Sydclaw"
+        root = "/tmp/sydclaw"
+        home_page = "development"
+        isolate_agents = true
+
+        [workspaces.apps]
+        cursor = "/tmp/sydclaw"
+
+        [workspaces.roles]
+        builder = "claude"
+
+        [workspaces.env]
+        PROJECT = "sydclaw"
+        "#
+    ));
+
+    assert_eq!(config.workspaces.len(), 1);
+    let workspace = &config.workspaces[0];
+    assert_eq!(workspace.name, "Sydclaw");
+    assert_eq!(workspace.root, std::path::PathBuf::from("/tmp/sydclaw"));
+    assert!(workspace.isolate_agents);
+    assert_eq!(workspace.app("cursor"), Some("/tmp/sydclaw"));
+    assert_eq!(
+        workspace.provider_for(&pushos_domain::ids::AgentId::new("builder")),
+        Some(&pushos_domain::ids::ProviderName::new("claude"))
+    );
+    assert_eq!(
+        workspace.env.get("PROJECT").map(String::as_str),
+        Some("sydclaw")
+    );
+}
+
+#[test]
+fn a_project_declared_twice_is_refused() {
+    let found = problems(
+        r#"
+        [[workspaces]]
+        id = "sydclaw"
+        name = "First"
+        root = "/tmp/one"
+
+        [[workspaces]]
+        id = "sydclaw"
+        name = "Second"
+        root = "/tmp/two"
+        "#,
+    );
+    assert!(
+        found
+            .iter()
+            .any(|problem| matches!(problem, Problem::DuplicateWorkspace { .. })),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_project_whose_home_page_does_not_exist_is_refused() {
+    let found = problems(
+        r#"
+        [[workspaces]]
+        id = "sydclaw"
+        name = "Sydclaw"
+        root = "/tmp/one"
+        home_page = "nowhere"
+        "#,
+    );
+    assert!(
+        found
+            .iter()
+            .any(|problem| matches!(problem, Problem::UnknownWorkspacePage { .. })),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_project_wanting_a_provider_nothing_declares_is_refused() {
+    // Falling back to the global preference would quietly do something other
+    // than what the file says.
+    let found = problems(
+        r#"
+        [[workspaces]]
+        id = "sydclaw"
+        name = "Sydclaw"
+        root = "/tmp/one"
+
+        [workspaces.roles]
+        builder = "nosuch"
+        "#,
+    );
+    assert!(
+        found
+            .iter()
+            .any(|problem| matches!(problem, Problem::UnknownWorkspaceProvider { .. })),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_binding_scoped_to_a_project_nothing_declares_is_refused() {
+    // It could never fire, and finding that out by pressing the pad is the
+    // expensive way.
+    let found = problems(
+        r#"
+        [[bindings]]
+        control = "pad.0"
+        gesture = "tap"
+        workspace = "nowhere"
+        action = "page.next"
+        "#,
+    );
+    assert!(
+        found
+            .iter()
+            .any(|problem| matches!(problem, Problem::UnknownBindingWorkspace { .. })),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_binding_scoped_to_a_declared_project_is_accepted() {
+    let config = build(
+        r#"
+        [[workspaces]]
+        id = "sydclaw"
+        name = "Sydclaw"
+        root = "/tmp/one"
+
+        [[bindings]]
+        control = "pad.0"
+        gesture = "tap"
+        workspace = "sydclaw"
+        action = "page.next"
+        "#,
+    );
+    assert_eq!(config.bindings.len(), 1);
+}
+
+#[test]
+fn a_leading_tilde_in_a_project_root_is_expanded() {
+    let config = build(
+        r#"
+        [[workspaces]]
+        id = "sydclaw"
+        name = "Sydclaw"
+        root = "~/Projects/sydclaw"
+        "#,
+    );
+    let root = config.workspaces[0].root.display().to_string();
+    assert!(!root.starts_with('~'), "{root}");
+    assert!(root.ends_with("Projects/sydclaw"), "{root}");
+}

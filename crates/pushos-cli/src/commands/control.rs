@@ -129,6 +129,55 @@ pub(crate) async fn sessions() -> Result<(), String> {
     Ok(())
 }
 
+/// Prints every project, marking the one in effect.
+pub(crate) async fn workspaces() -> Result<(), String> {
+    let mut client = connect().await?;
+    client.handshake().await.map_err(|error| describe(&error))?;
+
+    let Response::Workspaces(list) = client
+        .send(&Request::Workspaces)
+        .await
+        .map_err(|error| describe(&error))?
+    else {
+        return Err("PushOS answered with something unexpected".to_owned());
+    };
+
+    if list.workspaces.is_empty() {
+        println!("no projects are configured");
+        return Ok(());
+    }
+
+    for workspace in list.workspaces {
+        let mark = if workspace.current { '>' } else { ' ' };
+        println!("{mark} {:<16} {}", workspace.id, workspace.name);
+        println!(
+            "  {:<16} {}{}",
+            "",
+            workspace.root,
+            if workspace.root_exists {
+                String::new()
+            } else {
+                "   (missing)".to_owned()
+            }
+        );
+
+        let mut notes = Vec::new();
+        if workspace.isolate_agents {
+            notes.push("a tree per agent".to_owned());
+        }
+        if !workspace.apps.is_empty() {
+            notes.push(format!("opens in {}", workspace.apps.join(", ")));
+        }
+        if let Some(page) = &workspace.home_page {
+            notes.push(format!("starts on {page}"));
+        }
+        if !notes.is_empty() {
+            println!("  {:<16} {}", "", notes.join("; "));
+        }
+    }
+    Ok(())
+}
+
 fn scope_of(address: &pushos_config::BindingAddress) -> String {
     match (&address.workspace, &address.page) {
         (Some(workspace), Some(page)) => format!("workspace {workspace}, page {page}"),

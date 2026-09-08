@@ -64,8 +64,14 @@ impl ActionDispatcher {
     ) -> Result<ActionResult, ActionError> {
         let provider = self.registry.resolve(&definition.selector)?;
 
-        for permission in provider.capabilities().required_permissions() {
-            self.granted.require(*permission)?;
+        // What this verb needs, not what the namespace as a whole could need:
+        // a verb that starts nothing should not be gated behind the permission
+        // a sibling needs.
+        for permission in provider
+            .capabilities()
+            .required_for(&definition.selector.verb)
+        {
+            self.granted.require(permission)?;
         }
 
         let selector = definition.selector.to_string();

@@ -183,7 +183,7 @@ mod tests {
         Arc::new(AgentSupervisor::new(
             Arc::new(roster),
             Arc::new(SilentObserver),
-            "/tmp/project",
+            Arc::new(pushos_testkit::FixedRoot::new("/tmp/project")),
         ))
     }
 

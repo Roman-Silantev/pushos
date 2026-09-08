@@ -32,8 +32,14 @@ pub trait ActionProvider: Send + Sync + std::fmt::Debug {
 pub struct ProviderCapabilities {
     /// Every verb the provider accepts.
     verbs: Vec<ActionVerb>,
-    /// Capabilities the provider needs before any of its verbs may run.
+    /// Capabilities every verb needs.
     required: Vec<Permission>,
+    /// Capabilities one verb needs beyond those.
+    ///
+    /// A namespace whose verbs differ in what they do should differ in what
+    /// they need. Gating a verb that starts nothing behind the permission a
+    /// sibling needs teaches the operator to grant more than they meant to.
+    per_verb: Vec<(ActionVerb, Vec<Permission>)>,
 }
 
 impl ProviderCapabilities {
@@ -42,6 +48,7 @@ impl ProviderCapabilities {
         Self {
             verbs: verbs.into_iter().collect(),
             required: Vec::new(),
+            per_verb: Vec::new(),
         }
     }
 
@@ -49,6 +56,18 @@ impl ProviderCapabilities {
     #[must_use]
     pub fn requiring(mut self, permissions: impl IntoIterator<Item = Permission>) -> Self {
         self.required = permissions.into_iter().collect();
+        self
+    }
+
+    /// Declares what one verb needs beyond what the whole namespace needs.
+    #[must_use]
+    pub fn verb_requiring(
+        mut self,
+        verb: ActionVerb,
+        permissions: impl IntoIterator<Item = Permission>,
+    ) -> Self {
+        self.per_verb
+            .push((verb, permissions.into_iter().collect()));
         self
     }
 
@@ -62,9 +81,46 @@ impl ProviderCapabilities {
         &self.verbs
     }
 
-    /// The capabilities the provider needs.
+    /// The capabilities every verb needs.
     pub fn required_permissions(&self) -> &[Permission] {
         &self.required
+    }
+
+    /// The capabilities one verb needs, including the namespace's own.
+    ///
+    /// This is what the dispatcher checks. Nothing else should: a provider must
+    /// never be the only thing standing between a binding and a capability.
+    pub fn required_for(&self, verb: &ActionVerb) -> Vec<Permission> {
+        let mut needed = self.required.clone();
+        for permission in self
+            .per_verb
+            .iter()
+            .filter(|(declared, _)| declared == verb)
+            .flat_map(|(_, permissions)| permissions)
+        {
+            if !needed.contains(permission) {
+                needed.push(*permission);
+            }
+        }
+        needed
+    }
+
+    /// Every capability any of the verbs could need.
+    ///
+    /// What a client shows when explaining a namespace, since it is the whole
+    /// answer to "what will this let PushOS do".
+    pub fn every_permission(&self) -> Vec<Permission> {
+        let mut all = self.required.clone();
+        for permission in self
+            .per_verb
+            .iter()
+            .flat_map(|(_, permissions)| permissions)
+        {
+            if !all.contains(permission) {
+                all.push(*permission);
+            }
+        }
+        all
     }
 }
 

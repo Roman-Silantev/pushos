@@ -154,6 +154,42 @@ pub enum Problem {
         providers: Vec<String>,
     },
 
+    /// Two projects share an identity.
+    #[error("workspace `{id}` is declared more than once")]
+    DuplicateWorkspace {
+        /// The contested identity.
+        id: String,
+    },
+
+    /// A project's home page is not declared.
+    #[error("workspace `{workspace}`: page `{page}` is not declared")]
+    UnknownWorkspacePage {
+        /// The project that named it.
+        workspace: String,
+        /// The page that was referenced.
+        page: String,
+    },
+
+    /// A project wants a provider that is not declared.
+    #[error("workspace `{workspace}`: role `{agent}` wants undeclared provider `{provider}`")]
+    UnknownWorkspaceProvider {
+        /// The project that named it.
+        workspace: String,
+        /// The role it was for.
+        agent: String,
+        /// The provider that does not exist.
+        provider: String,
+    },
+
+    /// A binding is scoped to a project that is not declared.
+    #[error("binding {index}: workspace `{workspace}` is not declared")]
+    UnknownBindingWorkspace {
+        /// Which binding, counting from one.
+        index: usize,
+        /// The project that was referenced.
+        workspace: String,
+    },
+
     /// Two bindings share an identity.
     #[error("binding id `{id}` is used more than once")]
     DuplicateBindingId {

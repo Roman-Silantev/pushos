@@ -28,6 +28,7 @@ pub struct Runtime {
     control: Option<ControlServer>,
     agents: Option<AgentWiring>,
     terminals: Option<TerminalWiring>,
+    workspaces: Option<Arc<pushos_workspaces::WorkspaceManager>>,
     bus: EventBus,
 }
 
@@ -68,6 +69,7 @@ impl Runtime {
             control: None,
             agents: None,
             terminals: None,
+            workspaces: None,
             bus: EventBus::new(),
         }
     }
@@ -107,6 +109,16 @@ impl Runtime {
             supervisor,
             updates,
         });
+        self
+    }
+
+    /// Follows the project in effect.
+    ///
+    /// Held so that what the current project was doing is kept when PushOS
+    /// stops, and so the control socket can report which one it is.
+    #[must_use]
+    pub fn with_workspaces(mut self, manager: Arc<pushos_workspaces::WorkspaceManager>) -> Self {
+        self.workspaces = Some(manager);
         self
     }
 
@@ -165,7 +177,15 @@ impl Runtime {
             Arc::clone(&self.config),
             self.bus.clone(),
         );
+
+        // The surface follows the project rather than keeping its own answer,
+        // so the two can never disagree about where the operator is.
+        let pipeline = match &self.workspaces {
+            Some(manager) => pipeline.following(manager.subscribe()),
+            None => pipeline,
+        };
         let render = RenderTask::new(output, renderer, view.clone());
+        let view_for_shutdown = view.clone();
 
         // Built before the tasks take ownership, so the control socket can
         // list sessions without reaching into either supervisor itself.
@@ -183,10 +203,13 @@ impl Runtime {
         }
 
         if let Some(server) = self.control {
-            let plane: Arc<dyn ControlPlane> = Arc::new(
+            let mut control =
                 RuntimeControl::new(Arc::clone(&self.config), providers, dispatcher, view)
-                    .with_sessions(sources),
-            );
+                    .with_sessions(sources);
+            if let Some(manager) = &self.workspaces {
+                control = control.with_workspaces(Arc::clone(manager));
+            }
+            let plane: Arc<dyn ControlPlane> = Arc::new(control);
             let serving = shutdown.clone();
             shutdown.spawn(async move {
                 server
@@ -231,12 +254,21 @@ impl Runtime {
         }
 
         info!("PushOS running");
+        let watching = view_for_shutdown.clone();
         let rendering = shutdown.spawn(render.run(shutdown.clone()));
         let reading = shutdown.spawn(pipeline.run(shutdown.clone()));
 
         // The pipeline ends when the surface goes away; that is what stops the
         // runtime, not an error.
         let _ = reading.await;
+
+        // Kept before the tasks go, so a restart lands the operator back in the
+        // project they were in, on the page they were on.
+        if let Some(manager) = &self.workspaces {
+            let context = watching.borrow().context.clone();
+            manager.remember_current(&context).await;
+        }
+
         shutdown.stop().await;
         let _ = rendering.await;
         info!("PushOS stopped");

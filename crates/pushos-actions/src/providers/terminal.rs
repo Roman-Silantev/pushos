@@ -278,7 +278,11 @@ mod tests {
             let observer = RecordingTerminalObserver::new();
             let host = FakeTerminal::new(Arc::new(observer.clone()));
             let supervisor = Arc::new(
-                TerminalSupervisor::new(Arc::new(host.clone()), "/tmp").with_shell("/bin/zsh"),
+                TerminalSupervisor::new(
+                    Arc::new(host.clone()),
+                    Arc::new(pushos_testkit::FixedRoot::new("/tmp")),
+                )
+                .with_shell("/bin/zsh"),
             );
             Self {
                 provider: TerminalProvider::new(Arc::clone(&supervisor)),
@@ -615,7 +619,10 @@ mod tests {
     fn every_verb_the_provider_answers_is_one_it_declares() {
         let observer = RecordingTerminalObserver::new();
         let host = FakeTerminal::new(Arc::new(observer));
-        let supervisor = Arc::new(TerminalSupervisor::new(Arc::new(host), "/tmp"));
+        let supervisor = Arc::new(TerminalSupervisor::new(
+            Arc::new(host),
+            Arc::new(pushos_testkit::FixedRoot::new("/tmp")),
+        ));
         let capabilities = TerminalProvider::new(supervisor).capabilities();
 
         for verb in ["open", "run", "send", "select", "close"] {

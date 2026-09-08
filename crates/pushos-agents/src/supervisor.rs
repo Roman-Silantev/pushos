@@ -4,13 +4,14 @@
 //! here, so the registry has a single writer and two pads pressed together
 //! cannot race each other into two sessions for one role.
 
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
 
 use pushos_domain::agent::{AgentState, AgentTarget};
 use pushos_domain::ids::SessionId;
-use pushos_domain::ports::{AgentError, AgentEvent, AgentObserver};
+use pushos_domain::ports::{
+    AgentError, AgentEvent, AgentObserver, SessionRequest, WorkspaceContext,
+};
 use tokio::sync::Mutex;
 use tracing::{debug, info, warn};
 
@@ -27,7 +28,8 @@ pub struct AgentSupervisor {
     /// Every other operation is short.
     sessions: Mutex<SessionRegistry>,
     observer: Arc<dyn AgentObserver>,
-    workspace_root: PathBuf,
+    /// Which project is in effect, and where its work happens.
+    workspaces: Arc<dyn WorkspaceContext>,
 }
 
 impl AgentSupervisor {
@@ -35,13 +37,13 @@ impl AgentSupervisor {
     pub fn new(
         roster: Arc<AgentRoster>,
         observer: Arc<dyn AgentObserver>,
-        workspace_root: impl Into<PathBuf>,
+        workspaces: Arc<dyn WorkspaceContext>,
     ) -> Self {
         Self {
             roster,
             sessions: Mutex::new(SessionRegistry::new()),
             observer,
-            workspace_root: workspace_root.into(),
+            workspaces,
         }
     }
 
@@ -76,18 +78,41 @@ impl AgentSupervisor {
     /// Called from the observer side, so an adapter reporting progress never
     /// has to know about the registry.
     pub async fn record(&self, session: &SessionId, event: &AgentEvent) -> Option<Session> {
-        self.sessions
+        let updated = self
+            .sessions
             .lock()
             .await
             .apply(session, event, Instant::now())
-            .cloned()
+            .cloned()?;
+
+        // A session that has finished is no longer working in its tree, and
+        // the next role to ask should be able to have it.
+        if !updated.is_live() {
+            self.workspaces
+                .release(updated.workspace.as_ref(), &updated.agent)
+                .await;
+        }
+
+        Some(updated)
     }
 
     /// Finds the session a target means, opening one if the role has none.
     pub async fn resolve(&self, target: &AgentTarget) -> Result<Session, AgentError> {
+        // Asked before the registry is locked: the project decides which
+        // provider fills a role here, and finding that out talks to nothing
+        // the registry owns.
+        let preferred = match target {
+            AgentTarget::Role { agent, workspace } => {
+                self.workspaces
+                    .provider_for(workspace.as_ref(), agent)
+                    .await
+            }
+            AgentTarget::Session(_) | AgentTarget::Selected => None,
+        };
+
         let decision = {
             let sessions = self.sessions.lock().await;
-            AgentRouter::new().resolve(&self.roster, &sessions, target, &self.workspace_root)?
+            AgentRouter::new().resolve(&self.roster, &sessions, target, preferred.as_ref())?
         };
 
         match decision {
@@ -107,11 +132,30 @@ impl AgentSupervisor {
                             provider: start.provider.clone(),
                         })?;
 
-                let agent = start.request.agent.clone();
-                let workspace = start.request.workspace.clone();
-                info!(%agent, provider = %start.provider, "starting an agent session");
+                let agent = start.agent.clone();
+                let workspace = start.workspace.clone();
 
-                let handle = backend.start(start.request).await?;
+                // Where it works is decided here, not in the router: it depends
+                // on the project in effect, and may be a tree of its own so
+                // that two coding agents never edit the same checkout.
+                let cwd = self
+                    .workspaces
+                    .claim(workspace.as_ref(), &agent)
+                    .await
+                    .map_err(|error| {
+                        AgentError::backend(error.to_string(), error.class(), error)
+                    })?;
+
+                info!(%agent, provider = %start.provider, cwd = %cwd.display(), "starting an agent session");
+
+                let handle = backend
+                    .start(SessionRequest {
+                        agent: agent.clone(),
+                        workspace: workspace.clone(),
+                        cwd,
+                        objective: start.objective,
+                    })
+                    .await?;
                 let session = {
                     let mut sessions = self.sessions.lock().await;
                     sessions.opened(&handle, agent, workspace, Instant::now())
@@ -221,6 +265,9 @@ impl AgentSupervisor {
         }
 
         self.sessions.lock().await.remove(&session.id);
+        self.workspaces
+            .release(session.workspace.as_ref(), &session.agent)
+            .await;
         Ok(session)
     }
 

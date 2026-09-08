@@ -13,7 +13,7 @@ use pushos_domain::agent::{AgentDefinition, AgentState, AgentTarget};
 use pushos_domain::error::ErrorClass;
 use pushos_domain::ids::SessionId;
 use pushos_domain::ports::{AgentCapabilities, AgentEvent, AgentObserver, StopReason};
-use pushos_testkit::{AgentCall, FakeAgent};
+use pushos_testkit::{AgentCall, FakeAgent, FixedRoot};
 
 /// Collects everything reported, and feeds it back into the supervisor the way
 /// the runtime does.
@@ -59,7 +59,7 @@ fn supervise(roles: &[&str]) -> (Arc<AgentSupervisor>, FakeAgent, Arc<Recorder>)
     let supervisor = Arc::new(AgentSupervisor::new(
         Arc::new(roster),
         recorder.clone(),
-        "/tmp/project",
+        Arc::new(FixedRoot::new("/tmp/project")),
     ));
     (supervisor, agent, recorder)
 }
@@ -415,7 +415,11 @@ async fn a_role_with_no_provider_fails_before_anything_is_started() {
     let mut roster = AgentRoster::new();
     roster.define(AgentDefinition::new("builder", "Builder"));
 
-    let supervisor = AgentSupervisor::new(Arc::new(roster), Recorder::new(), "/tmp/project");
+    let supervisor = AgentSupervisor::new(
+        Arc::new(roster),
+        Recorder::new(),
+        Arc::new(FixedRoot::new("/tmp/project")),
+    );
 
     let error = supervisor
         .resolve(&AgentTarget::role("builder"))

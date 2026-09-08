@@ -35,10 +35,12 @@ pub(crate) async fn execute(requested: Option<&Path>, fake: bool) -> Result<(), 
     watch_configuration(Arc::clone(&config), &shutdown);
     stop_on_interrupt(&shutdown);
 
+    let worktrees = paths::worktree_root()?;
+
     if fake {
-        run_once_on_fake_surface(&config, &storage, shutdown.clone()).await?;
+        run_once_on_fake_surface(&config, &storage, &worktrees, shutdown.clone()).await?;
     } else {
-        serve_hardware(&config, &storage, &shutdown).await;
+        serve_hardware(&config, &storage, &worktrees, &shutdown).await;
     }
 
     shutdown.stop().await;
@@ -46,7 +48,12 @@ pub(crate) async fn execute(requested: Option<&Path>, fake: bool) -> Result<(), 
 }
 
 /// Connects, serves, and waits for the surface to come back.
-async fn serve_hardware(config: &Arc<ConfigStore>, storage: &StorageWriter, shutdown: &Shutdown) {
+async fn serve_hardware(
+    config: &Arc<ConfigStore>,
+    storage: &StorageWriter,
+    worktree_root: &std::path::Path,
+    shutdown: &Shutdown,
+) {
     let mut backoff = Backoff::new();
 
     while !shutdown.is_cancelled() {
@@ -57,7 +64,7 @@ async fn serve_hardware(config: &Arc<ConfigStore>, storage: &StorageWriter, shut
 
                 match PushRenderer::new() {
                     Ok(renderer) => {
-                        build_runtime(config, storage)
+                        build_runtime(config, storage, worktree_root.to_path_buf())
                             .run(Box::new(input), output, renderer, shutdown.clone())
                             .await;
                         info!("the Push 2 went away; waiting for it to return");
@@ -84,27 +91,42 @@ async fn serve_hardware(config: &Arc<ConfigStore>, storage: &StorageWriter, shut
 async fn run_once_on_fake_surface(
     config: &Arc<ConfigStore>,
     storage: &StorageWriter,
+    worktree_root: &std::path::Path,
     shutdown: Shutdown,
 ) -> Result<(), String> {
     info!("running against a simulated surface; no hardware is being used");
     let (surface, input) = FakePush::new();
     let renderer = PushRenderer::new().map_err(|error| error.to_string())?;
 
-    build_runtime(config, storage)
+    build_runtime(config, storage, worktree_root.to_path_buf())
         .run(Box::new(input), Arc::new(surface), renderer, shutdown)
         .await;
     Ok(())
 }
 
-fn build_runtime(config: &Arc<ConfigStore>, storage: &StorageWriter) -> Runtime {
+fn build_runtime(
+    config: &Arc<ConfigStore>,
+    storage: &StorageWriter,
+    worktree_root: std::path::PathBuf,
+) -> Runtime {
     let mut runtime = Runtime::new(Arc::clone(config)).with_storage(storage.handle());
+
+    let current = config.current();
+
+    // Built first, because everything else asks it where to work.
+    let workspaces = host::workspaces(
+        &current,
+        Arc::new(storage.handle()),
+        Arc::new(pushos_macos::SystemProcessRunner::new()),
+        worktree_root,
+    );
+    let context: Arc<dyn pushos_domain::ports::WorkspaceContext> = Arc::clone(&workspaces) as _;
 
     // Agent and terminal activity is reported from the thread reading a
     // program's output, so each arrives on its own stream rather than through
     // the surface.
     let (reporter, updates) = pushos_runtime::AgentReporter::new();
-    let current = config.current();
-    let agents = host::agents(&current, Arc::new(reporter), &current.workspace_root());
+    let agents = host::agents(&current, Arc::new(reporter), Arc::clone(&context));
 
     if let Some(supervisor) = &agents {
         info!(roles = current.agents.len(), "agent roles available");
@@ -112,8 +134,9 @@ fn build_runtime(config: &Arc<ConfigStore>, storage: &StorageWriter) -> Runtime 
     }
 
     let (terminal_reporter, terminal_updates) = pushos_runtime::TerminalReporter::new();
-    let terminals = host::terminals(&current, Arc::new(terminal_reporter));
+    let terminals = host::terminals(&current, Arc::new(terminal_reporter), context);
     runtime = runtime.with_terminals(Arc::clone(&terminals), terminal_updates);
+    runtime = runtime.with_workspaces(Arc::clone(&workspaces));
 
     // Without a socket PushOS still runs; it simply cannot be configured from
     // Studio. That is worth saying rather than refusing to start over.
@@ -122,7 +145,7 @@ fn build_runtime(config: &Arc<ConfigStore>, storage: &StorageWriter) -> Runtime 
         Err(reason) => warn!(reason, "PushOS Studio will not be able to connect"),
     }
 
-    for provider in host::providers(&current, agents.as_ref(), &terminals) {
+    for provider in host::providers(&current, agents.as_ref(), &terminals, &workspaces) {
         let name = provider.name();
         match runtime.with_provider(provider) {
             Ok(next) => runtime = next,
