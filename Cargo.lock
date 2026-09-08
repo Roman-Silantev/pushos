@@ -926,6 +926,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "pushos-agents"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "pushos-domain",
+ "pushos-testkit",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "pushos-api"
 version = "0.1.0"
 dependencies = [
@@ -994,6 +1006,7 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "serde",
+ "serde_json",
  "thiserror 2.0.20",
  "uuid",
 ]

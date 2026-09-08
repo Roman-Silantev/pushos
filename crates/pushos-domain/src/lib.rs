@@ -19,6 +19,7 @@
 #![doc(html_no_source)]
 
 pub mod action;
+pub mod agent;
 pub mod binding;
 pub mod color;
 pub mod context;
@@ -38,6 +39,7 @@ pub mod prelude {
         ActionContext, ActionDefinition, ActionResult, ActionSelector, ActionStatus, DisplayIntent,
         ParamValue, Params,
     };
+    pub use crate::agent::{AgentDefinition, AgentState, AgentTarget};
     pub use crate::binding::{Binding, BindingKey, BindingScope};
     pub use crate::color::{LedAnimation, LedState, Rgb, StatusColor};
     pub use crate::context::SurfaceContext;

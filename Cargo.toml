@@ -20,6 +20,7 @@ pushos-domain = { path = "crates/pushos-domain" }
 pushos-push2 = { path = "crates/pushos-push2" }
 pushos-bindings = { path = "crates/pushos-bindings" }
 pushos-actions = { path = "crates/pushos-actions" }
+pushos-agents = { path = "crates/pushos-agents" }
 pushos-api = { path = "crates/pushos-api" }
 pushos-ui = { path = "crates/pushos-ui" }
 pushos-config = { path = "crates/pushos-config" }
