@@ -958,6 +958,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "pushos-macos"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "pushos-actions",
+ "pushos-domain",
+ "pushos-testkit",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "pushos-push2"
 version = "0.1.0"
 dependencies = [
