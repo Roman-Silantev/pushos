@@ -261,6 +261,9 @@ impl SurfaceState {
             // snapshot never has to be republished just because time passed.
             sessions: self.sessions.clone(),
             listening: self.listening,
+            // Stamped by the renderer, which is the only thing that knows what
+            // time it is when a frame is drawn.
+            frame: 0,
             splash: self.splash_until.map(|_| {
                 Splash::new("PushOS", 0).with_detail(match &self.workspace {
                     Some(workspace) => workspace.to_string(),

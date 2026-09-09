@@ -489,6 +489,32 @@ Three decisions worth stating:
 Every script is fixed text with values passed as arguments, so nothing a window
 titles itself can change what runs.
 
+## The panel is 960 by 160, and that decides the design
+
+Eight columns across 960 pixels is a hundred and twenty each, and a session
+called "Review project tasks before integrations" has to be recognisable in
+that. So the type is small and the hierarchy comes from size, colour and
+position rather than from weight: one typeface, one weight, four sizes.
+
+Each column is laid out the way Ableton lays out Push 2's own screens, because
+that layout was designed for this panel and this distance. A small dim caption
+naming what the column is, a larger line for what it currently says, and a bar
+underneath carrying the state without being read at all. An operator glancing
+down mid-thought gets the bar; one who looks gets the words. Thin rules between
+the columns, because the eight encoders above and eight buttons below have to
+line up with something and spacing alone leaves an operator counting across.
+
+Movement is information, not decoration. Exactly one thing on a still panel
+moves: the bar under whatever is working, sweeping and starting again. A
+surface where everything animated would tell an operator nothing about where to
+look, which is the only thing an animation on this panel is for.
+
+One colour is PushOS's own. The mark in the corner, the selection and the page
+name are the orange the mascot is drawn in; everything else on the panel
+belongs to the operator's work. That is also why the panel is dark: it sits
+under studio lighting beside unlit pads, and a bright screen would be the only
+glare in the room.
+
 ## Failures are classified, not stringified
 
 Every error carries a class: retryable, validation, permission,

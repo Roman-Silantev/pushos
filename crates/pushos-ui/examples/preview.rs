@@ -89,6 +89,7 @@ fn page() -> UiSnapshot {
         splash: None,
         sessions: Vec::new(),
         listening: Listening::Recording,
+        frame: 0,
     }
 }
 

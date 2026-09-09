@@ -98,15 +98,18 @@ impl RenderTask {
     /// Cloning only when something actually animates keeps the still case, which
     /// is almost always the case, free of copying.
     fn with_animation(&self, snapshot: &Arc<UiSnapshot>) -> Arc<UiSnapshot> {
-        let Some(splash) = &snapshot.splash else {
+        if !snapshot.is_animated() {
             return Arc::clone(snapshot);
-        };
+        }
 
         let mut animated = snapshot.as_ref().clone();
-        animated.splash = Some(pushos_ui::Splash {
-            frame: self.animation,
-            ..splash.clone()
-        });
+        animated.frame = self.animation;
+        if let Some(splash) = &snapshot.splash {
+            animated.splash = Some(pushos_ui::Splash {
+                frame: self.animation,
+                ..splash.clone()
+            });
+        }
         Arc::new(animated)
     }
 

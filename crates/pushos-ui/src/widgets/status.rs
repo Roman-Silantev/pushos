@@ -12,6 +12,9 @@ use super::layout::SLOT_PADDING;
 /// Distance from the bottom of the bar to the text baseline.
 const BASELINE_INSET: f32 = 7.0;
 
+/// The side of the square that marks the panel as PushOS's.
+const MARK: f32 = 6.0;
+
 /// Draws the bar along the top of the display.
 pub(crate) fn draw_status(
     canvas: &mut Canvas,
@@ -26,6 +29,13 @@ pub(crate) fn draw_status(
     let caption = TextStyle::left(theme.sizes.caption, theme.text, area.width / 2.0);
 
     let mut left = area.x + SLOT_PADDING;
+
+    // A mark in PushOS's own orange, so the panel says whose it is without
+    // spending a word on it.
+    let mark = Area::new(left, area.y + (area.height - MARK) / 2.0, MARK, MARK);
+    canvas.fill_rounded(mark, 1.0, theme.accent);
+    left += MARK + SLOT_PADDING;
+
     if let Some(workspace) = &snapshot.workspace {
         let style = TextStyle {
             max_width: area.width / 3.0,

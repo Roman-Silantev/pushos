@@ -165,6 +165,7 @@ mod tests {
             splash: None,
             sessions: Vec::new(),
             listening: pushos_domain::voice::Listening::Idle,
+            frame: 0,
         }
     }
 
