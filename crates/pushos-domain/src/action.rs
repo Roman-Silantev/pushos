@@ -345,17 +345,9 @@ pub enum DisplayIntent {
     },
 }
 
-/// The parameter an analogue gesture fills in before it is dispatched.
-///
-/// Named for what it means to the operator rather than to the hardware: a
-/// binding on a touch strip says where along it the finger is, in whole percent
-/// from the bottom, and never mentions the bits the wire carries. Recognition
-/// puts it there; providers read it like any other parameter.
-pub const READING: &str = "at";
-
 /// Where a focused view sits in a history longer than the panel holds.
 ///
-/// Carried because a control that scrubs through hundreds of lines is unusable
+/// Carried because a control that moves through hundreds of lines is unusable
 /// without something on screen saying where it has got to. A view showing
 /// everything there is leaves this out rather than drawing a full bar.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

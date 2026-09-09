@@ -98,24 +98,6 @@ pub struct InputTask {
 /// Tells the input pipeline what the sessions are doing.
 pub(crate) type SessionRefresh = watch::Sender<Vec<pushos_ui::SessionLine>>;
 
-/// Attaches the reading an analogue gesture carried, if it carried one.
-///
-/// A slide along a touch strip means nothing without the place the finger was,
-/// and that place appears in no configuration file. Configuration still wins
-/// where it says something, so a binding can pin a slide to one spot if that is
-/// what it is for.
-fn with_reading(
-    mut definition: pushos_domain::action::ActionDefinition,
-    gesture: &GestureEvent,
-) -> pushos_domain::action::ActionDefinition {
-    if let Some((name, reading)) = gesture.detail.reading()
-        && definition.params.get(name).is_none()
-    {
-        definition.params.set(name, reading);
-    }
-    definition
-}
-
 impl std::fmt::Debug for InputTask {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("InputTask")
@@ -370,11 +352,10 @@ impl InputTask {
             },
         ));
 
-        let definition = with_reading(binding.action.clone(), &gesture);
-        let selector = definition.selector.clone();
+        let selector = binding.action.selector.clone();
         let outcome = self
             .dispatcher
-            .dispatch(definition, context, correlation)
+            .dispatch(binding.action.clone(), context, correlation)
             .await;
 
         match outcome {

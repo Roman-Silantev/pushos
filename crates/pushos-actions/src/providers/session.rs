@@ -9,9 +9,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use pushos_domain::action::{
-    ActionContext, ActionResult, ActionStatus, Depth, DisplayIntent, MissingParam, READING,
-};
+use pushos_domain::action::{ActionContext, ActionResult, ActionStatus, Depth, DisplayIntent};
 use pushos_domain::attached::{Attached, AttachedTarget, BANK};
 use pushos_domain::error::{ActionError, ErrorClass};
 use pushos_domain::ids::{ActionVerb, AttachedId, ProviderName};
@@ -58,10 +56,9 @@ pub struct SessionProvider {
     scrolled: AtomicUsize,
     /// What was open, and what one of them had said, as last seen.
     ///
-    /// Every answer here costs a process, and a finger crossing the touch
-    /// strip asks a hundred times a second. Believing the last answer for a
-    /// fraction of one keeps the surface honest without asking the machine to
-    /// spawn `osascript` for every percent of travel.
+    /// Every answer here costs a process, and a knob being turned asks many
+    /// times a second. Believing the last answer for a fraction of one keeps
+    /// the surface honest without spawning `osascript` for every detent.
     seen: Mutex<Seen>,
 }
 
@@ -75,8 +72,8 @@ struct Seen {
 /// How long one of those answers is believed for.
 ///
 /// Short enough that nothing on the panel is visibly behind what a session is
-/// doing, and long enough that one movement of a finger is one look rather
-/// than a hundred.
+/// doing, and long enough that a knob spun through a long history is a handful
+/// of looks rather than one for every detent.
 const BELIEVED: Duration = Duration::from_millis(300);
 
 impl Seen {
@@ -267,21 +264,10 @@ impl SessionProvider {
         moved
     }
 
-    /// Jumps to a place in what a session said, given as a percentage.
-    ///
-    /// The bottom of the strip is what the session is saying now and the top is
-    /// as far back as it goes, so the reading runs the same way the words on
-    /// the panel do: older is higher up.
-    fn scrub(&self, at: u8, most: usize) -> usize {
-        let back = most.saturating_mul(usize::from(at.min(100))) / 100;
-        self.scrolled.store(back, Ordering::Relaxed);
-        back
-    }
-
     /// Everything a session has said that is worth showing, oldest first.
     ///
     /// Believed briefly, for the same reason the list of open sessions is:
-    /// scrubbing through what one said is a hundred questions about a thing
+    /// spinning a knob through what one said is many questions about a thing
     /// that has not changed.
     async fn history(&self, session: &Attached) -> Result<Vec<String>, ActionError> {
         let now = Instant::now();
@@ -360,7 +346,6 @@ impl ActionProvider for SessionProvider {
                 "bank",
                 "show",
                 "scroll",
-                "scrub",
                 "focus",
                 "send",
                 "press",
@@ -443,26 +428,6 @@ impl ActionProvider for SessionProvider {
                 Ok(self.view(&session, &said))
             }
 
-            // The touch strip. The finger's place along it is where in the
-            // history to stand, so this is a jump rather than a nudge and
-            // needs the whole of what was said to jump within.
-            "scrub" => {
-                let at = context
-                    .params()
-                    .get(READING)
-                    .and_then(pushos_domain::action::ParamValue::as_integer)
-                    .and_then(|at| u8::try_from(at.clamp(0, 100)).ok())
-                    .ok_or(MissingParam {
-                        key: READING.to_owned(),
-                        expected: "a percentage",
-                    })?;
-
-                let session = self.resolve(&context).await?;
-                let said = self.history(&session).await?;
-                self.scrub(at, Depth::deepest(said.len(), SHOWN_LINES));
-                Ok(self.view(&session, &said))
-            }
-
             "focus" => {
                 let session = self.resolve(&context).await?;
                 self.select(&session);
@@ -537,7 +502,7 @@ const READ_MOST: usize = 2_000;
 /// How many lines of it the panel shows at once.
 ///
 /// The window an operator reads. Everything behind it is still there and is
-/// what the touch strip and the scroll knob move through.
+/// what the scroll knobs move through.
 const SHOWN_LINES: usize = 8;
 
 /// The last few lines that have anything on them.
@@ -965,28 +930,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_strip_crosses_the_whole_history_in_one_movement() {
-        let (provider, fake) = rig();
-        fake.showing(&said(108));
-        provider
-            .execute(context("select", Some("sprint")))
-            .await
-            .expect("open");
-
-        // The bottom of the strip is what the session is saying now.
-        let bottom = moved(&provider, "scrub", READING, 0).await;
-        assert_eq!(*window(&bottom).last().expect("a window"), 108);
-
-        // The top is as far back as it goes.
-        let top = moved(&provider, "scrub", READING, 100).await;
-        assert_eq!(window(&top), [1, 2, 3, 4, 5, 6, 7, 8], "the beginning");
-
-        // And halfway is halfway, in one movement rather than fifty turns.
-        let middle = moved(&provider, "scrub", READING, 50).await;
-        assert_eq!(*window(&middle).first().expect("a window"), 51);
-    }
-
-    #[tokio::test]
     async fn the_panel_is_told_where_in_the_history_it_is() {
         let (provider, fake) = rig();
         fake.showing(&said(108));
@@ -995,7 +938,7 @@ mod tests {
             .await
             .expect("open");
 
-        let result = moved(&provider, "scrub", READING, 100).await;
+        let result = moved(&provider, "scroll", "by", 500).await;
         let Some(DisplayIntent::Focus { depth, .. }) = result.display else {
             panic!("focused");
         };
@@ -1005,45 +948,8 @@ mod tests {
                 back: 100,
                 total: 108
             }),
-            "so a hand on the strip can see where it has got to"
+            "so the panel can draw where in it the operator is"
         );
-    }
-
-    #[tokio::test]
-    async fn crossing_the_strip_is_one_look_at_the_machine_and_not_a_hundred() {
-        // Every answer costs a process. A finger crossing the strip asks a
-        // hundred times a second, and nothing it is reading changed between
-        // one percent and the next.
-        let (provider, fake) = rig();
-        fake.showing(&said(108));
-        provider
-            .execute(context("select", Some("sprint")))
-            .await
-            .expect("open");
-
-        let before = fake.calls().len();
-        for at in 0..100 {
-            moved(&provider, "scrub", READING, at).await;
-        }
-
-        let asked = fake.calls().len() - before;
-        assert!(
-            asked <= 2,
-            "a hundred percent of travel asked the machine {asked} times"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_slide_with_no_reading_is_refused_rather_than_guessed_at() {
-        // The value comes from the hardware, so a binding that reached a
-        // provider without one is a fault and not a jump to the beginning.
-        let (provider, fake) = rig();
-        fake.showing(&said(12));
-        let error = provider
-            .execute(context("scrub", Some("sprint")))
-            .await
-            .expect_err("nothing said where the finger was");
-        assert_eq!(error.class(), ErrorClass::Validation);
     }
 
     #[tokio::test]

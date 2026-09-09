@@ -38,17 +38,11 @@ pub enum Gesture {
     Touch,
     /// A touch-sensitive control was released.
     TouchRelease,
-    /// A finger moved to a place along a touch strip.
-    ///
-    /// Absolute rather than relative: the strip reports where the finger is,
-    /// not how far it travelled, so a binding on this is a position and not a
-    /// nudge. The reading travels with the gesture.
-    Slide,
 }
 
 impl Gesture {
     /// Every gesture, for exhaustive validation and documentation.
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 13] = [
         Self::Press,
         Self::Release,
         Self::Tap,
@@ -62,7 +56,6 @@ impl Gesture {
         Self::ShiftTurn,
         Self::Touch,
         Self::TouchRelease,
-        Self::Slide,
     ];
 
     /// The stable textual form used in configuration.
@@ -81,7 +74,6 @@ impl Gesture {
             Self::ShiftTurn => "shift_turn",
             Self::Touch => "touch",
             Self::TouchRelease => "touch_release",
-            Self::Slide => "slide",
         }
     }
 
@@ -98,14 +90,6 @@ impl Gesture {
             return true;
         }
         self as u8 == produced as u8
-    }
-
-    /// Whether the gesture carries an analogue reading of its own.
-    ///
-    /// A binding on one of these is incomplete without the value the hardware
-    /// sent, so the reading is attached to the action before it is dispatched.
-    pub const fn is_analogue(self) -> bool {
-        matches!(self, Self::Slide)
     }
 
     /// Whether the gesture requires Shift to have been held.

@@ -268,8 +268,8 @@ pub struct Focus {
     pub others: Vec<SessionLine>,
     /// Where these lines sit in a history longer than the panel holds.
     ///
-    /// Drawn as a bar beside them, so a hand on the touch strip can see where
-    /// it has scrolled to. Absent when everything there is already fits.
+    /// Drawn as a bar beside them, so a knob spun through a long history has
+    /// somewhere to read its position. Absent when everything already fits.
     pub depth: Option<Depth>,
 }
 

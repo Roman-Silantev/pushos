@@ -45,6 +45,7 @@ impl Push2Device {
             role,
         };
         device.install_palette();
+        device.turn_off_the_touch_strip();
         device.blank_all_leds();
 
         info!(port = role.name_suffix(), "Push 2 connected");
@@ -77,6 +78,21 @@ impl Push2Device {
             ));
         }
         self.midi.send_now(sysex::reapply_palette());
+    }
+
+    /// Puts the touch strip out and leaves it out.
+    ///
+    /// PushOS has nothing for it to do. The Push 2 arrives set up as a pitch
+    /// bend, lighting itself wherever a finger lands and springing back to the
+    /// middle when one lifts, and a control that lights up while doing nothing
+    /// is worse than one that is plainly off. Taking its lights and darkening
+    /// them says so.
+    ///
+    /// Waited on rather than queued, for the same reason as the palette: this
+    /// runs once at connect and nothing later would correct it.
+    fn turn_off_the_touch_strip(&self) {
+        self.midi.send_now(sysex::host_owns_touch_strip());
+        self.midi.send_now(sysex::darken_touch_strip());
     }
 
     /// Puts every light out, so the surface starts from a known state.

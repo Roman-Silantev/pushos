@@ -427,6 +427,22 @@ action = "session.previous"
 label = "Previous session"
 
 [[bindings]]
+control = "encoder.swing"
+gesture = "turn_left"
+page = "running"
+action = "session.scroll"
+label = "A screen back"
+params = { by = 8 }
+
+[[bindings]]
+control = "encoder.swing"
+gesture = "turn_right"
+page = "running"
+action = "session.scroll"
+label = "A screen forward"
+params = { by = -8 }
+
+[[bindings]]
 control = "encoder.2"
 gesture = "turn_left"
 page = "running"
@@ -441,16 +457,6 @@ page = "running"
 action = "session.scroll"
 label = "Forward"
 params = { by = -1 }
-
-# The strip crosses the whole of what a session has said in one movement, with
-# now at the bottom and the beginning at the top.
-
-[[bindings]]
-control = "touchstrip"
-gesture = "slide"
-page = "running"
-action = "session.scrub"
-label = "Scrub the session"
 
 [[bindings]]
 control = "pad.56"

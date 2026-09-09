@@ -20,12 +20,10 @@
 # takes you to it, and the row below says something to it.
 #
 #   Tempo encoder            move the eight in view, for more than eight
+#   Swing encoder            move a screenful back through what one has said
 #   Encoder 1                walk through the sessions, opening each
-#   Encoder 2                move back through what one has said
+#   Encoder 2                move a line back through what one has said
 #   Master encoder           volume
-#
-#   Touch strip              slide through everything a session has said:
-#                            the bottom is now, the top is as far back as it goes
 #
 #   Up / Down                step through the sessions one at a time
 #   Left / Right             move the eight in view, for more than eight
@@ -151,7 +149,10 @@ action = "session.previous"
 label = "Previous session"
 
 # The second encoder moves back and forward through what the session you are
-# reading has said. The display says how far back you are.
+# reading has said, a line at a time. A session says far more than the panel
+# holds, so the knob beside it does the same in screenfuls: coarse and fine,
+# the way a long list wants to be crossed. The bar beside the words says how
+# far back you are.
 
 [[bindings]]
 control = "encoder.2"
@@ -167,18 +168,19 @@ action = "session.scroll"
 label = "Forward"
 params = { by = -1 }
 
-# --- The touch strip ----------------------------------------------------------
-# A session says far more than the panel holds, and the encoder walks through it
-# a line at a time. The strip is the way to cross all of it at once: where your
-# finger is along it is where you stand in what the session has said, with now
-# at the bottom and the beginning at the top, the same way the words run. The
-# bar beside them says where you have got to.
+[[bindings]]
+control = "encoder.swing"
+gesture = "turn_left"
+action = "session.scroll"
+label = "A screen back"
+params = { by = 8 }
 
 [[bindings]]
-control = "touchstrip"
-gesture = "slide"
-action = "session.scrub"
-label = "Scrub the session"
+control = "encoder.swing"
+gesture = "turn_right"
+action = "session.scroll"
+label = "A screen forward"
+params = { by = -8 }
 
 [[bindings]]
 control = "encoder.master"

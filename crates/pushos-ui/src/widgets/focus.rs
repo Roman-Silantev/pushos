@@ -156,8 +156,9 @@ pub(crate) fn draw_focus(
     draw_said(canvas, text, theme, words, words.y, &focus.lines);
 
     // Where these lines sit in everything the session has said, drawn in the
-    // gap the mark left. A hand on the touch strip is moving through hundreds
-    // of lines with nothing else on the panel saying how far it has got.
+    // gap the mark left. A knob moving through hundreds of lines needs
+    // something on the panel saying how far it has got, or a long history is
+    // one the operator gets lost in.
     if let Some(depth) = focus.depth {
         draw_depth(
             canvas,
@@ -197,9 +198,8 @@ pub(crate) fn draw_focus(
 
 /// Draws where the shown lines sit in a longer history.
 ///
-/// A track for everything that was said and a thumb for the part on the panel,
-/// laid out the way the strip beside it is: the newest is at the bottom, and
-/// sliding a finger up travels back through what happened, which is the
+/// A track for everything that was said and a thumb for the part on the panel.
+/// The newest is at the bottom and travelling back moves upward, which is the
 /// direction the words themselves already run.
 fn draw_depth(canvas: &mut Canvas, theme: &Theme, track: Area, depth: Depth, shown: usize) {
     if track.height <= 0.0 || depth.total == 0 {
