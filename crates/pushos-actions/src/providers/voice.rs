@@ -29,14 +29,18 @@ use tracing::{info, warn};
 /// The namespace this provider claims.
 pub const NAMESPACE: &str = "voice";
 
-/// The parameter an unrecognised phrase is passed under.
-const PROMPT: &str = "prompt";
+/// The parameter the words are passed under.
+///
+/// `text` because that is what the actions that take words already read:
+/// `agent.prompt`, `terminal.run` and `terminal.send`. A name of voice's own
+/// would mean none of them could be the destination.
+const WORDS: &str = "text";
 
 /// Turns gestures into listening, and speech into actions.
 #[derive(Debug)]
 pub struct VoiceProvider {
     listener: Arc<VoiceListener>,
-    /// What an unrecognised phrase runs, with the words as `prompt`.
+    /// What an unrecognised phrase runs, with the words as `text`.
     request: Option<ActionSelector>,
     /// How a routed phrase is actually carried out.
     ///
@@ -69,6 +73,17 @@ impl VoiceProvider {
         *self.actions.lock().await = Arc::downgrade(runner);
     }
 
+    /// Builds the action an unrecognised phrase runs.
+    ///
+    /// Public so a configuration can be checked against it: an action that
+    /// takes words under a different name would leave PushOS listening,
+    /// hearing correctly, and then saying there was nothing to send.
+    pub fn words_for(request: &ActionSelector, said: &str) -> ActionDefinition {
+        let mut params = Params::new();
+        params.set(WORDS, ParamValue::Text(said.into()));
+        ActionDefinition::new(request.clone(), params)
+    }
+
     /// Carries out whatever was heard.
     async fn act_on(&self, heard: Heard, surface: &SurfaceContext) -> ActionResult {
         match heard.routing {
@@ -94,7 +109,7 @@ impl VoiceProvider {
             Routing::Request { text } => match &self.request {
                 Some(selector) => {
                     let mut params = Params::new();
-                    params.set(PROMPT, ParamValue::Text(text.as_str().into()));
+                    params.set(WORDS, ParamValue::Text(text.as_str().into()));
                     self.run(
                         ActionDefinition::new(selector.clone(), params),
                         &text,
@@ -352,7 +367,7 @@ mod tests {
         let ran = rig.actions.ran();
         assert_eq!(ran.len(), 1);
         assert_eq!(
-            ran[0].params.text(PROMPT),
+            ran[0].params.text(WORDS),
             Some("look at the failing test"),
             "the agent has to receive what was actually said"
         );

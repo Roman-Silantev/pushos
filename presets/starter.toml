@@ -308,9 +308,10 @@ granted = [
 #
 # [voice]
 # engine = "apple"
-# # Where the words go when they are not one of the phrases below. The words
-# # arrive as `prompt`. Leave it out and an unrecognised phrase is shown and
-# # nothing else, which is the safe default.
+# # Where the words go when they are not one of the phrases below. They arrive
+# # as `text`, which is what `agent.prompt` and `terminal.run` already read.
+# # Leave it out and an unrecognised phrase is shown and nothing else, which is
+# # the safe default.
 # request = "agent.prompt"
 # # Only `whisper` uses this. Point it at a directory holding model.safetensors,
 # # tokenizer.json and config.json.

@@ -119,8 +119,9 @@ pub struct VoiceSection {
     pub model: Option<String>,
     /// What a phrase that is not a configured command runs.
     ///
-    /// Written as `provider.verb`. The words go to it as `prompt`. Absent
-    /// means anything unrecognised is reported and nothing else.
+    /// Written as `provider.verb`. The words go to it as `text`, which is what
+    /// `agent.prompt` and `terminal.run` already read. Absent means anything
+    /// unrecognised is reported and nothing else.
     pub request: Option<String>,
     /// The phrases that mean exactly one thing.
     #[serde(default)]

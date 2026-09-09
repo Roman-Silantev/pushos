@@ -21,7 +21,7 @@ pub struct VoiceSettings {
     pub engine: VoiceEngine,
     /// The model file, for engines that need one.
     pub model: Option<PathBuf>,
-    /// What anything unrecognised runs, with the words as `prompt`.
+    /// What anything unrecognised runs, with the words as `text`.
     ///
     /// Absent means an unrecognised phrase is reported and nothing else, which
     /// is the right default: PushOS should not invent somewhere to send words.

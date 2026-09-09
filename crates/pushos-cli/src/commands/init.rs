@@ -132,21 +132,68 @@ mod tests {
 
         let shipped = crate::host::shipped_namespaces(&config);
 
-        for binding in &parsed.bindings {
-            let (provider, verb) = binding
-                .action
-                .split_once('.')
-                .unwrap_or_else(|| panic!("`{}` is not written as provider.verb", binding.action));
+        // Everywhere an action can be written, not only bindings. A phrase or a
+        // workflow step naming something that does not exist fails just as
+        // late, and is just as invisible in the file.
+        let written = parsed
+            .bindings
+            .iter()
+            .map(|binding| binding.action.clone())
+            .chain(parsed.voice.request.clone())
+            .chain(
+                parsed
+                    .voice
+                    .commands
+                    .iter()
+                    .map(|command| command.action.clone()),
+            )
+            .chain(
+                parsed
+                    .workflows
+                    .iter()
+                    .flat_map(|workflow| workflow.nodes.iter())
+                    .filter_map(|node| node.action.clone()),
+            );
 
-            let verbs = shipped.get(provider).unwrap_or_else(|| {
-                panic!("`{}` names a provider PushOS does not ship", binding.action)
-            });
+        for action in written {
+            let (provider, verb) = action
+                .split_once('.')
+                .unwrap_or_else(|| panic!("`{action}` is not written as provider.verb"));
+
+            let verbs = shipped
+                .get(provider)
+                .unwrap_or_else(|| panic!("`{action}` names a provider PushOS does not ship"));
             assert!(
                 verbs.iter().any(|shipped| shipped == verb),
-                "`{}` names a verb `{provider}` does not have",
-                binding.action
+                "`{action}` names a verb `{provider}` does not have"
             );
         }
+    }
+
+    #[test]
+    fn the_words_voice_sends_arrive_under_the_name_the_action_reads() {
+        // `agent.prompt` wants `text`. Documenting a request action that gets
+        // words under any other name would leave PushOS listening, hearing
+        // correctly, and then reporting that there was nothing to send.
+        let enabled = with_every_example_enabled();
+        let parsed: ConfigFile = toml::from_str(&enabled).expect("valid TOML");
+        let config = RuntimeConfig::build(&parsed).expect("valid");
+
+        let settings = config.voice.expect("the starter documents push to talk");
+        let request = settings
+            .request
+            .expect("the starter documents where unrecognised words go");
+
+        let spoken =
+            pushos_actions::providers::voice::VoiceProvider::words_for(&request, "check the tests");
+        // Both of the namespaces that take words read them under the same
+        // name, which is the point: voice does not invent one of its own.
+        assert!(
+            matches!(request.provider.as_str(), "agent" | "terminal"),
+            "`{}` has no documented way of taking words",
+            request.provider
+        );
+        assert_eq!(spoken.params.text("text"), Some("check the tests"));
     }
 
     #[test]
