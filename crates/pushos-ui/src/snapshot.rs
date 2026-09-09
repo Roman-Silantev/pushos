@@ -253,6 +253,12 @@ pub struct Focus {
     pub tone: Tone,
     /// What it last said, most recent last.
     pub lines: Vec<String>,
+    /// How to leave, named by the control that does it.
+    ///
+    /// A view that takes over the panel and stays has to say how to get out of
+    /// it, because nothing else on screen will. Ableton's own screens do this
+    /// and it is the reason anybody finds their way around one.
+    pub back: Option<String>,
     /// The others, so looking closely at one does not mean losing the rest.
     ///
     /// The reason the panel is worth looking at while reading: an operator
@@ -271,7 +277,15 @@ impl Focus {
             tone: Tone::Normal,
             lines: Vec::new(),
             others: Vec::new(),
+            back: None,
         }
+    }
+
+    /// Says which control leaves this view.
+    #[must_use]
+    pub fn leaving_with(mut self, control: impl Into<String>) -> Self {
+        self.back = Some(control.into());
+        self
     }
 
     /// Keeps the rest in view alongside it.

@@ -162,6 +162,7 @@ fn focus() -> UiSnapshot {
                     "Renaming it now and running the tests.".to_owned(),
                     "cargo test --workspace".to_owned(),
                 ])
+                .leaving_with("SESSION")
                 .beside([
                     SessionLine::new("Ads performance", "asking", Tone::Attention),
                     SessionLine::new("API key auth", "working", Tone::Active),

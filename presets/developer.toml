@@ -22,6 +22,13 @@ granted = [
     "shell.execute",
 ]
 
+[sessions]
+# Watch the terminal windows already open, so the Running page has something in
+# it the moment you start. Nothing tells PushOS when a window opens, so it asks
+# every few seconds.
+watch = true
+poll_ms = 3000
+
 # --- Pages -------------------------------------------------------------------
 
 [[pages]]
@@ -99,6 +106,13 @@ gesture = "press"
 action = "page.show"
 target = "automation"
 label = "Auto"
+
+[[bindings]]
+control = "button.upper_7"
+gesture = "press"
+action = "page.show"
+target = "running"
+label = "Running"
 
 # --- Global bindings ---------------------------------------------------------
 # In force on every page, because these should not move.
@@ -332,3 +346,242 @@ gesture = "press"
 page = "automation"
 action = "page.back"
 label = "Back"
+
+# --- What is running on this machine -----------------------------------------
+# The coding sessions you already have open, without configuring anything.
+# PushOS reads what each terminal window is working on and puts it on the pads:
+# green is waiting for you, blue is working, purple has a line typed and not
+# sent, amber is asking you something.
+#
+# It did not start these and does not own them, so it can watch them and type
+# into them and nothing else. The first time you run it macOS asks whether
+# PushOS may control Terminal; that permission is what makes this work, and
+# `pushos doctor` reports on it.
+
+[[pages]]
+id = "running"
+name = "Running"
+description = "Every coding session open on this machine, and what it is doing"
+
+# Eight pads, however many sessions. The arrows move which eight are in view.
+
+[[bindings]]
+control = "button.right"
+gesture = "press"
+page = "running"
+action = "session.bank"
+label = "Next eight"
+params = { by = 1 }
+
+[[bindings]]
+control = "button.left"
+gesture = "press"
+page = "running"
+action = "session.bank"
+label = "Previous eight"
+params = { by = -1 }
+
+[[bindings]]
+control = "button.down"
+gesture = "press"
+page = "running"
+action = "session.next"
+label = "Next session"
+
+[[bindings]]
+control = "button.up"
+gesture = "press"
+page = "running"
+action = "session.previous"
+label = "Previous session"
+
+[[bindings]]
+control = "encoder.1"
+gesture = "turn_right"
+page = "running"
+action = "session.next"
+label = "Next session"
+
+[[bindings]]
+control = "encoder.1"
+gesture = "turn_left"
+page = "running"
+action = "session.previous"
+label = "Previous session"
+
+[[bindings]]
+control = "encoder.2"
+gesture = "turn_left"
+page = "running"
+action = "session.scroll"
+label = "Back"
+params = { by = 1 }
+
+[[bindings]]
+control = "encoder.2"
+gesture = "turn_right"
+page = "running"
+action = "session.scroll"
+label = "Forward"
+params = { by = -1 }
+
+[[bindings]]
+control = "pad.56"
+gesture = "tap"
+page = "running"
+action = "session.show"
+target = "slot:1"
+label = "Session 1"
+
+[[bindings]]
+control = "pad.56"
+gesture = "hold"
+page = "running"
+action = "session.focus"
+target = "slot:1"
+label = "Bring 1 forward"
+
+[[bindings]]
+control = "pad.57"
+gesture = "tap"
+page = "running"
+action = "session.show"
+target = "slot:2"
+label = "Session 2"
+
+[[bindings]]
+control = "pad.57"
+gesture = "hold"
+page = "running"
+action = "session.focus"
+target = "slot:2"
+label = "Bring 2 forward"
+
+[[bindings]]
+control = "pad.58"
+gesture = "tap"
+page = "running"
+action = "session.show"
+target = "slot:3"
+label = "Session 3"
+
+[[bindings]]
+control = "pad.58"
+gesture = "hold"
+page = "running"
+action = "session.focus"
+target = "slot:3"
+label = "Bring 3 forward"
+
+[[bindings]]
+control = "pad.59"
+gesture = "tap"
+page = "running"
+action = "session.show"
+target = "slot:4"
+label = "Session 4"
+
+[[bindings]]
+control = "pad.59"
+gesture = "hold"
+page = "running"
+action = "session.focus"
+target = "slot:4"
+label = "Bring 4 forward"
+
+[[bindings]]
+control = "pad.60"
+gesture = "tap"
+page = "running"
+action = "session.show"
+target = "slot:5"
+label = "Session 5"
+
+[[bindings]]
+control = "pad.60"
+gesture = "hold"
+page = "running"
+action = "session.focus"
+target = "slot:5"
+label = "Bring 5 forward"
+
+[[bindings]]
+control = "pad.61"
+gesture = "tap"
+page = "running"
+action = "session.show"
+target = "slot:6"
+label = "Session 6"
+
+[[bindings]]
+control = "pad.61"
+gesture = "hold"
+page = "running"
+action = "session.focus"
+target = "slot:6"
+label = "Bring 6 forward"
+
+[[bindings]]
+control = "pad.62"
+gesture = "tap"
+page = "running"
+action = "session.show"
+target = "slot:7"
+label = "Session 7"
+
+[[bindings]]
+control = "pad.62"
+gesture = "hold"
+page = "running"
+action = "session.focus"
+target = "slot:7"
+label = "Bring 7 forward"
+
+[[bindings]]
+control = "pad.63"
+gesture = "tap"
+page = "running"
+action = "session.show"
+target = "slot:8"
+label = "Session 8"
+
+[[bindings]]
+control = "pad.63"
+gesture = "hold"
+page = "running"
+action = "session.focus"
+target = "slot:8"
+label = "Bring 8 forward"
+
+# Answering whichever session you are reading, so one pad serves all of them.
+
+[[bindings]]
+control = "pad.48"
+gesture = "tap"
+page = "running"
+action = "session.send"
+label = "Yes"
+params = { text = "y\n" }
+
+[[bindings]]
+control = "pad.49"
+gesture = "tap"
+page = "running"
+action = "session.press"
+label = "Enter"
+params = { key = "enter" }
+
+[[bindings]]
+control = "pad.50"
+gesture = "tap"
+page = "running"
+action = "session.press"
+label = "Accept"
+params = { key = "tab" }
+
+[[bindings]]
+control = "pad.51"
+gesture = "hold"
+page = "running"
+action = "session.interrupt"
+label = "Interrupt"

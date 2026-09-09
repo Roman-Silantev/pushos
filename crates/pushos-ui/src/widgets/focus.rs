@@ -151,9 +151,20 @@ pub(crate) fn draw_focus(
             inner.x + inner.width - OTHERS_WIDTH + MARK_GAP,
             after_header,
             OTHERS_WIDTH - MARK_GAP,
-            inner.bottom() - after_header,
+            inner.bottom() - after_header - theme.sizes.label - OTHERS_GAP,
         );
         draw_others(canvas, text, theme, beside, &focus.others);
+    }
+
+    // A view that takes over the panel and stays has to say how to get out of
+    // it, because nothing else on screen will.
+    if let Some(back) = &focus.back {
+        text.draw(
+            canvas,
+            &format!("{back} to go back"),
+            (inner.x + inner.width, inner.bottom()),
+            TextStyle::left(theme.sizes.label, theme.muted, OTHERS_WIDTH).aligned(Align::Right),
+        );
     }
 }
 

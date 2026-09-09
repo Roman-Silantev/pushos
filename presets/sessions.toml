@@ -11,10 +11,13 @@
 #
 # --- The map -----------------------------------------------------------------
 #
-#   Row above the screen     select a session without disturbing it
-#   Row below the screen     open one and read what it last said
-#   Bottom row of pads       the same eight, under your fingers
-#   Second row of pads       replies: yes, no, enter, continue, accept, send
+#   Bottom row of pads       the eight sessions: tap to read one here
+#   Row above the screen     jump to that window on the Mac
+#   Row below the screen     what you say to it: yes, no, continue, accept,
+#                            send, up, down, dismiss
+#
+# Each row has one job. The pads choose which session, the row above the screen
+# takes you to it, and the row below says something to it.
 #
 #   Encoder 1                walk through the sessions, opening each
 #   Encoder 2                move back through what one has said
@@ -55,11 +58,6 @@ id = "sessions"
 name = "Sessions"
 description = "What each window is working on, and what it last said"
 
-[[pages]]
-id = "answer"
-name = "Answer"
-description = "Reply to whichever session you are reading"
-
 # --- Moving about ------------------------------------------------------------
 
 [[bindings]]
@@ -68,13 +66,6 @@ gesture = "press"
 action = "page.show"
 target = "sessions"
 label = "Sessions"
-
-[[bindings]]
-control = "button.note"
-gesture = "press"
-action = "page.show"
-target = "answer"
-label = "Answer"
 
 [[bindings]]
 control = "button.page_right"
@@ -209,24 +200,12 @@ label = "What it said"
 
 # --- Session 1 -----------------------------------------------------------------
 
-[[bindings]]
-control = "button.upper_1"
-gesture = "press"
-action = "session.select"
-target = "slot:1"
-label = "Select 1"
-
-[[bindings]]
-control = "button.lower_1"
-gesture = "press"
-action = "session.show"
-target = "slot:1"
-label = "Open 1"
+# The pad reads it here. The button above the screen jumps to that window on
+# the Mac, which is the thing the Push cannot do for you.
 
 [[bindings]]
 control = "pad.56"
 gesture = "tap"
-page = "sessions"
 action = "session.show"
 target = "slot:1"
 label = "Session 1"
@@ -234,31 +213,25 @@ label = "Session 1"
 [[bindings]]
 control = "pad.56"
 gesture = "hold"
-page = "sessions"
+action = "session.select"
+target = "slot:1"
+label = "Select 1"
+
+[[bindings]]
+control = "button.upper_1"
+gesture = "press"
 action = "session.focus"
 target = "slot:1"
-label = "Show window 1"
+label = "Go to 1"
 
 # --- Session 2 -----------------------------------------------------------------
 
-[[bindings]]
-control = "button.upper_2"
-gesture = "press"
-action = "session.select"
-target = "slot:2"
-label = "Select 2"
-
-[[bindings]]
-control = "button.lower_2"
-gesture = "press"
-action = "session.show"
-target = "slot:2"
-label = "Open 2"
+# The pad reads it here. The button above the screen jumps to that window on
+# the Mac, which is the thing the Push cannot do for you.
 
 [[bindings]]
 control = "pad.57"
 gesture = "tap"
-page = "sessions"
 action = "session.show"
 target = "slot:2"
 label = "Session 2"
@@ -266,31 +239,25 @@ label = "Session 2"
 [[bindings]]
 control = "pad.57"
 gesture = "hold"
-page = "sessions"
+action = "session.select"
+target = "slot:2"
+label = "Select 2"
+
+[[bindings]]
+control = "button.upper_2"
+gesture = "press"
 action = "session.focus"
 target = "slot:2"
-label = "Show window 2"
+label = "Go to 2"
 
 # --- Session 3 -----------------------------------------------------------------
 
-[[bindings]]
-control = "button.upper_3"
-gesture = "press"
-action = "session.select"
-target = "slot:3"
-label = "Select 3"
-
-[[bindings]]
-control = "button.lower_3"
-gesture = "press"
-action = "session.show"
-target = "slot:3"
-label = "Open 3"
+# The pad reads it here. The button above the screen jumps to that window on
+# the Mac, which is the thing the Push cannot do for you.
 
 [[bindings]]
 control = "pad.58"
 gesture = "tap"
-page = "sessions"
 action = "session.show"
 target = "slot:3"
 label = "Session 3"
@@ -298,31 +265,25 @@ label = "Session 3"
 [[bindings]]
 control = "pad.58"
 gesture = "hold"
-page = "sessions"
+action = "session.select"
+target = "slot:3"
+label = "Select 3"
+
+[[bindings]]
+control = "button.upper_3"
+gesture = "press"
 action = "session.focus"
 target = "slot:3"
-label = "Show window 3"
+label = "Go to 3"
 
 # --- Session 4 -----------------------------------------------------------------
 
-[[bindings]]
-control = "button.upper_4"
-gesture = "press"
-action = "session.select"
-target = "slot:4"
-label = "Select 4"
-
-[[bindings]]
-control = "button.lower_4"
-gesture = "press"
-action = "session.show"
-target = "slot:4"
-label = "Open 4"
+# The pad reads it here. The button above the screen jumps to that window on
+# the Mac, which is the thing the Push cannot do for you.
 
 [[bindings]]
 control = "pad.59"
 gesture = "tap"
-page = "sessions"
 action = "session.show"
 target = "slot:4"
 label = "Session 4"
@@ -330,31 +291,25 @@ label = "Session 4"
 [[bindings]]
 control = "pad.59"
 gesture = "hold"
-page = "sessions"
+action = "session.select"
+target = "slot:4"
+label = "Select 4"
+
+[[bindings]]
+control = "button.upper_4"
+gesture = "press"
 action = "session.focus"
 target = "slot:4"
-label = "Show window 4"
+label = "Go to 4"
 
 # --- Session 5 -----------------------------------------------------------------
 
-[[bindings]]
-control = "button.upper_5"
-gesture = "press"
-action = "session.select"
-target = "slot:5"
-label = "Select 5"
-
-[[bindings]]
-control = "button.lower_5"
-gesture = "press"
-action = "session.show"
-target = "slot:5"
-label = "Open 5"
+# The pad reads it here. The button above the screen jumps to that window on
+# the Mac, which is the thing the Push cannot do for you.
 
 [[bindings]]
 control = "pad.60"
 gesture = "tap"
-page = "sessions"
 action = "session.show"
 target = "slot:5"
 label = "Session 5"
@@ -362,31 +317,25 @@ label = "Session 5"
 [[bindings]]
 control = "pad.60"
 gesture = "hold"
-page = "sessions"
+action = "session.select"
+target = "slot:5"
+label = "Select 5"
+
+[[bindings]]
+control = "button.upper_5"
+gesture = "press"
 action = "session.focus"
 target = "slot:5"
-label = "Show window 5"
+label = "Go to 5"
 
 # --- Session 6 -----------------------------------------------------------------
 
-[[bindings]]
-control = "button.upper_6"
-gesture = "press"
-action = "session.select"
-target = "slot:6"
-label = "Select 6"
-
-[[bindings]]
-control = "button.lower_6"
-gesture = "press"
-action = "session.show"
-target = "slot:6"
-label = "Open 6"
+# The pad reads it here. The button above the screen jumps to that window on
+# the Mac, which is the thing the Push cannot do for you.
 
 [[bindings]]
 control = "pad.61"
 gesture = "tap"
-page = "sessions"
 action = "session.show"
 target = "slot:6"
 label = "Session 6"
@@ -394,31 +343,25 @@ label = "Session 6"
 [[bindings]]
 control = "pad.61"
 gesture = "hold"
-page = "sessions"
+action = "session.select"
+target = "slot:6"
+label = "Select 6"
+
+[[bindings]]
+control = "button.upper_6"
+gesture = "press"
 action = "session.focus"
 target = "slot:6"
-label = "Show window 6"
+label = "Go to 6"
 
 # --- Session 7 -----------------------------------------------------------------
 
-[[bindings]]
-control = "button.upper_7"
-gesture = "press"
-action = "session.select"
-target = "slot:7"
-label = "Select 7"
-
-[[bindings]]
-control = "button.lower_7"
-gesture = "press"
-action = "session.show"
-target = "slot:7"
-label = "Open 7"
+# The pad reads it here. The button above the screen jumps to that window on
+# the Mac, which is the thing the Push cannot do for you.
 
 [[bindings]]
 control = "pad.62"
 gesture = "tap"
-page = "sessions"
 action = "session.show"
 target = "slot:7"
 label = "Session 7"
@@ -426,31 +369,25 @@ label = "Session 7"
 [[bindings]]
 control = "pad.62"
 gesture = "hold"
-page = "sessions"
+action = "session.select"
+target = "slot:7"
+label = "Select 7"
+
+[[bindings]]
+control = "button.upper_7"
+gesture = "press"
 action = "session.focus"
 target = "slot:7"
-label = "Show window 7"
+label = "Go to 7"
 
 # --- Session 8 -----------------------------------------------------------------
 
-[[bindings]]
-control = "button.upper_8"
-gesture = "press"
-action = "session.select"
-target = "slot:8"
-label = "Select 8"
-
-[[bindings]]
-control = "button.lower_8"
-gesture = "press"
-action = "session.show"
-target = "slot:8"
-label = "Open 8"
+# The pad reads it here. The button above the screen jumps to that window on
+# the Mac, which is the thing the Push cannot do for you.
 
 [[bindings]]
 control = "pad.63"
 gesture = "tap"
-page = "sessions"
 action = "session.show"
 target = "slot:8"
 label = "Session 8"
@@ -458,79 +395,78 @@ label = "Session 8"
 [[bindings]]
 control = "pad.63"
 gesture = "hold"
-page = "sessions"
-action = "session.focus"
+action = "session.select"
 target = "slot:8"
-label = "Show window 8"
-
-# --- Replying ----------------------------------------------------------------
-# There are two ways to reply and they are not the same. `session.send` types a
-# line and submits it, which is how you answer a question. `session.press`
-# presses a single key and submits nothing, which is how you accept what is
-# being suggested: Tab takes it and leaves it there to read, and Enter sends it.
+label = "Select 8"
 
 [[bindings]]
-control = "pad.48"
-gesture = "tap"
-page = "answer"
+control = "button.upper_8"
+gesture = "press"
+action = "session.focus"
+target = "slot:8"
+label = "Go to 8"
+
+# --- Replying ----------------------------------------------------------------
+# The row under the screen is what you say, and every one of them acts on
+# whichever session you are reading, so eight buttons serve all of them.
+#
+# There are two kinds here and they are not the same. Yes, No and Continue type
+# a line and submit it, which is how you answer a question. Accept, Enter, Up,
+# Down and Dismiss press a single key and submit nothing, which is how you take
+# what is being suggested and look at it before sending it.
+
+[[bindings]]
+control = "button.lower_1"
+gesture = "press"
 action = "session.send"
 label = "Yes"
 params = { text = "y\n" }
 
 [[bindings]]
-control = "pad.49"
-gesture = "tap"
-page = "answer"
+control = "button.lower_2"
+gesture = "press"
 action = "session.send"
 label = "No"
 params = { text = "n\n" }
 
 [[bindings]]
-control = "pad.50"
-gesture = "tap"
-page = "answer"
-action = "session.press"
-label = "Enter"
-params = { key = "enter" }
-
-[[bindings]]
-control = "pad.51"
-gesture = "tap"
-page = "answer"
+control = "button.lower_3"
+gesture = "press"
 action = "session.send"
 label = "Continue"
 params = { text = "continue\n" }
 
 [[bindings]]
-control = "pad.52"
-gesture = "tap"
-page = "answer"
+control = "button.lower_4"
+gesture = "press"
 action = "session.press"
 label = "Accept"
 params = { key = "tab" }
 
 [[bindings]]
-control = "pad.53"
-gesture = "tap"
-page = "answer"
+control = "button.lower_5"
+gesture = "press"
 action = "session.press"
-label = "Send it"
+label = "Send"
 params = { key = "enter" }
 
-# Moving through a list of choices, for when a session is offering several.
-
 [[bindings]]
-control = "pad.54"
-gesture = "tap"
-page = "answer"
+control = "button.lower_6"
+gesture = "press"
 action = "session.press"
 label = "Up"
 params = { key = "up" }
 
 [[bindings]]
-control = "pad.55"
-gesture = "tap"
-page = "answer"
+control = "button.lower_7"
+gesture = "press"
 action = "session.press"
 label = "Down"
 params = { key = "down" }
+
+[[bindings]]
+control = "button.lower_8"
+gesture = "press"
+action = "session.press"
+label = "Dismiss"
+params = { key = "escape" }

@@ -51,6 +51,21 @@ pub struct SurfaceState {
     listening: pushos_domain::voice::Listening,
 }
 
+/// What an operator calls a control.
+///
+/// The name printed on the hardware rather than the one written in
+/// configuration: nobody looking for a way out reads `button.session`, they
+/// look for the button that says Session.
+fn name_of(control: pushos_domain::controls::ControlId) -> String {
+    control
+        .to_string()
+        .rsplit('.')
+        .next()
+        .unwrap_or_default()
+        .replace('_', " ")
+        .to_uppercase()
+}
+
 /// How a status reads on the display.
 ///
 /// The one place the two vocabularies meet. The domain says what a thing is;
@@ -101,6 +116,28 @@ impl SurfaceState {
     /// Records what the sessions are doing.
     pub fn set_sessions(&mut self, sessions: Vec<pushos_ui::SessionLine>) {
         self.sessions = sessions;
+    }
+
+    /// The control that takes the operator back to where they were.
+    ///
+    /// Found in the bindings rather than written down twice: whatever the
+    /// operator bound to going home is what the panel should name, and a hint
+    /// that named a control they had rebound would be worse than none.
+    fn way_back(&self) -> Option<String> {
+        use pushos_domain::gesture::Gesture;
+
+        let context = self.context(false);
+        self.config
+            .bindings
+            .iter()
+            .filter(|binding| binding.scope.applies_to(&context))
+            .filter(|binding| matches!(binding.gesture, Gesture::Press | Gesture::Tap))
+            .find(|binding| {
+                let selector = &binding.action.selector;
+                selector.provider.as_str() == "page"
+                    && matches!(selector.verb.as_str(), "home" | "back" | "show")
+            })
+            .map(|binding| name_of(binding.control))
     }
 
     /// Records whether the microphone is on.
@@ -205,12 +242,14 @@ impl SurfaceState {
                     .cloned()
                     .collect();
 
-                self.focus = Some(
-                    pushos_ui::Focus::new(kind, title)
-                        .doing(state, tone_of(tone))
-                        .saying(lines)
-                        .beside(others),
-                );
+                let mut view = pushos_ui::Focus::new(kind, title)
+                    .doing(state, tone_of(tone))
+                    .saying(lines)
+                    .beside(others);
+                if let Some(control) = self.way_back() {
+                    view = view.leaving_with(control);
+                }
+                self.focus = Some(view);
                 // An overlay on top of something being read closely would hide
                 // the thing that was asked for.
                 self.overlay = None;
