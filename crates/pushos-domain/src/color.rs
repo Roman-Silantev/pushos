@@ -79,7 +79,12 @@ impl StatusColor {
     /// The default palette entry for the status.
     pub const fn default_rgb(self) -> Rgb {
         match self {
-            Self::Idle => Rgb::new(24, 24, 28),
+            // Dim, but a long way from off. This is the light that tells an
+            // operator a control does something at all, so it has to be
+            // visible across a desk in a lit room, on a Push running from bus
+            // power where every light is dimmer. At a tenth of full brightness
+            // it was there in theory and invisible in practice.
+            Self::Idle => Rgb::new(80, 80, 96),
             Self::Unassigned => Rgb::BLACK,
             Self::Working => Rgb::new(0, 110, 255),
             Self::Waiting => Rgb::new(255, 176, 0),
@@ -162,6 +167,46 @@ impl LedState {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_control_that_does_something_is_visibly_different_from_one_that_does_not() {
+        // The whole reason bound controls are lit. Too dark and the surface
+        // looks dead, which is exactly what a tenth of full brightness looked
+        // like on real hardware.
+        let idle = StatusColor::Idle.default_rgb();
+        let unassigned = StatusColor::Unassigned.default_rgb();
+        assert_ne!(idle, unassigned);
+
+        let brightest = idle.r.max(idle.g).max(idle.b);
+        assert!(
+            brightest >= 64,
+            "an idle control at {brightest}/255 cannot be seen across a desk"
+        );
+        assert!(
+            brightest <= 160,
+            "an idle control at {brightest}/255 would compete with an active one"
+        );
+    }
+
+    #[test]
+    fn every_status_that_means_something_is_visible() {
+        for status in [
+            StatusColor::Idle,
+            StatusColor::Working,
+            StatusColor::Waiting,
+            StatusColor::Complete,
+            StatusColor::Failed,
+            StatusColor::Workflow,
+            StatusColor::Selected,
+        ] {
+            let colour = status.default_rgb();
+            assert!(
+                colour.r.max(colour.g).max(colour.b) >= 64,
+                "`{status:?}` is too dark to read"
+            );
+        }
+        assert_eq!(StatusColor::Unassigned.default_rgb(), Rgb::BLACK);
+    }
 
     #[test]
     fn black_and_white_pack_to_the_display_extremes() {

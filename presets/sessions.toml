@@ -1,0 +1,414 @@
+# PushOS: sessions
+#
+# Eight coding sessions on eight pads, with what each one last said on the
+# screen and the state of each in the light under your finger.
+#
+# One thing to know first: PushOS can only show you terminals it runs itself.
+# It cannot attach to a window another application already opened, because the
+# pseudo-terminal belongs to whoever created it. So these pads start the
+# sessions, and from then on PushOS can see them.
+#
+# Change `cwd` on each pad to the project it belongs to, and `text` on the hold
+# to whatever your test command is.
+
+[runtime]
+home_page = "sessions"
+
+[permissions]
+# Terminals run programs on your behalf, which is what this permission is.
+granted = ["shell.execute", "media.control"]
+
+[[pages]]
+id = "sessions"
+name = "Sessions"
+description = "Eight coding sessions, and what each one last said"
+
+[[pages]]
+id = "tests"
+name = "Tests"
+description = "Run the tests in each session and watch them"
+
+# --- Moving about ------------------------------------------------------------
+
+[[bindings]]
+control = "button.upper_1"
+gesture = "press"
+action = "page.show"
+target = "sessions"
+label = "Sessions"
+
+[[bindings]]
+control = "button.upper_2"
+gesture = "press"
+action = "page.show"
+target = "tests"
+label = "Tests"
+
+[[bindings]]
+control = "button.session"
+gesture = "press"
+action = "page.home"
+label = "Home"
+
+[[bindings]]
+control = "button.play"
+gesture = "press"
+action = "media.play_pause"
+label = "Play/Pause"
+
+# --- The eight sessions ------------------------------------------------------
+# Tap a pad to start that session, or to select it when it is already running.
+# Hold it to stop it. The eight buttons below the screen select without
+# starting, so you can read one without touching what it is doing.
+
+[[bindings]]
+control = "pad.56"
+gesture = "tap"
+page = "sessions"
+action = "terminal.open"
+label = "one"
+params = { name = "one", program = "claude", cwd = "~/Projects/one" }
+
+[[bindings]]
+control = "pad.56"
+gesture = "hold"
+page = "sessions"
+action = "terminal.close"
+target = "name:one"
+label = "Stop one"
+
+[[bindings]]
+control = "button.lower_1"
+gesture = "press"
+page = "sessions"
+action = "terminal.select"
+target = "name:one"
+label = "one"
+
+[[bindings]]
+control = "pad.57"
+gesture = "tap"
+page = "sessions"
+action = "terminal.open"
+label = "two"
+params = { name = "two", program = "claude", cwd = "~/Projects/two" }
+
+[[bindings]]
+control = "pad.57"
+gesture = "hold"
+page = "sessions"
+action = "terminal.close"
+target = "name:two"
+label = "Stop two"
+
+[[bindings]]
+control = "button.lower_2"
+gesture = "press"
+page = "sessions"
+action = "terminal.select"
+target = "name:two"
+label = "two"
+
+[[bindings]]
+control = "pad.58"
+gesture = "tap"
+page = "sessions"
+action = "terminal.open"
+label = "three"
+params = { name = "three", program = "claude", cwd = "~/Projects/three" }
+
+[[bindings]]
+control = "pad.58"
+gesture = "hold"
+page = "sessions"
+action = "terminal.close"
+target = "name:three"
+label = "Stop three"
+
+[[bindings]]
+control = "button.lower_3"
+gesture = "press"
+page = "sessions"
+action = "terminal.select"
+target = "name:three"
+label = "three"
+
+[[bindings]]
+control = "pad.59"
+gesture = "tap"
+page = "sessions"
+action = "terminal.open"
+label = "four"
+params = { name = "four", program = "claude", cwd = "~/Projects/four" }
+
+[[bindings]]
+control = "pad.59"
+gesture = "hold"
+page = "sessions"
+action = "terminal.close"
+target = "name:four"
+label = "Stop four"
+
+[[bindings]]
+control = "button.lower_4"
+gesture = "press"
+page = "sessions"
+action = "terminal.select"
+target = "name:four"
+label = "four"
+
+[[bindings]]
+control = "pad.60"
+gesture = "tap"
+page = "sessions"
+action = "terminal.open"
+label = "five"
+params = { name = "five", program = "claude", cwd = "~/Projects/five" }
+
+[[bindings]]
+control = "pad.60"
+gesture = "hold"
+page = "sessions"
+action = "terminal.close"
+target = "name:five"
+label = "Stop five"
+
+[[bindings]]
+control = "button.lower_5"
+gesture = "press"
+page = "sessions"
+action = "terminal.select"
+target = "name:five"
+label = "five"
+
+[[bindings]]
+control = "pad.61"
+gesture = "tap"
+page = "sessions"
+action = "terminal.open"
+label = "six"
+params = { name = "six", program = "claude", cwd = "~/Projects/six" }
+
+[[bindings]]
+control = "pad.61"
+gesture = "hold"
+page = "sessions"
+action = "terminal.close"
+target = "name:six"
+label = "Stop six"
+
+[[bindings]]
+control = "button.lower_6"
+gesture = "press"
+page = "sessions"
+action = "terminal.select"
+target = "name:six"
+label = "six"
+
+[[bindings]]
+control = "pad.62"
+gesture = "tap"
+page = "sessions"
+action = "terminal.open"
+label = "seven"
+params = { name = "seven", program = "claude", cwd = "~/Projects/seven" }
+
+[[bindings]]
+control = "pad.62"
+gesture = "hold"
+page = "sessions"
+action = "terminal.close"
+target = "name:seven"
+label = "Stop seven"
+
+[[bindings]]
+control = "button.lower_7"
+gesture = "press"
+page = "sessions"
+action = "terminal.select"
+target = "name:seven"
+label = "seven"
+
+[[bindings]]
+control = "pad.63"
+gesture = "tap"
+page = "sessions"
+action = "terminal.open"
+label = "eight"
+params = { name = "eight", program = "claude", cwd = "~/Projects/eight" }
+
+[[bindings]]
+control = "pad.63"
+gesture = "hold"
+page = "sessions"
+action = "terminal.close"
+target = "name:eight"
+label = "Stop eight"
+
+[[bindings]]
+control = "button.lower_8"
+gesture = "press"
+page = "sessions"
+action = "terminal.select"
+target = "name:eight"
+label = "eight"
+
+# --- The tests page ----------------------------------------------------------
+# Same eight sessions, but a tap runs the tests in one and a hold runs them
+# everywhere. What each one last said is on the screen above.
+
+[[bindings]]
+control = "pad.56"
+gesture = "tap"
+page = "tests"
+action = "terminal.run"
+target = "name:one"
+label = "test one"
+params = { text = "cargo test" }
+
+[[bindings]]
+control = "button.lower_1"
+gesture = "press"
+page = "tests"
+action = "terminal.select"
+target = "name:one"
+label = "one"
+
+[[bindings]]
+control = "pad.57"
+gesture = "tap"
+page = "tests"
+action = "terminal.run"
+target = "name:two"
+label = "test two"
+params = { text = "cargo test" }
+
+[[bindings]]
+control = "button.lower_2"
+gesture = "press"
+page = "tests"
+action = "terminal.select"
+target = "name:two"
+label = "two"
+
+[[bindings]]
+control = "pad.58"
+gesture = "tap"
+page = "tests"
+action = "terminal.run"
+target = "name:three"
+label = "test three"
+params = { text = "cargo test" }
+
+[[bindings]]
+control = "button.lower_3"
+gesture = "press"
+page = "tests"
+action = "terminal.select"
+target = "name:three"
+label = "three"
+
+[[bindings]]
+control = "pad.59"
+gesture = "tap"
+page = "tests"
+action = "terminal.run"
+target = "name:four"
+label = "test four"
+params = { text = "cargo test" }
+
+[[bindings]]
+control = "button.lower_4"
+gesture = "press"
+page = "tests"
+action = "terminal.select"
+target = "name:four"
+label = "four"
+
+[[bindings]]
+control = "pad.60"
+gesture = "tap"
+page = "tests"
+action = "terminal.run"
+target = "name:five"
+label = "test five"
+params = { text = "cargo test" }
+
+[[bindings]]
+control = "button.lower_5"
+gesture = "press"
+page = "tests"
+action = "terminal.select"
+target = "name:five"
+label = "five"
+
+[[bindings]]
+control = "pad.61"
+gesture = "tap"
+page = "tests"
+action = "terminal.run"
+target = "name:six"
+label = "test six"
+params = { text = "cargo test" }
+
+[[bindings]]
+control = "button.lower_6"
+gesture = "press"
+page = "tests"
+action = "terminal.select"
+target = "name:six"
+label = "six"
+
+[[bindings]]
+control = "pad.62"
+gesture = "tap"
+page = "tests"
+action = "terminal.run"
+target = "name:seven"
+label = "test seven"
+params = { text = "cargo test" }
+
+[[bindings]]
+control = "button.lower_7"
+gesture = "press"
+page = "tests"
+action = "terminal.select"
+target = "name:seven"
+label = "seven"
+
+[[bindings]]
+control = "pad.63"
+gesture = "tap"
+page = "tests"
+action = "terminal.run"
+target = "name:eight"
+label = "test eight"
+params = { text = "cargo test" }
+
+[[bindings]]
+control = "button.lower_8"
+gesture = "press"
+page = "tests"
+action = "terminal.select"
+target = "name:eight"
+label = "eight"
+
+# Answering a prompt in whichever session you selected, without reaching for
+# the keyboard. `terminal.send` types exactly what it is given, so a lone
+# newline answers a question and `y` agrees to one.
+
+[[bindings]]
+control = "button.upper_7"
+gesture = "press"
+action = "terminal.send"
+target = "selected"
+label = "Yes"
+params = { text = "y\n" }
+
+[[bindings]]
+control = "button.upper_8"
+gesture = "press"
+action = "terminal.send"
+target = "selected"
+label = "Enter"
+params = { text = "\n" }

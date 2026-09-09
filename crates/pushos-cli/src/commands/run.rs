@@ -24,6 +24,24 @@ use super::{check, paths};
 
 /// Runs PushOS until interrupted.
 pub(crate) async fn execute(requested: Option<&Path>, fake: bool) -> Result<(), String> {
+    // Taken before anything else. Another PushOS holding it means two copies
+    // would fight over the Push 2, and the operator would see a surface that
+    // half works rather than one that says what is wrong.
+    let control = match open_control_socket() {
+        Ok(server) => Some(server),
+        Err(SocketProblem::AlreadyRunning) => {
+            return Err(
+                "PushOS is already running. Stop it first, or run `pushos status` \
+                        to see what it is doing."
+                    .to_owned(),
+            );
+        }
+        Err(SocketProblem::Unavailable(reason)) => {
+            warn!(reason, "PushOS Studio will not be able to connect");
+            None
+        }
+    };
+
     let root = paths::config_root(requested)?;
     let config = Arc::new(ConfigStore::load(&root).map_err(|error| check::describe(&error))?);
     info!(root = %root.display(), bindings = config.current().bindings.len(), "configuration loaded");
@@ -41,7 +59,7 @@ pub(crate) async fn execute(requested: Option<&Path>, fake: bool) -> Result<(), 
     // terminals, projects and the control socket are not the hardware's to own:
     // a Push 2 unplugged and plugged back in must find its work still running,
     // and PushOS with nothing attached must still be configurable.
-    let running = build_runtime(&config, &storage, worktrees)
+    let running = build_runtime(&config, &storage, worktrees, control)
         .start(&shutdown)
         .await;
 
@@ -121,6 +139,7 @@ fn build_runtime(
     config: &Arc<ConfigStore>,
     storage: &StorageWriter,
     worktree_root: std::path::PathBuf,
+    control: Option<ControlServer>,
 ) -> Runtime {
     let mut runtime = Runtime::new(Arc::clone(config)).with_storage(storage.handle());
 
@@ -182,9 +201,8 @@ fn build_runtime(
 
     // Without a socket PushOS still runs; it simply cannot be configured from
     // Studio. That is worth saying rather than refusing to start over.
-    match open_control_socket() {
-        Ok(server) => runtime = runtime.with_control_socket(server),
-        Err(reason) => warn!(reason, "PushOS Studio will not be able to connect"),
+    if let Some(server) = control {
+        runtime = runtime.with_control_socket(server);
     }
 
     for provider in host::providers(
@@ -211,9 +229,23 @@ fn build_runtime(
     runtime
 }
 
-fn open_control_socket() -> Result<ControlServer, String> {
-    let path = paths::control_socket()?;
-    ControlServer::bind(path).map_err(|error| error.to_string())
+/// Why the control socket could not be taken.
+enum SocketProblem {
+    /// Another PushOS holds it.
+    AlreadyRunning,
+    /// Something else, which PushOS can run without.
+    Unavailable(String),
+}
+
+fn open_control_socket() -> Result<ControlServer, SocketProblem> {
+    let path = paths::control_socket().map_err(SocketProblem::Unavailable)?;
+    ControlServer::bind(path).map_err(|error| {
+        if error.is_already_running() {
+            SocketProblem::AlreadyRunning
+        } else {
+            SocketProblem::Unavailable(error.to_string())
+        }
+    })
 }
 
 fn watch_configuration(config: Arc<ConfigStore>, shutdown: &Shutdown) {

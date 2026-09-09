@@ -61,7 +61,40 @@ fn level_value(level: u8) -> u8 {
 
 #[cfg(test)]
 mod tests {
+    use pushos_domain::color::StatusColor;
+
     use super::*;
+
+    #[test]
+    fn no_status_that_means_something_lands_on_black() {
+        // There are five levels per channel, so a colour under about an eighth
+        // of full brightness quantises to index zero and the control is simply
+        // off. The idle colour did exactly that, which is why a surface full of
+        // bound pads looked dead on real hardware.
+        for status in [
+            StatusColor::Idle,
+            StatusColor::Working,
+            StatusColor::Waiting,
+            StatusColor::Complete,
+            StatusColor::Failed,
+            StatusColor::Workflow,
+            StatusColor::Selected,
+        ] {
+            assert_ne!(
+                index_of(status.default_rgb()),
+                index_of(pushos_domain::color::Rgb::BLACK),
+                "`{status:?}` quantises to black and would not light at all"
+            );
+        }
+    }
+
+    #[test]
+    fn only_the_status_that_means_nothing_is_black() {
+        assert_eq!(
+            index_of(StatusColor::Unassigned.default_rgb()),
+            index_of(pushos_domain::color::Rgb::BLACK)
+        );
+    }
 
     #[test]
     fn black_is_index_zero_so_an_unassigned_control_is_dark() {

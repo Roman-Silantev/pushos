@@ -62,9 +62,20 @@ impl ControlServer {
                 .map_err(|source| ServerError::new(parent.to_path_buf(), source))?;
         }
 
-        // A socket file left behind by a killed process would make binding fail
-        // forever. Nothing is listening on it, so removing it is safe.
+        // A socket file may be one of two things: left behind by a process that
+        // was killed, or held by a PushOS that is running right now. Removing
+        // it without asking is how a second copy silently takes the socket and
+        // then fights the first one for the Push 2.
         if path.exists() {
+            if is_listening(&path) {
+                return Err(ServerError::new(
+                    path.clone(),
+                    std::io::Error::new(
+                        std::io::ErrorKind::AddrInUse,
+                        "PushOS is already running; stop it before starting another",
+                    ),
+                ));
+            }
             std::fs::remove_file(&path).map_err(|source| ServerError::new(path.clone(), source))?;
         }
 
@@ -222,6 +233,23 @@ impl ServerError {
     fn new(path: PathBuf, source: std::io::Error) -> Self {
         Self { path, source }
     }
+
+    /// Whether another PushOS already holds this socket.
+    ///
+    /// Its own question because the answer is different in kind: every other
+    /// failure means the socket is unavailable and PushOS runs without Studio,
+    /// while this one means PushOS should not start at all.
+    pub fn is_already_running(&self) -> bool {
+        self.source.kind() == std::io::ErrorKind::AddrInUse
+    }
+}
+
+/// Whether something is listening on a socket that exists.
+///
+/// Connecting is the only way to tell a live socket from one a killed process
+/// left behind. A refused connection means nobody is home.
+fn is_listening(path: &Path) -> bool {
+    std::os::unix::net::UnixStream::connect(path).is_ok()
 }
 
 #[cfg(test)]

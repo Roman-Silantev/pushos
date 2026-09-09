@@ -47,6 +47,11 @@ pub(crate) const ALL: &[Preset] = &[
         body: include_str!("../../../presets/ai-engineer.toml"),
     },
     Preset {
+        name: "sessions",
+        summary: "Eight coding sessions on eight pads, with what each last said on screen.",
+        body: include_str!("../../../presets/sessions.toml"),
+    },
+    Preset {
         name: "automation",
         summary: "Apple Shortcuts and applications. No agents, no terminals.",
         body: include_str!("../../../presets/automation.toml"),
