@@ -34,13 +34,13 @@ const RULE_GAP: f32 = 6.0;
 const LINE_GAP: f32 = 3.0;
 /// Side of one quadrant of the mascot.
 ///
-/// Big enough to be the mascot rather than a smudge. It has a column of the
-/// panel to itself, which is what it is for: a glance at this screen should
-/// say whose surface it is and whether the thing being watched is moving,
-/// before a word has been read.
-const QUADRANT: f32 = 4.0;
+/// The burst is eleven quadrants square, so this is what decides how much of
+/// the panel it takes. Big enough to be the mark rather than a smudge: a
+/// glance at this screen should say whose surface it is and whether the thing
+/// being watched is moving, before a word has been read.
+const QUADRANT: f32 = 6.0;
 /// Gap between those quadrants.
-const QUADRANT_GAP: f32 = 1.0;
+const QUADRANT_GAP: f32 = 2.0;
 /// Space between the mascot and the words beside it.
 const MARK_GAP: f32 = 16.0;
 /// Room left above the mascot for it to hop into.

@@ -7,18 +7,22 @@
 use crate::canvas::{Area, Canvas};
 use crate::mascot::{MASCOT, Mascot};
 use crate::snapshot::Splash;
-use crate::text::{Align, TextRenderer, TextStyle};
+use crate::text::{TextRenderer, TextStyle};
 use crate::theme::Theme;
 
 /// Size of one quadrant of the artwork.
 ///
-/// Chosen so the mascot occupies about half the panel's width: large enough to
-/// read from across a room, with room beneath it for a line of text.
-const QUADRANT: f32 = 13.0;
+/// The burst is square and the panel is 160 pixels tall, so this is what
+/// decides whether it fits. Chosen to leave a margin above and below rather
+/// than to fill the height, because a mark pressed against both edges reads as
+/// a mistake.
+const QUADRANT: f32 = 9.0;
 /// Gap between quadrants, so the blocks read as blocks.
-const GAP: f32 = 3.0;
-/// Space between the artwork and the title beneath it.
-const TITLE_GAP: f32 = 26.0;
+const GAP: f32 = 2.0;
+/// Space between the artwork and the words beside it.
+const TITLE_GAP: f32 = 28.0;
+/// Space between the two lines of words.
+const LINE_GAP: f32 = 7.0;
 
 /// Draws the splash across the whole display.
 pub(crate) fn draw_splash(
@@ -30,39 +34,51 @@ pub(crate) fn draw_splash(
 ) {
     canvas.clear(theme.background);
 
+    // The burst beside the words rather than above them: the panel is six
+    // times wider than it is tall, and a design stacked vertically has to
+    // shrink everything to fit a height it has plenty of width to spare on.
     let (art_width, art_height) = mascot.measure(QUADRANT, GAP);
-    let lines = 1.0 + if splash.detail.is_some() { 1.0 } else { 0.0 };
-    let block = art_height + TITLE_GAP + theme.sizes.body * lines + 6.0 * (lines - 1.0);
+    let widest = [Some(&splash.title), splash.detail.as_ref()]
+        .into_iter()
+        .flatten()
+        .map(|line| text.width(line, theme.sizes.headline))
+        .fold(0.0_f32, f32::max);
 
-    let centre = Area::FULL.width / 2.0;
-    let top = ((Area::FULL.height - block) / 2.0).max(4.0);
+    let block = art_width + TITLE_GAP + widest;
+    let left = ((Area::FULL.width - block) / 2.0).max(TITLE_GAP);
+    let middle = Area::FULL.height / 2.0;
 
     mascot.draw(
         canvas,
-        (centre - art_width / 2.0, top),
+        (left, middle - art_height / 2.0),
         QUADRANT,
         GAP,
         splash.frame,
         MASCOT,
     );
 
-    let mut baseline = top + art_height + TITLE_GAP;
+    let words = left + art_width + TITLE_GAP;
+    let lines = if splash.detail.is_some() {
+        theme.sizes.headline + LINE_GAP + theme.sizes.caption
+    } else {
+        theme.sizes.headline
+    };
+    let mut baseline = middle - lines / 2.0 + theme.sizes.headline;
+
     text.draw(
         canvas,
         &splash.title,
-        (centre, baseline),
-        TextStyle::left(theme.sizes.body, theme.text, Area::FULL.width - 40.0)
-            .aligned(Align::Centre),
+        (words, baseline),
+        TextStyle::left(theme.sizes.headline, theme.text, Area::FULL.width - words),
     );
 
     if let Some(detail) = &splash.detail {
-        baseline += theme.sizes.body + 6.0;
+        baseline += LINE_GAP + theme.sizes.caption;
         text.draw(
             canvas,
             detail,
-            (centre, baseline),
-            TextStyle::left(theme.sizes.caption, theme.muted, Area::FULL.width - 40.0)
-                .aligned(Align::Centre),
+            (words, baseline),
+            TextStyle::left(theme.sizes.caption, theme.muted, Area::FULL.width - words),
         );
     }
 }

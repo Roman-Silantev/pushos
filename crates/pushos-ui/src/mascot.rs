@@ -9,11 +9,28 @@ use pushos_domain::color::Rgb;
 
 use crate::canvas::{Area, Canvas};
 
-/// The artwork, in quadrant block characters.
+/// The artwork, one character per cell.
 ///
-/// Each character is two by two quadrants, so the grid below is twice as fine
-/// as it looks.
-const ART: &[&str] = &["▛███▜▌", "▜█████▛▘ ▘▘ ▝▝"];
+/// A burst: four long rays and four short ones, which is the mark Claude is
+/// drawn with. Written out rather than composed from block characters because
+/// what matters is that a person can see the shape in the source and change
+/// it, and because the block characters made it read as a solid blob with
+/// flecks beside it rather than as anything.
+///
+/// `#` is the body, which sweeps. `+` is a tip, which twinkles.
+const ART: &[&str] = &[
+    ".....+.....",
+    ".....#.....",
+    "..+..#..+..",
+    "...#.#.#...",
+    "....###....",
+    "+#.#####.#+",
+    "....###....",
+    "...#.#.#...",
+    "..+..#..+..",
+    ".....#.....",
+    ".....+.....",
+];
 
 /// The mascot's colour.
 ///
@@ -74,28 +91,22 @@ impl Mascot {
 
         for (line, row) in art.iter().enumerate() {
             for (cell, character) in row.chars().enumerate() {
-                let filled = quadrants_of(character);
-                if filled == [false; 4] {
-                    continue;
-                }
+                let sparkle = match character {
+                    '#' => false,
+                    '+' => true,
+                    // Anything else is space. A grid is easier to read with
+                    // dots than with blanks, and easier to keep aligned.
+                    _ => continue,
+                };
 
-                // A detached mark is a sparkle: the trailing flecks of the
-                // artwork, which read better twinkling than sweeping.
-                let sparkle = filled.iter().filter(|on| **on).count() == 1;
-
-                for (index, on) in filled.iter().enumerate() {
-                    if !on {
-                        continue;
-                    }
-                    let x = u16::try_from(cell * 2 + index % 2).unwrap_or(u16::MAX);
-                    let y = u16::try_from(line * 2 + index / 2).unwrap_or(u16::MAX);
-                    width = width.max(x + 1);
-                    quadrants.push(Quadrant { x, y, sparkle });
-                }
+                let x = u16::try_from(cell).unwrap_or(u16::MAX);
+                let y = u16::try_from(line).unwrap_or(u16::MAX);
+                width = width.max(x + 1);
+                quadrants.push(Quadrant { x, y, sparkle });
             }
         }
 
-        let height = u16::try_from(art.len() * 2).unwrap_or(0);
+        let height = u16::try_from(art.len()).unwrap_or(0);
         Self {
             quadrants,
             width,
@@ -201,27 +212,6 @@ impl Default for Mascot {
     }
 }
 
-/// Which quadrants a block character fills, as top-left, top-right,
-/// bottom-left, bottom-right.
-const fn quadrants_of(character: char) -> [bool; 4] {
-    match character {
-        '\u{2588}' => [true, true, true, true],    // full block
-        '\u{259B}' => [true, true, true, false],   // upper left, upper right, lower left
-        '\u{259C}' => [true, true, false, true],   // upper left, upper right, lower right
-        '\u{2599}' => [true, false, true, true],   // upper left, lower left, lower right
-        '\u{259F}' => [false, true, true, true],   // upper right, lower left, lower right
-        '\u{258C}' => [true, false, true, false],  // left half
-        '\u{2590}' => [false, true, false, true],  // right half
-        '\u{2580}' => [true, true, false, false],  // upper half
-        '\u{2584}' => [false, false, true, true],  // lower half
-        '\u{2598}' => [true, false, false, false], // upper left
-        '\u{259D}' => [false, true, false, false], // upper right
-        '\u{2596}' => [false, false, true, false], // lower left
-        '\u{2597}' => [false, false, false, true], // lower right
-        _ => [false; 4],
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use pushos_domain::ports::DisplayFrame;
@@ -235,40 +225,61 @@ mod tests {
 
         // The longer line is fourteen characters ending in a right-hand
         // quadrant, so twenty-eight across, and two lines is four down.
-        assert_eq!(width, 28);
-        assert_eq!(height, 4);
-        assert!(mascot.quadrant_count() > 30, "the body should be solid");
+        assert_eq!(width, 11, "as wide as the artwork");
+        assert_eq!(height, 11, "and as tall, because a burst is square");
+        assert!(mascot.quadrant_count() > 20, "the body should be solid");
     }
 
     #[test]
-    fn a_full_block_fills_all_four_quadrants_and_a_space_fills_none() {
-        assert_eq!(quadrants_of('\u{2588}'), [true, true, true, true]);
-        assert_eq!(quadrants_of(' '), [false; 4]);
-        assert_eq!(quadrants_of('x'), [false; 4]);
+    fn the_artwork_is_a_rectangle() {
+        // A row that drifted would tilt the burst, and it would be a while
+        // before anybody worked out why.
+        let widest = ART.iter().map(|row| row.chars().count()).max().unwrap_or(0);
+        for (index, row) in ART.iter().enumerate() {
+            assert_eq!(
+                row.chars().count(),
+                widest,
+                "row {index} is a different length"
+            );
+        }
     }
 
     #[test]
-    fn every_quadrant_character_in_the_artwork_is_understood() {
+    fn the_artwork_uses_only_marks_the_mascot_knows() {
         for line in ART {
             for character in line.chars() {
-                if character == ' ' {
-                    continue;
-                }
-                assert_ne!(
-                    quadrants_of(character),
-                    [false; 4],
-                    "`{character}` is in the artwork but draws nothing"
+                assert!(
+                    matches!(character, '#' | '+' | '.'),
+                    "`{character}` is in the artwork and draws nothing"
                 );
             }
         }
     }
 
     #[test]
-    fn a_half_block_fills_the_half_it_names() {
-        assert_eq!(quadrants_of('\u{258C}'), [true, false, true, false]);
-        assert_eq!(quadrants_of('\u{2590}'), [false, true, false, true]);
-        assert_eq!(quadrants_of('\u{2580}'), [true, true, false, false]);
-        assert_eq!(quadrants_of('\u{2584}'), [false, false, true, true]);
+    fn the_burst_is_symmetrical() {
+        // It is a mark rather than a picture, and a lopsided one would look
+        // like a mistake at every size.
+        for row in ART {
+            let forwards: Vec<char> = row.chars().collect();
+            let backwards: Vec<char> = row.chars().rev().collect();
+            assert_eq!(forwards, backwards, "`{row}` is not the same both ways");
+        }
+
+        let flipped: Vec<&&str> = ART.iter().rev().collect();
+        let upright: Vec<&&str> = ART.iter().collect();
+        assert_eq!(upright, flipped, "the burst is not the same way up");
+    }
+
+    #[test]
+    fn the_tips_twinkle_and_the_body_sweeps() {
+        let mascot = Mascot::new();
+        let tips = mascot.quadrants.iter().filter(|cell| cell.sparkle).count();
+        assert_eq!(tips, 8, "a burst has eight points");
+        assert!(
+            mascot.quadrant_count() > tips,
+            "and a body to hang them off"
+        );
     }
 
     #[test]
@@ -276,9 +287,9 @@ mod tests {
         let mascot = Mascot::new();
         let (width, height) = mascot.measure(10.0, 2.0);
 
-        // Twenty-eight quadrants of ten with twenty-seven two-pixel gaps.
-        assert!((width - (28.0 * 12.0 - 2.0)).abs() < f32::EPSILON);
-        assert!((height - (4.0 * 12.0 - 2.0)).abs() < f32::EPSILON);
+        // Eleven quadrants of ten with ten two-pixel gaps.
+        assert!((width - (11.0 * 12.0 - 2.0)).abs() < f32::EPSILON);
+        assert!((height - (11.0 * 12.0 - 2.0)).abs() < f32::EPSILON);
     }
 
     #[test]
