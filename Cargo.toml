@@ -27,6 +27,7 @@ pushos-ui = { path = "crates/pushos-ui" }
 pushos-config = { path = "crates/pushos-config" }
 pushos-storage = { path = "crates/pushos-storage" }
 pushos-terminal = { path = "crates/pushos-terminal" }
+pushos-memory = { path = "crates/pushos-memory" }
 pushos-voice = { path = "crates/pushos-voice" }
 pushos-workflows = { path = "crates/pushos-workflows" }
 pushos-workspaces = { path = "crates/pushos-workspaces" }

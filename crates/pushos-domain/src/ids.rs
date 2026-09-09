@@ -83,6 +83,18 @@ string_id!(
     NodeId
 );
 string_id!(
+    /// Identifies one place notes are kept.
+    SourceId
+);
+string_id!(
+    /// Identifies one note.
+    ///
+    /// Derived from where the note lives rather than generated, so re-reading
+    /// a directory gives every note the identity it had before. A note that
+    /// changed its id on every restart could not be linked to or reopened.
+    NoteId
+);
+string_id!(
     /// Identifies an action provider namespace, such as `media` or `agent`.
     ProviderName
 );

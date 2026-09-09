@@ -382,6 +382,46 @@ The two engines are not a fallback pair. An operator who chose one and silently
 got the other would have no way of telling, and the two do not hear the same
 things, so a missing engine is an error.
 
+## Notes are files, and the index is derived
+
+Memory in PushOS is a directory of Markdown files the operator chose. That is
+the whole storage design, and it is the point rather than an economy: their
+notes stay theirs, readable and editable without PushOS and by whatever else
+they already use, and an installation they walk away from leaves them intact.
+
+SQLite holds an index so search is quick. Everything in it is derived: delete
+the table and it is rebuilt by reading the files again, and an index that
+disagrees with the files is wrong rather than authoritative. That is what makes
+memory genuinely optional. Without a database the notes are still written, read
+and searched, just by reading them, and the two searches are made to agree about
+what counts as a hit so a result never depends on whether a database happened to
+be there.
+
+Four decisions worth stating:
+
+- **A note's identity is where it lives**, derived rather than generated, so
+  re-reading a directory gives every note the name it had before. An identity
+  that changed on every restart could not be linked to or reopened.
+- **An identity is resolved back to a path, and therefore never trusted.** They
+  arrive from search results and from action parameters, so anything that
+  climbs out of its own source is refused rather than resolved. That is the
+  difference between reading a note and reading anything.
+- **A source is read only unless it says otherwise.** A directory the operator
+  pointed PushOS at is theirs, and reading it is not permission to write in it.
+  Only the verb that puts a file on their disk needs a permission; gating the
+  reading verbs behind it would teach them to grant more than they meant.
+- **A briefing goes through the same dispatcher a finger does.** Handing notes
+  to an agent is pressing that agent's pad with words attached, and it is
+  checked the same way.
+
+The index catches up at startup rather than when a pad is pressed. Files change
+while PushOS is not running, and a first search that found nothing until the
+operator performed a ritual would look like a fault.
+
+Deliberately small. PushOS is a control surface, not a knowledge base, and
+memory earns its place by doing two things: capturing a thought in one press,
+and putting what is already known in front of the agent about to work.
+
 ## Failures are classified, not stringified
 
 Every error carries a class: retryable, validation, permission,

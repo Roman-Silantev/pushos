@@ -2561,6 +2561,8 @@ dependencies = [
  "async-trait",
  "pushos-agents",
  "pushos-domain",
+ "pushos-memory",
+ "pushos-storage",
  "pushos-terminal",
  "pushos-testkit",
  "pushos-voice",
@@ -2620,6 +2622,7 @@ dependencies = [
  "pushos-config",
  "pushos-domain",
  "pushos-macos",
+ "pushos-memory",
  "pushos-push2",
  "pushos-runtime",
  "pushos-storage",
@@ -2678,6 +2681,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "pushos-memory"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "pushos-domain",
+ "pushos-storage",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "pushos-push2"
 version = "0.1.0"
 dependencies = [
@@ -2701,6 +2715,7 @@ dependencies = [
  "pushos-bindings",
  "pushos-config",
  "pushos-domain",
+ "pushos-memory",
  "pushos-storage",
  "pushos-terminal",
  "pushos-testkit",

@@ -171,6 +171,13 @@ impl SurfaceState {
                 });
                 None
             }
+            DisplayIntent::Report { kind, title, lines } => {
+                self.overlay = Some(Timed {
+                    value: Overlay::new(kind, title).listing(lines),
+                    expires_at: now + OVERLAY_LIFETIME,
+                });
+                None
+            }
             DisplayIntent::Prompt { question, choices } => {
                 // A prompt does not steal the surface: it takes the display,
                 // but the operator's page and bindings are untouched underneath.

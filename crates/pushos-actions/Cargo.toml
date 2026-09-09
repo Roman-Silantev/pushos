@@ -21,6 +21,10 @@ tokio = { workspace = true, features = ["process", "time", "io-util", "rt", "mac
 tracing = { workspace = true }
 
 [dev-dependencies]
+# The real note library rather than a fake: it is a directory of files, which
+# is cheap to make and impossible to get subtly wrong on its behalf.
+pushos-memory = { workspace = true }
+pushos-storage = { workspace = true }
 pushos-testkit = { workspace = true }
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 

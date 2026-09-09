@@ -186,14 +186,52 @@ mod tests {
 
         let spoken =
             pushos_actions::providers::voice::VoiceProvider::words_for(&request, "check the tests");
-        // Both of the namespaces that take words read them under the same
-        // name, which is the point: voice does not invent one of its own.
+        // Every namespace that takes words reads them under the same name,
+        // which is the point: voice does not invent one of its own.
         assert!(
-            matches!(request.provider.as_str(), "agent" | "terminal"),
+            matches!(request.provider.as_str(), "agent" | "terminal" | "memory"),
             "`{}` has no documented way of taking words",
             request.provider
         );
         assert_eq!(spoken.params.text("text"), Some("check the tests"));
+
+        // Every phrase that runs one of them has to reach it the same way.
+        for command in &settings.commands {
+            if matches!(
+                command.action.selector.provider.as_str(),
+                "agent" | "terminal" | "memory"
+            ) {
+                let said = pushos_actions::providers::voice::VoiceProvider::words_for(
+                    &command.action.selector,
+                    "check the tests",
+                );
+                assert_eq!(
+                    said.params.text("text"),
+                    Some("check the tests"),
+                    "`{}` would receive nothing",
+                    command.action.selector
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_notes_a_briefing_finds_arrive_under_the_name_the_action_reads() {
+        // The same trap one namespace along: memory hands notes to an agent,
+        // and an agent handed them under any other name reports that there was
+        // nothing to send.
+        let enabled = with_every_example_enabled();
+        let parsed: ConfigFile = toml::from_str(&enabled).expect("valid TOML");
+        let config = RuntimeConfig::build(&parsed).expect("valid");
+
+        let settings = config.memory.expect("the starter documents notes");
+        let brief = settings
+            .brief
+            .expect("the starter documents where notes go");
+
+        let handed =
+            pushos_actions::providers::memory::MemoryProvider::briefing_for(&brief, "the note");
+        assert_eq!(handed.params.text("text"), Some("the note"));
     }
 
     #[test]

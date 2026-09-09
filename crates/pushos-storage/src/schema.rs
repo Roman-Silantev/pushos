@@ -86,6 +86,58 @@ pub(crate) const MIGRATIONS: &[Migration] = &[
         CREATE INDEX workflow_transitions_by_run ON workflow_transitions (run_id, id);
     ",
     },
+    Migration {
+        version: 3,
+        name: "note index",
+        sql: "
+        -- Where notes are, so they can be found without reading every file.
+        -- Everything here is derived from files on disk: deleting this table
+        -- costs a re-read and nothing else, which is what keeps notes the
+        -- operator\'s rather than PushOS\'s.
+        CREATE TABLE notes (
+            id           TEXT PRIMARY KEY NOT NULL,
+            source_id    TEXT NOT NULL,
+            title        TEXT NOT NULL,
+            body         TEXT NOT NULL,
+            path         TEXT,
+            workspace_id TEXT,
+            tags         TEXT NOT NULL,
+            written_at   INTEGER NOT NULL
+        ) STRICT;
+
+        CREATE INDEX notes_by_source ON notes (source_id);
+        CREATE INDEX notes_by_time ON notes (written_at DESC);
+
+        -- The words, for searching. External content: the row above is the
+        -- only copy of the text, and this refers to it rather than repeating
+        -- it, so the two cannot drift apart.
+        CREATE VIRTUAL TABLE note_words USING fts5(
+            title,
+            body,
+            tags,
+            content = \'notes\',
+            content_rowid = \'rowid\',
+            tokenize = \'unicode61 remove_diacritics 2\'
+        );
+
+        CREATE TRIGGER notes_indexed AFTER INSERT ON notes BEGIN
+            INSERT INTO note_words (rowid, title, body, tags)
+            VALUES (new.rowid, new.title, new.body, new.tags);
+        END;
+
+        CREATE TRIGGER notes_unindexed AFTER DELETE ON notes BEGIN
+            INSERT INTO note_words (note_words, rowid, title, body, tags)
+            VALUES (\'delete\', old.rowid, old.title, old.body, old.tags);
+        END;
+
+        CREATE TRIGGER notes_reindexed AFTER UPDATE ON notes BEGIN
+            INSERT INTO note_words (note_words, rowid, title, body, tags)
+            VALUES (\'delete\', old.rowid, old.title, old.body, old.tags);
+            INSERT INTO note_words (rowid, title, body, tags)
+            VALUES (new.rowid, new.title, new.body, new.tags);
+        END;
+    ",
+    },
 ];
 
 /// The schema version this build expects.

@@ -2,7 +2,7 @@
 //! a Push 2 attached.
 //!
 //! ```text
-//! cargo run -p pushos-ui --example preview -- /tmp/pushos.ppm [page|sessions|overlay|splash|offline]
+//! cargo run -p pushos-ui --example preview -- /tmp/pushos.ppm [page|sessions|overlay|notes|splash|offline]
 //! ```
 
 use std::io::Write as _;
@@ -23,6 +23,7 @@ fn main() -> std::io::Result<()> {
     let snapshot = match mode.as_str() {
         "sessions" => sessions(),
         "overlay" => overlay(),
+        "notes" => notes(),
         "splash" => splash(),
         "offline" => UiSnapshot::disconnected(),
         _ => page(),
@@ -117,6 +118,18 @@ fn sessions() -> UiSnapshot {
 fn splash() -> UiSnapshot {
     UiSnapshot {
         splash: Some(Splash::new("PushOS", 34).with_detail("waiting for Push 2")),
+        ..page()
+    }
+}
+
+/// Notes found, which is a list to read rather than a question to answer.
+fn notes() -> UiSnapshot {
+    UiSnapshot {
+        overlay: Some(Overlay::new("notes \u{2014} deploy", "3 found").listing([
+            "Use one write owner \u{2014} the storage task owns the connection".to_owned(),
+            "Deploy needs the new token \u{2014} it is in the vault".to_owned(),
+            "Ship on Thursday \u{2014} after the review".to_owned(),
+        ])),
         ..page()
     }
 }

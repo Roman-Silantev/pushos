@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use pushos_acp::{AcpBackend, AgentCommand};
 use pushos_actions::providers::{
-    agent, application, media, page, shell, shortcut, terminal, voice, workflow, workspace,
+    agent, application, media, memory, page, shell, shortcut, terminal, voice, workflow, workspace,
 };
 use pushos_agents::{AgentRoster, AgentSupervisor};
 use pushos_config::RuntimeConfig;
@@ -154,6 +154,48 @@ pub(crate) fn workflows(
     Some(Arc::new(engine))
 }
 
+/// Builds the note library from configuration.
+///
+/// Returns `None` when memory is not configured, because a surface with no note
+/// sources should not carry a namespace that refuses every binding. Without a
+/// database the notes are still written, read and searched, just by reading the
+/// files: memory is meant to be optional, and optional has to mean the feature
+/// degrades rather than disappears.
+pub(crate) fn memory(
+    config: &RuntimeConfig,
+    index: Option<Arc<dyn pushos_domain::ports::NoteIndex>>,
+) -> Option<Arc<memory::MemoryProvider>> {
+    let settings = config.memory.as_ref()?;
+
+    if !settings.can_capture() {
+        info!("every note source is read only; PushOS will find notes but not write them");
+    }
+    for source in &settings.sources {
+        if !source.root.is_dir() {
+            warn!(
+                source = %source.id,
+                path = %source.root.display(),
+                "a note source does not exist yet; it will be made when the first note is written"
+            );
+        }
+    }
+
+    let index = index.unwrap_or_else(|| {
+        warn!("no database; notes will be searched by reading them, which is slower");
+        Arc::new(pushos_memory::ForgetfulNotes)
+    });
+    let library = Arc::new(pushos_memory::MarkdownLibrary::new(
+        settings.sources.clone(),
+        index,
+    ));
+
+    info!(sources = settings.sources.len(), "notes available");
+    Some(Arc::new(memory::MemoryProvider::new(
+        library,
+        settings.brief.clone(),
+    )))
+}
+
 /// Builds push to talk from configuration.
 ///
 /// Returns `None` when voice is not configured, because a surface that cannot
@@ -216,6 +258,7 @@ pub(crate) fn providers(
     workspaces: &Arc<WorkspaceManager>,
     workflows: Option<&Arc<WorkflowEngine>>,
     listening: Option<&Arc<voice::VoiceProvider>>,
+    notes: Option<&Arc<memory::MemoryProvider>>,
 ) -> Vec<Arc<dyn ActionProvider>> {
     let processes: Arc<dyn ProcessRunner> = Arc::new(SystemProcessRunner::new());
     let launcher: Arc<dyn pushos_domain::ports::ApplicationLauncher> =
@@ -252,6 +295,12 @@ pub(crate) fn providers(
     // Voice is offered only when it can actually listen, so a binding fails
     // with "no provider" rather than with a microphone that is not there.
     if let Some(provider) = listening {
+        providers.push(Arc::clone(provider) as Arc<dyn ActionProvider>);
+    }
+
+    // The same for notes: a namespace with no sources behind it would report
+    // "unknown verb" rather than "none are configured".
+    if let Some(provider) = notes {
         providers.push(Arc::clone(provider) as Arc<dyn ActionProvider>);
     }
 
@@ -304,6 +353,7 @@ pub(crate) fn shipped_namespaces(
         &manager,
         engine.as_ref(),
         voice(config).as_ref(),
+        memory(config, None).as_ref(),
     )
     .into_iter()
     .map(|provider| {
@@ -383,6 +433,7 @@ mod tests {
             &manager(&settings),
             engine(&settings, &idle_terminals(&settings)).as_ref(),
             voice(&settings).as_ref(),
+            memory(&settings, None).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -406,6 +457,7 @@ mod tests {
             &manager(&settings),
             engine(&settings, &idle_terminals(&settings)).as_ref(),
             voice(&settings).as_ref(),
+            memory(&settings, None).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -428,6 +480,7 @@ mod tests {
             &manager(&settings),
             engine(&settings, &idle_terminals(&settings)).as_ref(),
             voice(&settings).as_ref(),
+            memory(&settings, None).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -546,6 +599,7 @@ mod tests {
             &manager(&settings),
             engine(&settings, &idle_terminals(&settings)).as_ref(),
             voice(&settings).as_ref(),
+            memory(&settings, None).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -573,6 +627,7 @@ mod tests {
             &manager(&unusable),
             engine(&unusable, &idle_terminals(&unusable)).as_ref(),
             voice(&unusable).as_ref(),
+            memory(&unusable, None).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())

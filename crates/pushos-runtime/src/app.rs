@@ -34,6 +34,7 @@ pub struct Runtime {
     workspaces: Option<Arc<pushos_workspaces::WorkspaceManager>>,
     workflows: Option<WorkflowWiring>,
     voice: Option<Arc<pushos_actions::providers::voice::VoiceProvider>>,
+    memory: Option<Arc<pushos_actions::providers::memory::MemoryProvider>>,
     bus: EventBus,
 }
 
@@ -83,6 +84,7 @@ impl Runtime {
             workspaces: None,
             workflows: None,
             voice: None,
+            memory: None,
             bus: EventBus::new(),
         }
     }
@@ -163,6 +165,20 @@ impl Runtime {
         self
     }
 
+    /// Keeps notes, and hands them to agents when asked.
+    ///
+    /// Optional: PushOS runs without memory, it simply has nothing written
+    /// down. Takes the provider rather than the library, because a briefing
+    /// reaches an agent through the same dispatcher a finger uses.
+    #[must_use]
+    pub fn with_memory(
+        mut self,
+        provider: Arc<pushos_actions::providers::memory::MemoryProvider>,
+    ) -> Self {
+        self.memory = Some(provider);
+        self
+    }
+
     /// Installs an action provider.
     pub fn with_provider(
         mut self,
@@ -211,12 +227,15 @@ impl Runtime {
 
         // Given after construction, because the dispatcher this points at
         // contains the provider that points back at the engine.
-        if self.workflows.is_some() || self.voice.is_some() {
+        if self.workflows.is_some() || self.voice.is_some() || self.memory.is_some() {
             let runner: Arc<dyn pushos_domain::ports::ActionRunner> = Arc::clone(&dispatcher) as _;
             if let Some(wiring) = &self.workflows {
                 wiring.engine.use_actions(&runner).await;
             }
             if let Some(provider) = &self.voice {
+                provider.use_actions(&runner).await;
+            }
+            if let Some(provider) = &self.memory {
                 provider.use_actions(&runner).await;
             }
         }
@@ -307,6 +326,18 @@ impl Runtime {
             let watched = shutdown.clone();
             let publishing = publisher.clone();
             shutdown.spawn(async move { task.run(watched, move || publishing.publish()).await });
+        }
+
+        // Started before anything can search: a directory of notes written
+        // while PushOS was not running is the normal case, not an exception.
+        if let Some(provider) = self.memory {
+            let indexing = Arc::clone(&provider);
+            shutdown.spawn(async move {
+                match indexing.reindex().await {
+                    Ok(counted) => info!(notes = counted, "notes indexed"),
+                    Err(error) => warn!(%error, "notes could not be indexed"),
+                }
+            });
         }
 
         if let Some(wiring) = self.workflows {

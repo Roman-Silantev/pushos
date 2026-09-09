@@ -99,6 +99,11 @@ pushos workspaces # list the projects it knows about
   wrote means exactly one thing and runs it, and anything else goes to the agent
   you were already working with. Anything irreversible waits for a press,
   because transcription is not authorisation.
+- **Notes**, kept as Markdown files in directories you chose. One pad writes
+  down what you just dictated, one finds it again, one puts what it found in
+  front of the agent you are working with. PushOS keeps an index so search is
+  quick; delete it and the notes are still there, because the files are the
+  truth and the index is derived.
 - **Projects**, where one pad represents a whole coding project. Selecting it
   brings the project's bindings into force, starts agents and terminals in its
   directory with the providers it prefers, and puts you back on the page you
@@ -220,6 +225,26 @@ action = "voice.listen"
 control = "button.select"
 gesture = "release"
 action = "voice.transcribe"
+
+# Notes. Markdown files in a directory you chose; the index is derived.
+[memory]
+brief = "agent.prompt"
+
+[[memory.sources]]
+id = "notes"
+path = "~/Notes/pushos"
+writable = true
+
+[[bindings]]
+control = "pad.56"
+gesture = "tap"
+action = "memory.recent"
+
+# Finds notes and puts them in front of the agent you are working with.
+[[bindings]]
+control = "pad.57"
+gesture = "tap"
+action = "memory.brief"
 ```
 
 Two rules the configuration enforces, both so that you can predict what a pad
@@ -229,7 +254,8 @@ does by reading the file:
   priority is an error, not a coin toss.
 - **Nothing is permitted unless it is listed.** There is no wildcard grant, and
   `shell.execute` is off until you turn it on. So is `microphone.listen`, and
-  macOS asks separately the first time you hold the control.
+  macOS asks separately the first time you hold the control. Writing a note to
+  disk needs `filesystem.write`.
 
 Run `pushos check` after editing. Every problem is reported at once, each naming
 the binding it came from.
@@ -251,6 +277,7 @@ crates/
 ├── pushos-workflows   work that runs itself, and what it remembers
 ├── pushos-workspaces  projects, what each restores, and its working trees
 ├── pushos-voice       push to talk: capturing, recognising and routing speech
+├── pushos-memory      notes as Markdown files, and finding them again
 ├── pushos-api         the local control socket and its protocol
 ├── pushos-runtime     the event bus, supervision and wiring
 ├── pushos-macos       the macOS half: processes, media, apps, Shortcuts
@@ -301,6 +328,11 @@ afconvert -f WAVE -d LEI16@16000 -c 1 /tmp/said.aiff /tmp/said.wav
 cargo run -p pushos-voice --example transcribe -- /tmp/said.wav
 ```
 
+Notes are the same story: the claim is that they are files, so the tests write
+real files into real directories and search them through real SQLite with FTS5
+turned on. A note that only existed in a fake would prove nothing about the one
+you can open in your own editor.
+
 ## Where this is up to
 
 Built and tested:
@@ -317,9 +349,9 @@ Built and tested:
 | Phase 7 | Projects: one pad for a whole codebase, with isolated worktrees |
 | Phase 8 | Durable workflows that survive a restart |
 | Phase 9 | Push to talk, recognised on this Mac |
+| Phase 10 | Notes: Markdown on disk, searchable, and briefings for agents |
 
-Next, in order: memory, presets and the wider ecosystem. `SPEC.md` holds the
-full plan.
+Next, in order: presets and the wider ecosystem. `SPEC.md` holds the full plan.
 
 ## Contributing
 

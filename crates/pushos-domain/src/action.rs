@@ -274,6 +274,18 @@ pub enum DisplayIntent {
         /// The available answers, in display order.
         choices: Vec<String>,
     },
+    /// Show a list of things the operator asked for.
+    ///
+    /// Distinct from a prompt: these are results to read, not answers to
+    /// choose between, and nothing is waiting on them.
+    Report {
+        /// A short label above the headline, such as what was searched for.
+        kind: String,
+        /// The headline.
+        title: String,
+        /// The list, in the order it should be read.
+        lines: Vec<String>,
+    },
 }
 
 /// The normalised outcome every action returns.

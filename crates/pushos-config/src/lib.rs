@@ -11,6 +11,7 @@ mod build;
 mod editor;
 mod error;
 mod loader;
+mod memory;
 pub mod model;
 pub mod paths;
 mod spec;
@@ -22,7 +23,11 @@ pub use build::RuntimeConfig;
 pub use editor::{BindingEdit, ConfigDocuments, PageRemoval};
 pub use error::{ConfigError, Problem};
 pub use loader::load;
-pub use model::{BindingEntry, ConfigFile, PageEntry, VoiceCommandEntry, VoiceSection};
+pub use memory::MemorySettings;
+pub use model::{
+    BindingEntry, ConfigFile, MemorySection, MemorySourceEntry, PageEntry, VoiceCommandEntry,
+    VoiceSection,
+};
 pub use spec::{BindingAddress, BindingSpec, PageSpec};
 pub use store::ConfigStore;
 pub use voice::VoiceSettings;

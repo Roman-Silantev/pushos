@@ -6,6 +6,7 @@
 mod action_provider;
 mod agent;
 mod clock;
+mod memory;
 mod push;
 mod system;
 mod terminal;
@@ -19,6 +20,7 @@ pub use agent::{
     ApprovalOption, SessionHandle, SessionRequest, StopReason,
 };
 pub use clock::{Clock, SystemClock};
+pub use memory::{MemoryError, MemoryStore, NoteIndex, Source};
 pub use push::{
     DISPLAY_HEIGHT, DISPLAY_WIDTH, DisplayFrame, PushInput, PushOutput, PushSurfaceError,
     SurfaceKind,

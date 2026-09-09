@@ -59,6 +59,7 @@ jobs:
           -p pushos-storage
           -p pushos-ui
           -p pushos-runtime
+          -p pushos-memory
           -p pushos-voice
           -p pushos-testkit
 

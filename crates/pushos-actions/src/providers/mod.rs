@@ -7,6 +7,7 @@
 pub mod agent;
 pub mod application;
 pub mod media;
+pub mod memory;
 pub mod page;
 pub mod shell;
 pub mod shortcut;

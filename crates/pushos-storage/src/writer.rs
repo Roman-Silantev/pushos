@@ -14,6 +14,7 @@ use tracing::{debug, warn};
 
 use crate::connection;
 use crate::error::StorageError;
+use crate::notes::{self, NoteRow, SearchRequest};
 use crate::records::{EventRecord, WorkspaceMemoryRow};
 use crate::runs::{RunRow, TransitionRow};
 
@@ -42,6 +43,14 @@ enum Request {
     ),
     UnfinishedRuns(oneshot::Sender<Result<Vec<RunRow>, StorageError>>),
     ForgetRun(String, oneshot::Sender<Result<(), StorageError>>),
+    /// Index one note, replacing whatever was there under the same identity.
+    SaveNote(Box<NoteRow>, oneshot::Sender<Result<(), StorageError>>),
+    SearchNotes(
+        Box<SearchRequest>,
+        oneshot::Sender<Result<Vec<pushos_domain::memory::Excerpt>, StorageError>>,
+    ),
+    ForgetNote(String, oneshot::Sender<Result<(), StorageError>>),
+    EmptySource(String, oneshot::Sender<Result<(), StorageError>>),
     /// Stop after everything already queued has been committed.
     Shutdown,
 }
@@ -59,6 +68,10 @@ impl std::fmt::Debug for Request {
             Self::AppendTransition(..) => "AppendTransition",
             Self::UnfinishedRuns(..) => "UnfinishedRuns",
             Self::ForgetRun(..) => "ForgetRun",
+            Self::SaveNote(..) => "SaveNote",
+            Self::SearchNotes(..) => "SearchNotes",
+            Self::ForgetNote(..) => "ForgetNote",
+            Self::EmptySource(..) => "EmptySource",
             Self::Shutdown => "Shutdown",
         };
         f.write_str(name)
@@ -191,6 +204,36 @@ impl Storage {
     /// Forgets a run and its history.
     pub(crate) async fn forget_run(&self, id: String) -> Result<(), StorageError> {
         self.ask(|reply| Request::ForgetRun(id, reply)).await?
+    }
+
+    /// Indexes one note, returning once it is committed.
+    ///
+    /// Waited on rather than queued: a note written and immediately searched
+    /// for should be found, which is exactly what a capture pad followed by a
+    /// search pad does.
+    pub(crate) async fn save_note(&self, row: NoteRow) -> Result<(), StorageError> {
+        self.ask(|reply| Request::SaveNote(Box::new(row), reply))
+            .await?
+    }
+
+    /// Finds notes, best first.
+    pub(crate) async fn search_notes(
+        &self,
+        request: SearchRequest,
+    ) -> Result<Vec<pushos_domain::memory::Excerpt>, StorageError> {
+        self.ask(|reply| Request::SearchNotes(Box::new(request), reply))
+            .await?
+    }
+
+    /// Forgets one note.
+    pub(crate) async fn forget_note(&self, id: String) -> Result<(), StorageError> {
+        self.ask(|reply| Request::ForgetNote(id, reply)).await?
+    }
+
+    /// Forgets everything indexed from one source.
+    pub(crate) async fn empty_source(&self, source: String) -> Result<(), StorageError> {
+        self.ask(|reply| Request::EmptySource(source, reply))
+            .await?
     }
 
     fn send(&self, request: Request) -> Result<(), StorageError> {
@@ -328,10 +371,161 @@ fn handle(connection: &Connection, request: Request) -> Result<(), StorageError>
             let _ = reply.send(forget_run(connection, &id));
         }
 
+        Request::SaveNote(row, reply) => {
+            let _ = reply.send(save_note(connection, &row));
+        }
+
+        Request::SearchNotes(request, reply) => {
+            let _ = reply.send(search_notes(connection, &request));
+        }
+
+        Request::ForgetNote(id, reply) => {
+            let _ = reply.send(
+                connection
+                    .execute("DELETE FROM notes WHERE id = ?1", [&id])
+                    .map(|_| ())
+                    .map_err(|source| notes::failed("forgetting a note", source)),
+            );
+        }
+
+        Request::EmptySource(source, reply) => {
+            let _ = reply.send(
+                connection
+                    .execute("DELETE FROM notes WHERE source_id = ?1", [&source])
+                    .map(|_| ())
+                    .map_err(|source| notes::failed("emptying a note source", source)),
+            );
+        }
+
         // Handled by the serve loop, which stops rather than dispatching it.
         Request::Shutdown => {}
     }
     Ok(())
+}
+
+fn save_note(connection: &Connection, row: &NoteRow) -> Result<(), StorageError> {
+    connection
+        .execute(
+            "INSERT INTO notes
+               (id, source_id, title, body, path, workspace_id, tags, written_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(id) DO UPDATE SET
+               source_id = excluded.source_id,
+               title = excluded.title,
+               body = excluded.body,
+               path = excluded.path,
+               workspace_id = excluded.workspace_id,
+               tags = excluded.tags,
+               written_at = excluded.written_at",
+            rusqlite::params![
+                row.id,
+                row.source_id,
+                row.title,
+                row.body,
+                row.path,
+                row.workspace_id,
+                row.tags,
+                row.written_at,
+            ],
+        )
+        .map(|_| ())
+        .map_err(|source| notes::failed("recording a note", source))
+}
+
+fn search_notes(
+    connection: &Connection,
+    request: &SearchRequest,
+) -> Result<Vec<pushos_domain::memory::Excerpt>, StorageError> {
+    // Two queries rather than one with a branch in it. The words query has to
+    // join the index and order by how well each note matched; the open one has
+    // no scores to order by and asks for the latest instead.
+    if request.words.is_empty() {
+        return recent_notes(connection, request);
+    }
+    matching_notes(connection, request)
+}
+
+/// The notes that matched, best first.
+fn matching_notes(
+    connection: &Connection,
+    request: &SearchRequest,
+) -> Result<Vec<pushos_domain::memory::Excerpt>, StorageError> {
+    let sql = format!(
+        "SELECT {columns},
+                snippet(note_words, 1, '', '', '…', 12)
+           FROM note_words
+           JOIN notes ON notes.rowid = note_words.rowid
+          WHERE note_words MATCH ?1
+            AND (?2 IS NULL OR notes.workspace_id = ?2)
+            AND (?3 IS NULL OR instr(' ' || notes.tags || ' ', ' ' || ?3 || ' ') > 0)
+          ORDER BY bm25(note_words, 4.0, 1.0, 2.0)
+          LIMIT ?4",
+        columns = prefixed(notes::COLUMNS)
+    );
+
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|source| notes::failed("preparing a note search", source))?;
+
+    let found = statement
+        .query_map(
+            rusqlite::params![
+                request.words,
+                request.workspace_id,
+                request.tag,
+                request.limit
+            ],
+            |row| {
+                let note = notes::read_row(row)?;
+                let snippet: Option<String> = row.get(8)?;
+                Ok(notes::excerpt_of(&note, snippet))
+            },
+        )
+        .map_err(|source| notes::failed("searching notes", source))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|source| notes::failed("reading a note", source))?;
+
+    Ok(found)
+}
+
+/// The latest notes, for a search with no words in it.
+fn recent_notes(
+    connection: &Connection,
+    request: &SearchRequest,
+) -> Result<Vec<pushos_domain::memory::Excerpt>, StorageError> {
+    let sql = format!(
+        "SELECT {columns}
+           FROM notes
+          WHERE (?1 IS NULL OR workspace_id = ?1)
+            AND (?2 IS NULL OR instr(' ' || tags || ' ', ' ' || ?2 || ' ') > 0)
+          ORDER BY written_at DESC
+          LIMIT ?3",
+        columns = notes::COLUMNS
+    );
+
+    let mut statement = connection
+        .prepare(&sql)
+        .map_err(|source| notes::failed("preparing a note listing", source))?;
+
+    let found = statement
+        .query_map(
+            rusqlite::params![request.workspace_id, request.tag, request.limit],
+            |row| Ok(notes::excerpt_of(&notes::read_row(row)?, None)),
+        )
+        .map_err(|source| notes::failed("listing notes", source))?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(|source| notes::failed("reading a note", source))?;
+
+    Ok(found)
+}
+
+/// Qualifies the note columns, for a query that joins another table.
+fn prefixed(columns: &str) -> String {
+    columns
+        .split(", ")
+        .map(|column| format!("notes.{column}"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 fn save_run(connection: &Connection, row: &RunRow) -> Result<(), StorageError> {

@@ -272,6 +272,32 @@ pub enum Problem {
         phrase: String,
     },
 
+    /// Two note sources share an identity.
+    #[error("note source `{id}` is declared more than once")]
+    DuplicateNoteSource {
+        /// The contested identity.
+        id: String,
+    },
+
+    /// A note source has no name, or a name that cannot be part of a path.
+    #[error("note source `{id}` is not a usable name; use letters, digits, `-` or `_`")]
+    UnusableNoteSource {
+        /// What was written.
+        id: String,
+    },
+
+    /// Memory is configured with nowhere to keep notes.
+    #[error("`[memory]` needs at least one `[[memory.sources]]` to read")]
+    MemoryWithoutSources,
+
+    /// The action a briefing is handed to is not written as `provider.verb`.
+    #[error("memory `brief`: {source}")]
+    MemoryBriefAction {
+        /// Why it could not be read.
+        #[source]
+        source: pushos_domain::action::MalformedSelector,
+    },
+
     /// Two bindings share an identity.
     #[error("binding id `{id}` is used more than once")]
     DuplicateBindingId {

@@ -43,6 +43,8 @@ pub struct RuntimeConfig {
     pub workflows: Vec<pushos_domain::workflow::Workflow>,
     /// Push to talk, when it is configured.
     pub voice: Option<crate::voice::VoiceSettings>,
+    /// Notes, when they are configured.
+    pub memory: Option<crate::memory::MemorySettings>,
     /// Where agents work when a role does not name a workspace.
     pub workspace_root: Option<std::path::PathBuf>,
     /// The program a terminal runs when a binding does not name one.
@@ -74,6 +76,7 @@ impl RuntimeConfig {
         let workspaces = build_workspaces(file, &providers, &page_ids, &mut problems);
         let workflows = build_workflows(file, &mut problems);
         let voice = crate::voice::build(file, &mut problems);
+        let memory = crate::memory::build(file, &mut problems);
         let workspace_ids: HashSet<String> = workspaces
             .iter()
             .map(|workspace| workspace.id.to_string())
@@ -100,6 +103,7 @@ impl RuntimeConfig {
             workspaces,
             workflows,
             voice,
+            memory,
             workspace_root: file
                 .runtime
                 .workspace_root
@@ -123,6 +127,7 @@ impl RuntimeConfig {
             workspaces: Vec::new(),
             workflows: Vec::new(),
             voice: None,
+            memory: None,
             workspace_root: None,
             shell: None,
         }

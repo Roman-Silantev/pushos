@@ -173,6 +173,13 @@ fn build_runtime(
         runtime = runtime.with_voice(Arc::clone(listener));
     }
 
+    // Notes. The same reasoning: a briefing reaches an agent through the
+    // dispatcher, so the provider needs it and the runtime is what gives it.
+    let notes = host::memory(&current, Some(Arc::new(storage.handle())));
+    if let Some(provider) = &notes {
+        runtime = runtime.with_memory(Arc::clone(provider));
+    }
+
     // Without a socket PushOS still runs; it simply cannot be configured from
     // Studio. That is worth saying rather than refusing to start over.
     match open_control_socket() {
@@ -187,6 +194,7 @@ fn build_runtime(
         &workspaces,
         workflows.as_ref(),
         listening.as_ref(),
+        notes.as_ref(),
     ) {
         let name = provider.name();
         match runtime.with_provider(provider) {

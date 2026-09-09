@@ -40,6 +40,8 @@ granted = [
     # Turning the microphone on. Needed only if you uncomment push to talk
     # below; macOS asks separately, the first time you hold the control.
     # "microphone.listen",
+    # Writing a note to disk. Needed only if you uncomment notes below.
+    # "filesystem.write",
 ]
 
 # --- Agents ------------------------------------------------------------------
@@ -294,6 +296,56 @@ granted = [
 # action = "workflow.approve"
 # label = "Approve"
 
+# --- Notes -------------------------------------------------------------------
+# Notes are Markdown files in directories you chose. That is the whole storage
+# design: your notes stay yours, readable and editable without PushOS and by
+# whatever else you already use. PushOS keeps an index so it can find them
+# quickly, and deleting that index costs a re-read and nothing else.
+#
+# Uncomment the block, add "filesystem.write" to the permissions above, and
+# point it at a directory. It is made the first time you write a note.
+#
+# [memory]
+# # What `memory.brief` hands the notes it found to. They arrive as `text`,
+# # which is what `agent.prompt` reads. Leave it out and a briefing shows what
+# # it found and sends it nowhere.
+# brief = "agent.prompt"
+#
+# [[memory.sources]]
+# id = "notes"
+# path = "~/Notes/pushos"
+# # Off unless you say otherwise: a directory you pointed PushOS at is yours,
+# # and reading it is not permission to write in it. New notes go to the first
+# # source that says this.
+# writable = true
+#
+# A second source, read only, for notes something else owns.
+#
+# [[memory.sources]]
+# id = "decisions"
+# path = "~/Documents/decisions"
+#
+# One pad writes down whatever you dictated, one finds it again, and one puts
+# what it found in front of the agent you are working with.
+#
+# [[bindings]]
+# control = "pad.56"
+# gesture = "tap"
+# action = "memory.recent"
+# label = "Notes"
+#
+# [[bindings]]
+# control = "pad.57"
+# gesture = "tap"
+# action = "memory.brief"
+# label = "Brief the agent"
+#
+# [[bindings]]
+# control = "pad.56"
+# gesture = "hold"
+# action = "memory.refresh"
+# label = "Re-read notes"
+
 # --- Push to talk ------------------------------------------------------------
 # PushOS listens while you hold a control and at no other time. There is no
 # wake word and there will not be one: your finger decides, and the display
@@ -309,9 +361,9 @@ granted = [
 # [voice]
 # engine = "apple"
 # # Where the words go when they are not one of the phrases below. They arrive
-# # as `text`, which is what `agent.prompt` and `terminal.run` already read.
-# # Leave it out and an unrecognised phrase is shown and nothing else, which is
-# # the safe default.
+# # as `text`, which is what `agent.prompt`, `terminal.run` and `memory.write`
+# # already read. Leave it out and an unrecognised phrase is shown and nothing
+# # else, which is the safe default.
 # request = "agent.prompt"
 # # Only `whisper` uses this. Point it at a directory holding model.safetensors,
 # # tokenizer.json and config.json.
@@ -328,6 +380,13 @@ granted = [
 # [[voice.commands]]
 # phrase = "next page"
 # action = "page.next"
+#
+# Speaking and writing down are the same press twice. What was said arrives as
+# `text`, which is what a note is made of.
+#
+# [[voice.commands]]
+# phrase = "remember that"
+# action = "memory.write"
 #
 # Transcription is not authorisation. Anything that deploys, merges, deletes or
 # sends belongs behind `confirm`, which holds it until a finger releases it.

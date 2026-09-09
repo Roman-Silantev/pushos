@@ -44,6 +44,9 @@ pub struct ConfigFile {
     /// Push to talk.
     #[serde(default)]
     pub voice: VoiceSection,
+    /// Notes PushOS can capture and find.
+    #[serde(default)]
+    pub memory: MemorySection,
 }
 
 impl ConfigFile {
@@ -64,6 +67,7 @@ impl ConfigFile {
         self.workspaces.extend(other.workspaces);
         self.workflows.extend(other.workflows);
         self.voice.merge(other.voice);
+        self.memory.merge(other.memory);
     }
 }
 
@@ -100,6 +104,49 @@ impl RuntimeSection {
             self.shell = other.shell;
         }
     }
+}
+
+/// Notes PushOS can capture and find.
+///
+/// Absent means memory is off. Notes are Markdown files in directories the
+/// operator chose, so this says which directories rather than describing a
+/// store: there is no store, only their files.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemorySection {
+    /// What a briefing is handed to, written as `provider.verb`.
+    ///
+    /// The notes arrive as `text`. Absent means a briefing shows what it found
+    /// and sends it nowhere.
+    pub brief: Option<String>,
+    /// Where notes are kept, in the order they are searched.
+    #[serde(default)]
+    pub sources: Vec<MemorySourceEntry>,
+}
+
+impl MemorySection {
+    fn merge(&mut self, other: Self) {
+        if other.brief.is_some() {
+            self.brief = other.brief;
+        }
+        self.sources.extend(other.sources);
+    }
+}
+
+/// One directory of notes.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MemorySourceEntry {
+    /// What it is called. Becomes the first part of every note's identity.
+    pub id: String,
+    /// Where it is. A leading `~` is expanded.
+    pub path: String,
+    /// Whether PushOS may add notes to it.
+    ///
+    /// Off unless said otherwise. A directory the operator pointed PushOS at is
+    /// theirs, and reading it is not permission to write in it.
+    #[serde(default)]
+    pub writable: bool,
 }
 
 /// Push to talk.

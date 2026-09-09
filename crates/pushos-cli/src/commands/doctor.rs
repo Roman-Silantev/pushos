@@ -57,6 +57,7 @@ pub(crate) async fn execute(requested: Option<&Path>) -> Result<(), String> {
     let root = paths::config_root(requested)?;
     let mut findings = vec![check_configuration(&root), check_database(), check_push()];
     findings.extend(check_voice(&root));
+    findings.extend(check_memory(&root));
     findings.extend(check_host_tools().await);
 
     for finding in &findings {
@@ -133,6 +134,79 @@ fn check_push() -> Finding {
             format!("{error}; check nothing else is holding the device"),
         ),
     }
+}
+
+/// Reports where notes are kept, when the operator has configured any.
+///
+/// Nothing at all when memory is not configured. A source that does not exist
+/// yet is worth saying and is not a fault: PushOS makes it when the first note
+/// is written.
+fn check_memory(root: &Path) -> Vec<Finding> {
+    let Ok(config) = pushos_config::load(root).and_then(|file| RuntimeConfig::build(&file)) else {
+        return Vec::new();
+    };
+    let Some(settings) = &config.memory else {
+        return Vec::new();
+    };
+
+    let mut findings = vec![Finding::new(
+        Verdict::Good,
+        "notes",
+        format!(
+            "{} source(s); {}",
+            settings.sources.len(),
+            if settings.can_capture() {
+                "new notes can be written"
+            } else {
+                "every source is read only, so nothing new can be written"
+            }
+        ),
+    )];
+
+    for source in &settings.sources {
+        let (verdict, detail) = describe_source(source);
+        findings.push(Finding::new(verdict, "note source", detail));
+    }
+
+    findings
+}
+
+/// What one note source is, and whether it can be used.
+fn describe_source(source: &pushos_domain::ports::Source) -> (Verdict, String) {
+    let where_it_is = format!("{}: {}", source.id, source.root.display());
+
+    if !source.root.exists() {
+        return (
+            Verdict::Optional,
+            format!("{where_it_is} (not there yet; made when the first note is written)"),
+        );
+    }
+    if !source.root.is_dir() {
+        return (
+            Verdict::Blocking,
+            format!("{where_it_is} (not a directory)"),
+        );
+    }
+    if source.writable
+        && std::fs::metadata(&source.root).is_ok_and(|it| it.permissions().readonly())
+    {
+        return (
+            Verdict::Blocking,
+            format!("{where_it_is} (marked writable, but the directory is not)"),
+        );
+    }
+
+    (
+        Verdict::Good,
+        format!(
+            "{where_it_is} ({})",
+            if source.writable {
+                "read and write"
+            } else {
+                "read only"
+            }
+        ),
+    )
 }
 
 /// Reports whether PushOS could listen, when the operator has asked it to.

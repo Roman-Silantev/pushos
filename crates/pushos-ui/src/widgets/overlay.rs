@@ -3,7 +3,8 @@
 //! There are only 160 pixels of height, so the layout is computed from what the
 //! overlay actually carries rather than stacked blindly. A choice row is
 //! reserved first, because a question the operator cannot read the answers to
-//! is worse than one missing its progress bar.
+//! is worse than one missing its progress bar. Everything else is drawn while
+//! there is room and dropped when there is not, in the order it matters.
 
 use crate::canvas::{Area, Canvas};
 use crate::snapshot::Overlay;
@@ -71,6 +72,21 @@ pub(crate) fn draw_overlay(
             detail,
             (inner.x, cursor),
             TextStyle::left(theme.sizes.body, theme.muted, inner.width),
+        );
+    }
+
+    // Drawn before the progress bar, because a list is what the operator asked
+    // for and a bar is decoration next to it.
+    for line in &overlay.lines {
+        if cursor + LINE_GAP + theme.sizes.body > available {
+            break;
+        }
+        cursor += LINE_GAP + theme.sizes.body;
+        text.draw(
+            canvas,
+            line,
+            (inner.x, cursor),
+            TextStyle::left(theme.sizes.body, theme.text, inner.width),
         );
     }
 

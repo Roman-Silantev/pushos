@@ -237,6 +237,11 @@ pub struct Overlay {
     pub progress: Option<f32>,
     /// The choices offered, if this overlay is asking something.
     pub choices: Vec<String>,
+    /// Lines of a list, if this overlay is reporting rather than asking.
+    ///
+    /// Separate from the choices because a result is not an answer: the
+    /// operator reads these, and pressing something is not what they are for.
+    pub lines: Vec<String>,
 }
 
 impl Overlay {
@@ -248,6 +253,7 @@ impl Overlay {
             detail: None,
             progress: None,
             choices: Vec::new(),
+            lines: Vec::new(),
         }
     }
 
@@ -269,6 +275,13 @@ impl Overlay {
     #[must_use]
     pub fn asking(mut self, choices: impl IntoIterator<Item = String>) -> Self {
         self.choices = choices.into_iter().collect();
+        self
+    }
+
+    /// Shows the operator a list.
+    #[must_use]
+    pub fn listing(mut self, lines: impl IntoIterator<Item = String>) -> Self {
+        self.lines = lines.into_iter().collect();
         self
     }
 }
