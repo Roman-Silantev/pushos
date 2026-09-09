@@ -171,11 +171,21 @@ pub(crate) fn memory(
         info!("every note source is read only; PushOS will find notes but not write them");
     }
     for source in &settings.sources {
-        if !source.root.is_dir() {
+        if source.root.is_dir() {
+            continue;
+        }
+        if source.writable {
+            info!(
+                source = %source.id,
+                path = %source.root.display(),
+                "a note source does not exist yet; it is made when the first note is written"
+            );
+        } else {
+            // Nothing will ever create it, because nothing may write there.
             warn!(
                 source = %source.id,
                 path = %source.root.display(),
-                "a note source does not exist yet; it will be made when the first note is written"
+                "a read-only note source does not exist; nothing will be found in it"
             );
         }
     }
@@ -313,15 +323,13 @@ pub(crate) fn providers(
     providers
 }
 
-/// Every namespace PushOS ships, and the verbs each one has.
+/// Every provider PushOS would install for a configuration.
 ///
-/// Built from the providers themselves, so nothing can claim an action exists
+/// Built for real rather than described, so nothing can claim an action exists
 /// after it was renamed or removed. Only the tests need this: a running PushOS
-/// answers the same question over the control socket.
+/// answers the same questions over the control socket.
 #[cfg(test)]
-pub(crate) fn shipped_namespaces(
-    config: &RuntimeConfig,
-) -> std::collections::BTreeMap<String, Vec<String>> {
+pub(crate) fn shipped_providers(config: &RuntimeConfig) -> Vec<Arc<dyn ActionProvider>> {
     let (terminal_reporter, _terminal_updates) = pushos_runtime::TerminalReporter::new();
     let (agent_reporter, _agent_updates) = pushos_runtime::AgentReporter::new();
 
@@ -355,17 +363,47 @@ pub(crate) fn shipped_namespaces(
         voice(config).as_ref(),
         memory(config, None).as_ref(),
     )
-    .into_iter()
-    .map(|provider| {
-        let verbs = provider
-            .capabilities()
-            .verbs()
-            .iter()
-            .map(ToString::to_string)
-            .collect();
-        (provider.name().to_string(), verbs)
-    })
-    .collect()
+}
+
+/// Every namespace PushOS ships, and the verbs each one has.
+#[cfg(test)]
+pub(crate) fn shipped_namespaces(
+    config: &RuntimeConfig,
+) -> std::collections::BTreeMap<String, Vec<String>> {
+    shipped_providers(config)
+        .into_iter()
+        .map(|provider| {
+            let verbs = provider
+                .capabilities()
+                .verbs()
+                .iter()
+                .map(ToString::to_string)
+                .collect();
+            (provider.name().to_string(), verbs)
+        })
+        .collect()
+}
+
+/// What each shipped action needs the operator to have granted.
+///
+/// Keyed by `provider.verb`, the way a binding writes it. A binding whose
+/// permission was never granted fails under a finger, which for a shipped
+/// preset is the worst place to find out.
+#[cfg(test)]
+pub(crate) fn shipped_permissions(
+    config: &RuntimeConfig,
+) -> std::collections::BTreeMap<String, Vec<pushos_domain::permissions::Permission>> {
+    let mut required = std::collections::BTreeMap::new();
+    for provider in shipped_providers(config) {
+        let capabilities = provider.capabilities();
+        for verb in capabilities.verbs() {
+            required.insert(
+                format!("{}.{verb}", provider.name()),
+                capabilities.required_for(verb),
+            );
+        }
+    }
+    required
 }
 
 fn media_controller(

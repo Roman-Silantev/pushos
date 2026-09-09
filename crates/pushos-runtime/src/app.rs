@@ -333,9 +333,10 @@ impl Runtime {
         if let Some(provider) = self.memory {
             let indexing = Arc::clone(&provider);
             shutdown.spawn(async move {
-                match indexing.reindex().await {
-                    Ok(counted) => info!(notes = counted, "notes indexed"),
-                    Err(error) => warn!(%error, "notes could not be indexed"),
+                // The library says how many and from where; saying it again
+                // here would be two lines about one thing.
+                if let Err(error) = indexing.reindex().await {
+                    warn!(%error, "notes could not be indexed");
                 }
             });
         }

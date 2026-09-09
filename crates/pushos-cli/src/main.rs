@@ -5,6 +5,7 @@
 mod cli;
 mod commands;
 mod host;
+mod presets;
 
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
@@ -27,7 +28,13 @@ async fn main() -> std::process::ExitCode {
         Command::Bindings => commands::control::bindings().await,
         Command::Sessions => commands::control::sessions().await,
         Command::Workspaces => commands::control::workspaces().await,
-        Command::Init { force } => commands::init::execute(cli.config.as_deref(), force),
+        Command::Presets => {
+            commands::init::list();
+            Ok(())
+        }
+        Command::Init { preset, force } => {
+            commands::init::execute(cli.config.as_deref(), &preset, force)
+        }
     };
 
     match outcome {

@@ -1,14 +1,48 @@
 //! Writing a starting configuration.
+//!
+//! A preset is ordinary configuration. Writing one puts a file where PushOS
+//! reads from and does nothing else, so what an operator starts from is a thing
+//! they can open, read and change.
 
 use std::path::Path;
 
+use crate::presets;
+
 use super::paths;
 
-/// The preset a new installation starts from.
-const STARTER: &str = include_str!("../../../../presets/starter.toml");
+/// Lists what PushOS ships with.
+pub(crate) fn list() {
+    let widest = presets::ALL
+        .iter()
+        .map(|preset| preset.name.len())
+        .max()
+        .unwrap_or(0);
 
-/// Writes the starter configuration, refusing to overwrite by default.
-pub(crate) fn execute(requested: Option<&Path>, force: bool) -> Result<(), String> {
+    for preset in presets::ALL {
+        let marker = if preset.name == presets::DEFAULT {
+            "*"
+        } else {
+            " "
+        };
+        println!(
+            "{marker} {:<widest$}  {}",
+            preset.name,
+            preset.summary,
+            widest = widest
+        );
+    }
+    println!("\n* written by `pushos init`; name another with `--preset`");
+}
+
+/// Writes a preset, refusing to overwrite by default.
+pub(crate) fn execute(requested: Option<&Path>, preset: &str, force: bool) -> Result<(), String> {
+    let chosen = presets::find(preset).ok_or_else(|| {
+        format!(
+            "there is no preset called `{preset}`; PushOS ships {}",
+            presets::names()
+        )
+    })?;
+
     let root = paths::config_root(requested)?;
     let target = if root.extension().is_some() {
         root.clone()
@@ -28,10 +62,10 @@ pub(crate) fn execute(requested: Option<&Path>, force: bool) -> Result<(), Strin
             .map_err(|error| format!("could not create `{}`: {error}", parent.display()))?;
     }
 
-    std::fs::write(&target, STARTER)
+    std::fs::write(&target, chosen.body)
         .map_err(|error| format!("could not write `{}`: {error}", target.display()))?;
 
-    println!("wrote {}", target.display());
+    println!("wrote {} ({})", target.display(), chosen.name);
     println!("run `pushos check` to validate it, then `pushos run`");
     Ok(())
 }
@@ -42,49 +76,23 @@ mod tests {
 
     use super::*;
 
+    /// The preset `pushos init` writes when nothing else is asked for.
+    fn starter() -> &'static str {
+        presets::find(presets::DEFAULT)
+            .expect("the default preset must exist")
+            .body
+    }
+
     #[test]
     fn the_starter_configuration_that_ships_is_valid() {
         let parsed: ConfigFile =
-            toml::from_str(STARTER).expect("the starter preset should be well-formed TOML");
+            toml::from_str(starter()).expect("the starter preset should be well-formed TOML");
         RuntimeConfig::build(&parsed).expect("the starter preset should be valid");
     }
 
-    /// Every commented-out setting and binding in the preset, uncommented.
-    ///
-    /// A line counts as an example when what it says, with the comment marker
-    /// removed, is a table header or an assignment. Prose never is, and a rule
-    /// rather than a list of key names means a new setting cannot be
-    /// documented without also being checked.
+    /// The starter with every commented-out example enabled.
     fn with_every_example_enabled() -> String {
-        STARTER
-            .lines()
-            .map(|line| {
-                let Some(uncommented) = line.trim_start().strip_prefix("# ") else {
-                    return line;
-                };
-                if looks_like_toml(uncommented) {
-                    uncommented
-                } else {
-                    line
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n")
-    }
-
-    /// Whether a line is a table header or an assignment.
-    fn looks_like_toml(line: &str) -> bool {
-        if line.starts_with('[') {
-            return true;
-        }
-
-        let Some((key, _)) = line.split_once(" = ") else {
-            return false;
-        };
-        !key.is_empty()
-            && key
-                .chars()
-                .all(|character| character.is_alphanumeric() || "_-.".contains(character))
+        presets::with_every_example_enabled(starter())
     }
 
     #[test]
@@ -242,11 +250,12 @@ mod tests {
         ));
         std::fs::create_dir_all(&directory).expect("writable");
 
-        execute(Some(&directory), false).expect("the first write succeeds");
-        let error = execute(Some(&directory), false).expect_err("the second must not overwrite");
+        execute(Some(&directory), presets::DEFAULT, false).expect("the first write succeeds");
+        let error = execute(Some(&directory), presets::DEFAULT, false)
+            .expect_err("the second must not overwrite");
         assert!(error.contains("--force"));
 
-        execute(Some(&directory), true).expect("forcing replaces it");
+        execute(Some(&directory), presets::DEFAULT, true).expect("forcing replaces it");
         std::fs::remove_dir_all(&directory).ok();
     }
 }

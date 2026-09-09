@@ -1,0 +1,163 @@
+# PushOS: music
+#
+# Playback on the pads, volume on the master encoder, and somewhere to put the
+# thing you noticed while listening.
+#
+# Set `media_player` to whatever you actually use. PushOS guards every query on
+# the player already running, so nothing here launches an application just to
+# read the volume; pressing play is the deliberate exception.
+
+[runtime]
+home_page = "transport"
+media_player = "Music"
+
+[permissions]
+granted = [
+    "media.control",
+    "application.launch",
+]
+
+# --- Notes -------------------------------------------------------------------
+# Read only: this preset finds what you wrote elsewhere rather than writing it.
+# Add `writable = true` and `filesystem.write` above to capture from a pad.
+
+[memory]
+
+[[memory.sources]]
+id = "notes"
+path = "~/Notes/listening"
+
+# --- Pages -------------------------------------------------------------------
+
+[[pages]]
+id = "transport"
+name = "Transport"
+description = "Playback, volume and what is on"
+
+[[pages]]
+id = "notes"
+name = "Notes"
+description = "What you noticed while it was playing"
+
+# --- The display row ---------------------------------------------------------
+
+[[bindings]]
+control = "button.upper_1"
+gesture = "press"
+action = "page.show"
+target = "transport"
+label = "Transport"
+
+[[bindings]]
+control = "button.upper_2"
+gesture = "press"
+action = "page.show"
+target = "notes"
+label = "Notes"
+
+# --- Global bindings ---------------------------------------------------------
+
+[[bindings]]
+control = "button.play"
+gesture = "press"
+action = "media.play_pause"
+label = "Play/Pause"
+
+[[bindings]]
+control = "encoder.master"
+gesture = "turn_right"
+action = "media.volume_up"
+label = "Volume up"
+
+[[bindings]]
+control = "encoder.master"
+gesture = "turn_left"
+action = "media.volume_down"
+label = "Volume down"
+
+# Shift and turn drops the room to a fifth, for when someone starts talking.
+[[bindings]]
+control = "encoder.master"
+gesture = "shift_turn"
+action = "media.set_volume"
+label = "Duck to 20%"
+params = { percent = 20 }
+
+[[bindings]]
+control = "button.session"
+gesture = "press"
+action = "page.home"
+label = "Home"
+
+[[bindings]]
+control = "button.page_right"
+gesture = "press"
+action = "page.next"
+label = "Next page"
+
+[[bindings]]
+control = "button.page_left"
+gesture = "press"
+action = "page.previous"
+label = "Previous page"
+
+# --- Transport page ----------------------------------------------------------
+
+[[bindings]]
+control = "pad.0"
+gesture = "tap"
+page = "transport"
+action = "media.play_pause"
+label = "Play/Pause"
+
+[[bindings]]
+control = "pad.1"
+gesture = "tap"
+page = "transport"
+action = "media.previous_track"
+label = "Previous"
+
+[[bindings]]
+control = "pad.2"
+gesture = "tap"
+page = "transport"
+action = "media.next_track"
+label = "Next"
+
+[[bindings]]
+control = "pad.3"
+gesture = "tap"
+page = "transport"
+action = "media.now_playing"
+label = "Now playing"
+
+[[bindings]]
+control = "pad.8"
+gesture = "tap"
+page = "transport"
+action = "app.launch"
+target = "Music"
+label = "Open Music"
+
+# --- Notes page --------------------------------------------------------------
+
+[[bindings]]
+control = "pad.0"
+gesture = "tap"
+page = "notes"
+action = "memory.recent"
+label = "Latest"
+
+[[bindings]]
+control = "pad.0"
+gesture = "hold"
+page = "notes"
+action = "memory.refresh"
+label = "Re-read notes"
+
+[[bindings]]
+control = "button.upper_8"
+gesture = "press"
+page = "notes"
+action = "page.back"
+label = "Back"

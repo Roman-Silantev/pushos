@@ -52,8 +52,15 @@ pub(crate) enum Command {
     /// List the projects a running PushOS knows about.
     Workspaces,
 
+    /// List the configurations PushOS ships with.
+    Presets,
+
     /// Write a starting configuration.
     Init {
+        /// Which one to write. `pushos presets` lists them.
+        #[arg(long, value_name = "NAME", default_value = crate::presets::DEFAULT)]
+        preset: String,
+
         /// Overwrite an existing configuration.
         #[arg(long)]
         force: bool,
@@ -144,10 +151,31 @@ mod tests {
             "workspaces",
             "check",
             "doctor",
+            "presets",
         ] {
             Cli::try_parse_from(["pushos", name])
                 .unwrap_or_else(|error| panic!("`pushos {name}` should parse: {error}"));
         }
+    }
+
+    #[test]
+    fn writing_a_configuration_needs_no_arguments() {
+        let cli = Cli::try_parse_from(["pushos", "init"]).expect("`pushos init` should parse");
+        let Command::Init { preset, force } = cli.command else {
+            panic!("`pushos init` should be the init command");
+        };
+        assert_eq!(preset, crate::presets::DEFAULT);
+        assert!(!force);
+    }
+
+    #[test]
+    fn a_preset_can_be_named() {
+        let cli = Cli::try_parse_from(["pushos", "init", "--preset", "developer"])
+            .expect("naming a preset should parse");
+        let Command::Init { preset, .. } = cli.command else {
+            panic!("init");
+        };
+        assert_eq!(preset, "developer");
     }
 
     #[test]

@@ -53,7 +53,8 @@ a test holds it to that.
 ## What works today
 
 ```bash
-pushos init      # write a starting configuration
+pushos presets   # list the configurations PushOS ships with
+pushos init      # write one of them
 pushos check     # validate it without running anything
 pushos doctor    # report on hardware, configuration and host integrations
 pushos run       # run it
@@ -133,6 +134,18 @@ runs a Shortcut. `pushos doctor` reports what is reachable and what is not.
 
 Configuration is human-readable TOML and is the source of truth. There is no
 hidden database.
+
+Start from a preset rather than a blank file:
+
+```bash
+pushos presets
+pushos init --preset developer
+```
+
+Six ship, from `blank` to `ai-engineer`, and each is tested against the
+providers PushOS actually ships: every action exists, every binding has the
+permission it needs, and nothing is granted that is not used. See
+[`presets/`](presets/).
 
 ```toml
 [[pages]]
@@ -350,8 +363,9 @@ Built and tested:
 | Phase 8 | Durable workflows that survive a restart |
 | Phase 9 | Push to talk, recognised on this Mac |
 | Phase 10 | Notes: Markdown on disk, searchable, and briefings for agents |
+| Phase 11 | Presets: six tested surfaces to start from |
 
-Next, in order: presets and the wider ecosystem. `SPEC.md` holds the full plan.
+Next: the wider ecosystem. `SPEC.md` holds the full plan.
 
 ## Contributing
 

@@ -555,6 +555,17 @@ page = "music"
 action = "media.play_pause"
 label = "Play/Pause"
 
+# An Apple Shortcut, run by name. `shortcuts list` on the command line tells
+# you what you have; PushOS says plainly when one it was asked for is not there.
+#
+# [[bindings]]
+# control = "pad.8"
+# gesture = "tap"
+# page = "music"
+# action = "shortcut.run"
+# target = "Office Lights"
+# label = "Lights"
+
 [[bindings]]
 control = "pad.1"
 gesture = "tap"

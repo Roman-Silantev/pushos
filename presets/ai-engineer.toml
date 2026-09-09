@@ -1,0 +1,376 @@
+# PushOS: ai-engineer
+#
+# Agents first. Roles rather than sessions, a workflow that runs itself, push
+# to talk, and notes you can put in front of whoever is working.
+#
+# Two things need you before this is fully live:
+#
+#   1. An agent provider on your PATH. `claude` and `codex` are recognised by
+#      name; anything speaking the Agent Client Protocol works with a
+#      `[[providers]]` entry naming its program.
+#   2. A notes directory. It is made the first time you write a note.
+#
+# Everything else works as shipped.
+
+[runtime]
+home_page = "home"
+workspace_root = "~/Projects"
+
+[permissions]
+# Nothing is permitted unless it is listed here, and this preset lists exactly
+# what its pads need. Add "application.launch" if you bind one to an editor.
+granted = [
+    "media.control",
+    "shell.execute",
+    "microphone.listen",
+    "filesystem.write",
+]
+
+# --- Providers ---------------------------------------------------------------
+# Named as commands rather than vendors, so any agent speaking the Agent Client
+# Protocol works here. `claude` and `codex` are recognised by name; anything
+# else needs `program` and `args`.
+
+[[providers]]
+id = "claude"
+
+[[providers]]
+id = "codex"
+
+# --- Agents ------------------------------------------------------------------
+# An agent is a role, not a process. Which provider fills it can change without
+# any binding changing, and a binding names the role rather than a session.
+
+[[agents]]
+id = "builder"
+name = "Builder"
+objective = "Write the change, run the tests, say what it did"
+preferred = ["claude", "codex"]
+
+[[agents]]
+id = "reviewer"
+name = "Reviewer"
+objective = "Read the diff and say what is wrong with it"
+preferred = ["codex", "claude"]
+
+# --- Workflows ---------------------------------------------------------------
+# Work that runs itself and survives a restart. A step is written down before
+# the step after it runs, so a crash loses at most the step that was in flight.
+
+[[workflows]]
+id = "review"
+name = "Build and review"
+description = "Build it, then have it read by someone who did not write it"
+start = "build"
+
+[[workflows.nodes]]
+id = "build"
+kind = "agent"
+agent = "builder"
+prompt = "Make the change described in the last note, then run the tests."
+next = "check"
+on_failure = "failed"
+
+[[workflows.nodes]]
+id = "check"
+kind = "terminal"
+terminal = "tests"
+program = "cargo"
+args = ["test"]
+next = "read"
+on_failure = "failed"
+
+[[workflows.nodes]]
+id = "read"
+kind = "agent"
+agent = "reviewer"
+prompt = "Read the diff and say what is wrong with it."
+next = "ask"
+on_failure = "failed"
+
+[[workflows.nodes]]
+id = "ask"
+kind = "approval"
+question = "Ship it?"
+approve = "shipped"
+reject = "held"
+
+[[workflows.nodes]]
+id = "shipped"
+kind = "end"
+outcome = "succeeded"
+
+[[workflows.nodes]]
+id = "held"
+kind = "end"
+outcome = "cancelled"
+
+[[workflows.nodes]]
+id = "failed"
+kind = "end"
+outcome = "failed"
+
+# --- Push to talk ------------------------------------------------------------
+# PushOS listens while you hold the control and at no other time. There is no
+# wake word: your finger decides, and the display says LISTENING while it is
+# down. Everything happens on this Mac.
+
+[voice]
+engine = "apple"
+request = "agent.prompt"
+
+[[voice.commands]]
+phrase = "stop"
+action = "agent.stop"
+
+[[voice.commands]]
+phrase = "approve"
+action = "agent.approve"
+
+[[voice.commands]]
+phrase = "remember that"
+action = "memory.write"
+
+[[voice.commands]]
+phrase = "what do we know"
+action = "memory.recent"
+
+# Transcription is not authorisation. Anything irreversible waits for a press.
+[[voice.commands]]
+phrase = "start the review"
+action = "workflow.start"
+target = "review"
+confirm = true
+
+# --- Notes -------------------------------------------------------------------
+# Markdown files in a directory you chose. PushOS indexes them so search is
+# quick; delete the index and the notes are still there.
+
+[memory]
+brief = "agent.prompt"
+
+[[memory.sources]]
+id = "notes"
+path = "~/Notes/pushos"
+writable = true
+
+# --- Pages -------------------------------------------------------------------
+
+[[pages]]
+id = "home"
+name = "Home"
+description = "Who is working, and what they are waiting on"
+
+[[pages]]
+id = "notes"
+name = "Notes"
+description = "What we know, and putting it in front of whoever is working"
+
+[[pages]]
+id = "work"
+name = "Work"
+description = "Terminals and the workflow"
+
+# --- The display row ---------------------------------------------------------
+
+[[bindings]]
+control = "button.upper_1"
+gesture = "press"
+action = "page.show"
+target = "home"
+label = "Home"
+
+[[bindings]]
+control = "button.upper_2"
+gesture = "press"
+action = "page.show"
+target = "notes"
+label = "Notes"
+
+[[bindings]]
+control = "button.upper_3"
+gesture = "press"
+action = "page.show"
+target = "work"
+label = "Work"
+
+# --- Global bindings ---------------------------------------------------------
+# Hold to talk. One control, bound twice: press starts listening, release stops
+# it and works out what you said.
+
+[[bindings]]
+control = "button.select"
+gesture = "press"
+action = "voice.listen"
+label = "Hold to talk"
+
+[[bindings]]
+control = "button.select"
+gesture = "release"
+action = "voice.transcribe"
+
+# What a spoken phrase marked `confirm` waits for. A different control from the
+# one that approves an agent: pressing the wrong one should never be how
+# something ships.
+[[bindings]]
+control = "button.lower_8"
+gesture = "press"
+action = "voice.confirm"
+label = "Confirm"
+
+# One approve pad serves every agent, because a binding with no target acts on
+# whichever session you last chose.
+[[bindings]]
+control = "button.upper_8"
+gesture = "press"
+action = "agent.approve"
+label = "Approve"
+
+[[bindings]]
+control = "button.upper_7"
+gesture = "press"
+action = "agent.reject"
+label = "Reject"
+
+[[bindings]]
+control = "button.stop"
+gesture = "press"
+action = "agent.stop"
+label = "Stop"
+
+[[bindings]]
+control = "button.play"
+gesture = "press"
+action = "media.play_pause"
+label = "Play/Pause"
+
+[[bindings]]
+control = "button.session"
+gesture = "press"
+action = "page.home"
+label = "Home"
+
+[[bindings]]
+control = "button.page_right"
+gesture = "press"
+action = "page.next"
+label = "Next page"
+
+[[bindings]]
+control = "button.page_left"
+gesture = "press"
+action = "page.previous"
+label = "Previous page"
+
+# --- Home page ---------------------------------------------------------------
+
+[[bindings]]
+control = "pad.0"
+gesture = "tap"
+page = "home"
+action = "agent.start"
+target = "builder"
+label = "Builder"
+
+[[bindings]]
+control = "pad.1"
+gesture = "tap"
+page = "home"
+action = "agent.start"
+target = "reviewer"
+label = "Reviewer"
+
+[[bindings]]
+control = "pad.0"
+gesture = "hold"
+page = "home"
+action = "agent.select"
+target = "builder"
+label = "Select builder"
+
+[[bindings]]
+control = "pad.1"
+gesture = "hold"
+page = "home"
+action = "agent.select"
+target = "reviewer"
+label = "Select reviewer"
+
+[[bindings]]
+control = "pad.8"
+gesture = "tap"
+page = "home"
+action = "workflow.start"
+target = "review"
+label = "Review"
+
+[[bindings]]
+control = "pad.9"
+gesture = "tap"
+page = "home"
+action = "workflow.approve"
+label = "Approve run"
+
+[[bindings]]
+control = "pad.9"
+gesture = "hold"
+page = "home"
+action = "workflow.reject"
+label = "Reject run"
+
+# --- Notes page --------------------------------------------------------------
+
+[[bindings]]
+control = "pad.0"
+gesture = "tap"
+page = "notes"
+action = "memory.recent"
+label = "Latest"
+
+[[bindings]]
+control = "pad.1"
+gesture = "tap"
+page = "notes"
+action = "memory.brief"
+label = "Brief the agent"
+
+[[bindings]]
+control = "pad.0"
+gesture = "hold"
+page = "notes"
+action = "memory.refresh"
+label = "Re-read notes"
+
+# --- Work page ---------------------------------------------------------------
+
+[[bindings]]
+control = "pad.0"
+gesture = "tap"
+page = "work"
+action = "terminal.open"
+label = "Tests"
+params = { name = "tests" }
+
+[[bindings]]
+control = "pad.0"
+gesture = "hold"
+page = "work"
+action = "terminal.run"
+target = "name:tests"
+label = "Run tests"
+params = { text = "cargo test" }
+
+[[bindings]]
+control = "pad.1"
+gesture = "tap"
+page = "work"
+action = "terminal.open"
+label = "Shell"
+params = { name = "shell" }
+
+[[bindings]]
+control = "pad.8"
+gesture = "tap"
+page = "work"
+action = "workflow.cancel"
+label = "Cancel run"

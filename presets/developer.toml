@@ -1,0 +1,334 @@
+# PushOS: developer
+#
+# Editors, terminals, projects and tests, across six pages. Every pad here
+# works as shipped: the permissions each one needs are granted below, and
+# nothing references something that has to be installed first.
+#
+# Change the applications and the commands to yours. `pushos check` after
+# editing; it reports every problem at once.
+
+[runtime]
+home_page = "home"
+media_player = "Music"
+
+[gestures]
+hold_threshold_ms = 400
+double_tap_window_ms = 280
+
+[permissions]
+granted = [
+    "media.control",
+    "application.launch",
+    "shell.execute",
+]
+
+# --- Pages -------------------------------------------------------------------
+
+[[pages]]
+id = "home"
+name = "Home"
+description = "Transport, pages and the things you reach for constantly"
+
+[[pages]]
+id = "development"
+name = "Development"
+description = "Editors, terminals and the test run"
+
+[[pages]]
+id = "agents"
+name = "Agents"
+description = "Whoever is working, and what they are waiting on"
+
+[[pages]]
+id = "projects"
+name = "Projects"
+description = "One pad per codebase"
+
+[[pages]]
+id = "music"
+name = "Music"
+description = "Playback, without leaving what you are doing"
+
+[[pages]]
+id = "automation"
+name = "Automation"
+description = "The rest of the machine"
+
+# --- The display row ---------------------------------------------------------
+# The eight buttons above the screen move between pages, so wherever you are,
+# one press gets you somewhere else.
+
+[[bindings]]
+control = "button.upper_1"
+gesture = "press"
+action = "page.show"
+target = "home"
+label = "Home"
+
+[[bindings]]
+control = "button.upper_2"
+gesture = "press"
+action = "page.show"
+target = "development"
+label = "Develop"
+
+[[bindings]]
+control = "button.upper_3"
+gesture = "press"
+action = "page.show"
+target = "agents"
+label = "Agents"
+
+[[bindings]]
+control = "button.upper_4"
+gesture = "press"
+action = "page.show"
+target = "projects"
+label = "Projects"
+
+[[bindings]]
+control = "button.upper_5"
+gesture = "press"
+action = "page.show"
+target = "music"
+label = "Music"
+
+[[bindings]]
+control = "button.upper_6"
+gesture = "press"
+action = "page.show"
+target = "automation"
+label = "Auto"
+
+# --- Global bindings ---------------------------------------------------------
+# In force on every page, because these should not move.
+
+[[bindings]]
+control = "button.play"
+gesture = "press"
+action = "media.play_pause"
+label = "Play/Pause"
+
+[[bindings]]
+control = "button.page_right"
+gesture = "press"
+action = "page.next"
+label = "Next page"
+
+[[bindings]]
+control = "button.page_left"
+gesture = "press"
+action = "page.previous"
+label = "Previous page"
+
+[[bindings]]
+control = "button.session"
+gesture = "press"
+action = "page.home"
+label = "Home"
+
+[[bindings]]
+control = "encoder.master"
+gesture = "turn_right"
+action = "media.volume_up"
+label = "Volume up"
+
+[[bindings]]
+control = "encoder.master"
+gesture = "turn_left"
+action = "media.volume_down"
+label = "Volume down"
+
+# --- Home page ---------------------------------------------------------------
+
+[[bindings]]
+control = "pad.0"
+gesture = "tap"
+page = "home"
+action = "app.launch"
+target = "Cursor"
+label = "Cursor"
+
+[[bindings]]
+control = "pad.1"
+gesture = "tap"
+page = "home"
+action = "app.launch"
+target = "Terminal"
+label = "Terminal"
+
+[[bindings]]
+control = "pad.2"
+gesture = "tap"
+page = "home"
+action = "app.launch"
+target = "Safari"
+label = "Safari"
+
+[[bindings]]
+control = "pad.3"
+gesture = "tap"
+page = "home"
+action = "media.now_playing"
+label = "Now playing"
+
+# --- Development page --------------------------------------------------------
+# Terminals PushOS runs itself. A tap opens one, and pressing again selects the
+# one already running rather than starting a second.
+
+[[bindings]]
+control = "pad.0"
+gesture = "tap"
+page = "development"
+action = "terminal.open"
+label = "Tests"
+params = { name = "tests" }
+
+[[bindings]]
+control = "pad.0"
+gesture = "hold"
+page = "development"
+action = "terminal.run"
+target = "name:tests"
+label = "Run tests"
+params = { text = "cargo test" }
+
+[[bindings]]
+control = "pad.1"
+gesture = "tap"
+page = "development"
+action = "terminal.open"
+label = "Build"
+params = { name = "build" }
+
+[[bindings]]
+control = "pad.1"
+gesture = "hold"
+page = "development"
+action = "terminal.run"
+target = "name:build"
+label = "Build"
+params = { text = "cargo build" }
+
+[[bindings]]
+control = "pad.2"
+gesture = "tap"
+page = "development"
+action = "terminal.open"
+label = "Shell"
+params = { name = "shell" }
+
+[[bindings]]
+control = "pad.8"
+gesture = "tap"
+page = "development"
+action = "shell.run"
+label = "Status"
+params = { program = "git", args = ["status", "--short"] }
+
+[[bindings]]
+control = "pad.9"
+gesture = "tap"
+page = "development"
+action = "shell.run"
+label = "Fetch"
+params = { program = "git", args = ["fetch", "--all"] }
+
+# A double tap on the terminal pad closes it, because a single tap is how you
+# select one and closing by accident is worse than closing slowly.
+[[bindings]]
+control = "pad.0"
+gesture = "double_tap"
+page = "development"
+action = "terminal.close"
+target = "name:tests"
+label = "Close tests"
+
+# --- Agents page -------------------------------------------------------------
+# Bindings are here and ready. Add an agent role and a provider under
+# `[[agents]]` and `[[providers]]` and they start working; until then the
+# namespace is not offered and these pads say so rather than doing something
+# unexpected.
+
+[[bindings]]
+control = "button.upper_8"
+gesture = "press"
+page = "agents"
+action = "page.back"
+label = "Back"
+
+[[bindings]]
+control = "pad.56"
+gesture = "tap"
+page = "agents"
+action = "page.home"
+label = "Home"
+
+# --- Projects page -----------------------------------------------------------
+# Add a `[[workspaces]]` entry and a `workspace.select` binding here, and one
+# pad becomes a whole codebase: its bindings, its agents, its terminals and the
+# page you were last on.
+
+[[bindings]]
+control = "button.upper_8"
+gesture = "press"
+page = "projects"
+action = "page.back"
+label = "Back"
+
+# --- Music page --------------------------------------------------------------
+
+[[bindings]]
+control = "pad.0"
+gesture = "tap"
+page = "music"
+action = "media.play_pause"
+label = "Play/Pause"
+
+[[bindings]]
+control = "pad.1"
+gesture = "tap"
+page = "music"
+action = "media.previous_track"
+label = "Previous"
+
+[[bindings]]
+control = "pad.2"
+gesture = "tap"
+page = "music"
+action = "media.next_track"
+label = "Next"
+
+[[bindings]]
+control = "pad.3"
+gesture = "tap"
+page = "music"
+action = "media.now_playing"
+label = "Now playing"
+
+# --- Automation page ---------------------------------------------------------
+# Apple Shortcuts go here. Add `shortcuts.execute` to the permissions above and
+# a `shortcut.run` binding naming one of your own.
+
+[[bindings]]
+control = "pad.0"
+gesture = "tap"
+page = "automation"
+action = "app.open_url"
+target = "https://github.com/Roman-Silantev/pushos"
+label = "PushOS"
+
+[[bindings]]
+control = "pad.1"
+gesture = "tap"
+page = "automation"
+action = "app.open_path"
+target = "~"
+label = "Home folder"
+
+[[bindings]]
+control = "button.upper_8"
+gesture = "press"
+page = "automation"
+action = "page.back"
+label = "Back"

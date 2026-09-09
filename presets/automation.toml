@@ -1,0 +1,224 @@
+# PushOS: automation
+#
+# The machine rather than the codebase. Apple Shortcuts, applications, folders
+# and links, with nothing that needs an agent or a terminal.
+#
+# The Shortcut names below are examples. Replace them with your own; PushOS
+# reports plainly when a Shortcut it was asked for does not exist, and
+# `shortcuts list` on the command line tells you what you have.
+
+[runtime]
+home_page = "home"
+media_player = "Music"
+
+[permissions]
+granted = [
+    "media.control",
+    "application.launch",
+    "shortcuts.execute",
+]
+
+# --- Pages -------------------------------------------------------------------
+
+[[pages]]
+id = "home"
+name = "Home"
+description = "The things you reach for constantly"
+
+[[pages]]
+id = "scenes"
+name = "Scenes"
+description = "The room, the lights and the focus"
+
+[[pages]]
+id = "places"
+name = "Places"
+description = "Folders and links"
+
+# --- The display row ---------------------------------------------------------
+
+[[bindings]]
+control = "button.upper_1"
+gesture = "press"
+action = "page.show"
+target = "home"
+label = "Home"
+
+[[bindings]]
+control = "button.upper_2"
+gesture = "press"
+action = "page.show"
+target = "scenes"
+label = "Scenes"
+
+[[bindings]]
+control = "button.upper_3"
+gesture = "press"
+action = "page.show"
+target = "places"
+label = "Places"
+
+# --- Global bindings ---------------------------------------------------------
+
+[[bindings]]
+control = "button.play"
+gesture = "press"
+action = "media.play_pause"
+label = "Play/Pause"
+
+[[bindings]]
+control = "button.session"
+gesture = "press"
+action = "page.home"
+label = "Home"
+
+[[bindings]]
+control = "button.page_right"
+gesture = "press"
+action = "page.next"
+label = "Next page"
+
+[[bindings]]
+control = "button.page_left"
+gesture = "press"
+action = "page.previous"
+label = "Previous page"
+
+[[bindings]]
+control = "encoder.master"
+gesture = "turn_right"
+action = "media.volume_up"
+label = "Volume up"
+
+[[bindings]]
+control = "encoder.master"
+gesture = "turn_left"
+action = "media.volume_down"
+label = "Volume down"
+
+# --- Home page ---------------------------------------------------------------
+
+[[bindings]]
+control = "pad.0"
+gesture = "tap"
+page = "home"
+action = "app.launch"
+target = "Safari"
+label = "Safari"
+
+[[bindings]]
+control = "pad.1"
+gesture = "tap"
+page = "home"
+action = "app.launch"
+target = "Mail"
+label = "Mail"
+
+[[bindings]]
+control = "pad.2"
+gesture = "tap"
+page = "home"
+action = "app.launch"
+target = "Calendar"
+label = "Calendar"
+
+[[bindings]]
+control = "pad.3"
+gesture = "tap"
+page = "home"
+action = "app.launch"
+target = "Notes"
+label = "Notes"
+
+[[bindings]]
+control = "pad.8"
+gesture = "tap"
+page = "home"
+action = "media.now_playing"
+label = "Now playing"
+
+# --- Scenes page -------------------------------------------------------------
+# Each of these runs an Apple Shortcut by name. Rename them to yours.
+
+[[bindings]]
+control = "pad.0"
+gesture = "tap"
+page = "scenes"
+action = "shortcut.run"
+target = "Office Lights"
+label = "Lights"
+
+[[bindings]]
+control = "pad.1"
+gesture = "tap"
+page = "scenes"
+action = "shortcut.run"
+target = "Focus Mode"
+label = "Focus"
+
+[[bindings]]
+control = "pad.2"
+gesture = "tap"
+page = "scenes"
+action = "shortcut.run"
+target = "Start Meeting"
+label = "Meeting"
+
+[[bindings]]
+control = "pad.3"
+gesture = "tap"
+page = "scenes"
+action = "shortcut.run"
+target = "End Workday"
+label = "End day"
+
+# A hold rather than a tap for the one that locks the room, because a brush
+# past the pad should not end the day.
+[[bindings]]
+control = "pad.8"
+gesture = "hold"
+page = "scenes"
+action = "shortcut.run"
+target = "Lock Office"
+label = "Lock office"
+
+# --- Places page -------------------------------------------------------------
+
+[[bindings]]
+control = "pad.0"
+gesture = "tap"
+page = "places"
+action = "app.open_path"
+target = "~/Documents"
+label = "Documents"
+
+[[bindings]]
+control = "pad.1"
+gesture = "tap"
+page = "places"
+action = "app.open_path"
+target = "~/Downloads"
+label = "Downloads"
+
+[[bindings]]
+control = "pad.2"
+gesture = "tap"
+page = "places"
+action = "app.open_path"
+target = "~/Desktop"
+label = "Desktop"
+
+[[bindings]]
+control = "pad.8"
+gesture = "tap"
+page = "places"
+action = "app.open_url"
+target = "https://github.com/Roman-Silantev/pushos"
+label = "PushOS"
+
+[[bindings]]
+control = "button.upper_8"
+gesture = "press"
+page = "places"
+action = "page.back"
+label = "Back"

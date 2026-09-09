@@ -105,18 +105,31 @@ impl ParamValue {
         }
     }
 
-    /// Reads the value as a whole number, accepting integers only.
+    /// Reads the value as a whole number.
+    ///
+    /// Text that is a whole number counts. Configuration is written by hand,
+    /// `percent = "20"` is what a person types as often as `percent = 20`, and
+    /// refusing the quoted one at the moment a pad is pressed would be pedantry
+    /// about something PushOS can read perfectly well.
     pub fn as_integer(&self) -> Option<i64> {
         match self {
             Self::Integer(value) => Some(*value),
+            Self::Text(value) => value.trim().parse().ok(),
             _ => None,
         }
     }
 
     /// Reads the value as a flag.
+    ///
+    /// Text counts, for the same reason.
     pub fn as_flag(&self) -> Option<bool> {
         match self {
             Self::Flag(value) => Some(*value),
+            Self::Text(value) => match value.trim().to_lowercase().as_str() {
+                "true" | "yes" | "on" => Some(true),
+                "false" | "no" | "off" => Some(false),
+                _ => None,
+            },
             _ => None,
         }
     }
@@ -370,6 +383,41 @@ impl ActionContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_number_written_with_quotes_round_it_is_still_a_number() {
+        // `percent = "20"` is what a person types as often as `percent = 20`,
+        // and finding out otherwise when they press the pad is no use.
+        assert_eq!(ParamValue::Text("20".into()).as_integer(), Some(20));
+        assert_eq!(ParamValue::Text(" -3 ".into()).as_integer(), Some(-3));
+        assert_eq!(ParamValue::Integer(20).as_integer(), Some(20));
+    }
+
+    #[test]
+    fn text_that_is_not_a_number_is_still_not_a_number() {
+        assert_eq!(ParamValue::Text("loud".into()).as_integer(), None);
+        assert_eq!(ParamValue::Text("2.5".into()).as_integer(), None);
+        assert_eq!(ParamValue::Text(String::new().into()).as_integer(), None);
+    }
+
+    #[test]
+    fn a_flag_may_be_written_the_way_people_write_flags() {
+        for (written, expected) in [
+            ("true", true),
+            ("Yes", true),
+            ("on", true),
+            ("false", false),
+            ("NO", false),
+            ("off", false),
+        ] {
+            assert_eq!(
+                ParamValue::Text(written.into()).as_flag(),
+                Some(expected),
+                "`{written}`"
+            );
+        }
+        assert_eq!(ParamValue::Text("maybe".into()).as_flag(), None);
+    }
 
     #[test]
     fn selectors_parse_and_render_symmetrically() {

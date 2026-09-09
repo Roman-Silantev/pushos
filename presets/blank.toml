@@ -1,0 +1,60 @@
+# PushOS: blank
+#
+# The least configuration that still does something. One page, the transport,
+# and a way to move between pages once you add more.
+#
+# Start here if you would rather build your own surface than read someone
+# else's. `pushos presets` lists the others.
+
+[runtime]
+home_page = "home"
+
+[permissions]
+# Nothing is permitted unless it is listed here. There is no wildcard.
+granted = ["media.control"]
+
+[[pages]]
+id = "home"
+name = "Home"
+description = "Your surface, so far"
+
+# --- The transport -----------------------------------------------------------
+
+[[bindings]]
+control = "button.play"
+gesture = "press"
+action = "media.play_pause"
+label = "Play/Pause"
+
+[[bindings]]
+control = "encoder.master"
+gesture = "turn_right"
+action = "media.volume_up"
+label = "Volume up"
+
+[[bindings]]
+control = "encoder.master"
+gesture = "turn_left"
+action = "media.volume_down"
+label = "Volume down"
+
+# --- Moving between pages ----------------------------------------------------
+# Useful the moment you add a second page.
+
+[[bindings]]
+control = "button.page_right"
+gesture = "press"
+action = "page.next"
+label = "Next page"
+
+[[bindings]]
+control = "button.page_left"
+gesture = "press"
+action = "page.previous"
+label = "Previous page"
+
+[[bindings]]
+control = "button.session"
+gesture = "press"
+action = "page.home"
+label = "Home"
