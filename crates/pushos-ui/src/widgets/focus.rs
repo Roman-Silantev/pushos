@@ -5,18 +5,22 @@
 //! worth. A header carrying what it is and what it is doing, and under that as
 //! many lines of what it last said as will fit.
 //!
-//! The mark on the left is the star, drawn in PushOS's own orange. It breathes
-//! while the thing being watched is working and sits still when it is not, so
-//! the state is legible from across a desk before a word has been read. It
-//! breathes rather than hops because it stands for the work rather than for
-//! PushOS, and a status light that jumped about would be harder to read than
-//! one that does not move at all.
+//! One mark down the left, and which mark it is says what is happening. A
+//! session that is working or waiting on a person shows the star, breathing.
+//! Anything else shows the mascot, hopping. Two marks would be two things to
+//! read where the panel has room for one, and the change of shape carries more
+//! at a glance than either of them moving would.
+//!
+//! Neither moves for the sake of moving. The star breathes only for something
+//! actually going somewhere, and the mascot hops only when there is nothing
+//! that needs watching, which is when a little life is welcome and no
+//! information is being displaced.
 
 use pushos_domain::color::Rgb;
 
 use crate::canvas::{Area, Canvas};
 use crate::mascot::Mascot;
-use crate::snapshot::{Focus, Tone};
+use crate::snapshot::{Focus, SessionLine, Tone};
 use crate::text::{Align, TextRenderer, TextStyle};
 use crate::theme::Theme;
 
@@ -41,10 +45,22 @@ const LINE_GAP: f32 = 3.0;
 const QUADRANT: f32 = 7.0;
 /// Gap between those quadrants.
 const QUADRANT_GAP: f32 = 2.0;
-/// Space between the star and the words beside it.
+/// Space between the marks and the words beside them.
 const MARK_GAP: f32 = 16.0;
+/// Side of one quadrant of the mascot, which is far wider than the star.
+const MASCOT_QUADRANT: f32 = 3.0;
+/// Gap between those quadrants.
+const MASCOT_GAP: f32 = 1.0;
 /// Width of the bar that repeats the state at the right.
 const BAR_WIDTH: f32 = 64.0;
+/// Width of the column listing the other sessions.
+const OTHERS_WIDTH: f32 = 210.0;
+/// Side of the mark beside each of those.
+const DOT: f32 = 5.0;
+/// Space between that mark and the name beside it.
+const DOT_GAP: f32 = 7.0;
+/// Space between one of those lines and the next.
+const OTHERS_GAP: f32 = 4.0;
 /// Height of that bar.
 const BAR_HEIGHT: f32 = 4.0;
 /// How many frames one sweep of that bar takes.
@@ -57,6 +73,7 @@ pub(crate) fn draw_focus(
     canvas: &mut Canvas,
     text: &mut TextRenderer,
     theme: &Theme,
+    star: &Mascot,
     mascot: &Mascot,
     focus: &Focus,
     frame: u32,
@@ -68,28 +85,124 @@ pub(crate) fn draw_focus(
     let inner = panel.inset(PADDING);
     let colour = tone_color(theme, focus.tone);
 
-    // The star takes a column down the left and the words take the rest, so it
-    // is a part of the layout rather than something perched on top of it.
-    let (mark_width, mark_height) = mascot.measure(QUADRANT, QUADRANT_GAP);
-    let phase = if focus.is_animated() { frame } else { 0 };
-    mascot.draw(
+    // One mark, and which one says what is happening. The star for something
+    // that needs watching, the mascot for everything else.
+    let watching = matches!(focus.tone, Tone::Active | Tone::Attention | Tone::Failure);
+    let (mark, quadrant, gap) = if watching {
+        (star, QUADRANT, QUADRANT_GAP)
+    } else {
+        (mascot, MASCOT_QUADRANT, MASCOT_GAP)
+    };
+
+    let (mark_width, mark_height) = mark.measure(quadrant, gap);
+    mark.draw(
         canvas,
         (inner.x, inner.y + (inner.height - mark_height) / 2.0),
-        QUADRANT,
-        QUADRANT_GAP,
-        phase,
+        quadrant,
+        gap,
+        pace(focus.tone, frame),
         theme.accent,
     );
+
+    // The rest of the panel is what the operator is reading, less a column on
+    // the right for the sessions they are not. Being deep in one of eight is
+    // no reason to lose sight of the other seven, and one of them waiting on a
+    // person is exactly what they would want to be told.
+    let keeps_others = !focus.others.is_empty();
+    let reserved = if keeps_others { OTHERS_WIDTH } else { 0.0 };
 
     let words = Area::new(
         inner.x + mark_width + MARK_GAP,
         inner.y,
-        inner.width - mark_width - MARK_GAP,
+        inner.width - mark_width - MARK_GAP - reserved,
         inner.height,
     );
 
     let after_header = draw_header(canvas, text, theme, words, focus, colour, frame);
     draw_said(canvas, text, theme, words, after_header, &focus.lines);
+
+    if keeps_others {
+        let beside = Area::new(
+            inner.x + inner.width - OTHERS_WIDTH + MARK_GAP,
+            after_header,
+            OTHERS_WIDTH - MARK_GAP,
+            inner.bottom() - after_header,
+        );
+        draw_others(canvas, text, theme, beside, &focus.others);
+    }
+}
+
+/// How fast the mark moves, which says which kind of state this is.
+///
+/// Quick when a session wants a person, steady when one is working, and gently
+/// otherwise, where the mascot hops and nothing is being displaced by it. A
+/// mark that moved at one pace whatever was happening would be decoration.
+const fn pace(tone: Tone, frame: u32) -> u32 {
+    match tone {
+        // Twice the pace, because this is the one worth walking over for.
+        Tone::Attention | Tone::Failure => frame * 2,
+        Tone::Active => frame,
+        // Half, so the mascot is alive without asking to be looked at.
+        Tone::Normal => frame / 2,
+        // Nothing recognisable is running, so nothing moves.
+        Tone::Muted => 0,
+    }
+}
+
+/// Draws the sessions the operator is not reading, down the right.
+///
+/// A mark and a name each, in the colour of what that session is doing. No
+/// state in words: this is the corner of the eye, and anything that had to be
+/// read would be competing with the thing that was actually asked for.
+fn draw_others(
+    canvas: &mut Canvas,
+    text: &mut TextRenderer,
+    theme: &Theme,
+    beside: Area,
+    others: &[SessionLine],
+) {
+    let step = theme.sizes.caption + OTHERS_GAP;
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let fits = (beside.height / step).floor().max(0.0) as usize;
+    if fits == 0 {
+        return;
+    }
+
+    // Whatever wants a person first, because that is the whole reason for
+    // showing them at all.
+    let mut order: Vec<&SessionLine> = others.iter().collect();
+    order.sort_by_key(|line| match line.tone {
+        Tone::Attention => 0,
+        Tone::Failure => 1,
+        Tone::Active => 2,
+        Tone::Normal => 3,
+        Tone::Muted => 4,
+    });
+
+    let mut cursor = beside.y + theme.sizes.caption;
+    for line in order.into_iter().take(fits) {
+        let colour = tone_color(theme, line.tone);
+        canvas.fill_rounded(
+            Area::new(beside.x, cursor - DOT, DOT, DOT),
+            DOT / 2.0,
+            colour,
+        );
+        text.draw(
+            canvas,
+            &line.name,
+            (beside.x + DOT + DOT_GAP, cursor),
+            TextStyle::left(
+                theme.sizes.caption,
+                if line.tone == Tone::Attention {
+                    colour
+                } else {
+                    theme.muted
+                },
+                beside.width - DOT - DOT_GAP,
+            ),
+        );
+        cursor += step;
+    }
 }
 
 /// Draws the header, returning the top of the room left under it.

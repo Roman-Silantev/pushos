@@ -58,11 +58,14 @@ pub struct SurfaceState {
 const fn tone_of(status: pushos_domain::color::StatusColor) -> Tone {
     use pushos_domain::color::StatusColor;
     match status {
-        StatusColor::Working | StatusColor::Workflow => Tone::Active,
+        // Only what is genuinely going anywhere. Something merely part of a
+        // workflow, or with a line typed and not sent, is not working, and a
+        // panel that animated for it would be animating for nothing.
+        StatusColor::Working => Tone::Active,
         StatusColor::Waiting => Tone::Attention,
         StatusColor::Failed => Tone::Failure,
         StatusColor::Idle | StatusColor::Unassigned => Tone::Muted,
-        StatusColor::Complete | StatusColor::Selected => Tone::Normal,
+        StatusColor::Complete | StatusColor::Selected | StatusColor::Workflow => Tone::Normal,
     }
 }
 
@@ -193,10 +196,20 @@ impl SurfaceState {
                 tone,
                 lines,
             } => {
+                // The others come from what the surface already knows, so a
+                // provider never has to describe anything but its own thing.
+                let others: Vec<pushos_ui::SessionLine> = self
+                    .sessions
+                    .iter()
+                    .filter(|line| line.name != title)
+                    .cloned()
+                    .collect();
+
                 self.focus = Some(
                     pushos_ui::Focus::new(kind, title)
                         .doing(state, tone_of(tone))
-                        .saying(lines),
+                        .saying(lines)
+                        .beside(others),
                 );
                 // An overlay on top of something being read closely would hide
                 // the thing that was asked for.

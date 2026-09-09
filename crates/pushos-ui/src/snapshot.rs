@@ -253,6 +253,12 @@ pub struct Focus {
     pub tone: Tone,
     /// What it last said, most recent last.
     pub lines: Vec<String>,
+    /// The others, so looking closely at one does not mean losing the rest.
+    ///
+    /// The reason the panel is worth looking at while reading: an operator
+    /// deep in one session still needs to know that another is stuck waiting
+    /// on them.
+    pub others: Vec<SessionLine>,
 }
 
 impl Focus {
@@ -264,7 +270,15 @@ impl Focus {
             state: String::new(),
             tone: Tone::Normal,
             lines: Vec::new(),
+            others: Vec::new(),
         }
+    }
+
+    /// Keeps the rest in view alongside it.
+    #[must_use]
+    pub fn beside(mut self, others: impl IntoIterator<Item = SessionLine>) -> Self {
+        self.others = others.into_iter().collect();
+        self
     }
 
     /// Says what it is doing.
@@ -283,8 +297,12 @@ impl Focus {
     }
 
     /// Whether anything about it is moving.
-    pub const fn is_animated(&self) -> bool {
+    ///
+    /// Including the others beside it, because one of them working is a reason
+    /// for the panel to keep drawing even when the one being read is still.
+    pub fn is_animated(&self) -> bool {
         matches!(self.tone, Tone::Active)
+            || self.others.iter().any(|other| other.tone == Tone::Active)
     }
 }
 

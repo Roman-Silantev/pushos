@@ -107,6 +107,7 @@ impl PushRenderer {
                 &mut self.text,
                 &self.theme,
                 &self.star,
+                &self.mascot,
                 focus,
                 snapshot.frame,
             );
@@ -150,12 +151,82 @@ pub enum RendererUnavailable {
 
 #[cfg(test)]
 mod tests {
+    use crate::snapshot::SessionLine;
     use crate::snapshot::{Notice, Overlay, PageView, Slot, SurfacePresence, Tone};
 
     use super::*;
 
     fn renderer() -> PushRenderer {
         PushRenderer::new().expect("the compiled-in font and display size are valid")
+    }
+
+    /// Which of the eight columns differ between two frames of a snapshot.
+    fn moving_columns(snapshot: &UiSnapshot) -> Vec<usize> {
+        let mut renderer = renderer();
+        let (mut first, mut later) = (DisplayFrame::blank(), DisplayFrame::blank());
+
+        for (frame, into) in [(0, &mut first), (11, &mut later)] {
+            let stamped = UiSnapshot {
+                frame,
+                ..snapshot.clone()
+            };
+            renderer.invalidate();
+            renderer.render(&stamped, into);
+        }
+
+        let width = pushos_domain::ports::DISPLAY_WIDTH;
+        let column = width / crate::snapshot::SLOT_COUNT;
+
+        let mut moved = Vec::new();
+        for (index, (a, b)) in first.pixels().iter().zip(later.pixels()).enumerate() {
+            if a != b {
+                let at = (index % width) / column;
+                if !moved.contains(&at) {
+                    moved.push(at);
+                }
+            }
+        }
+        moved.sort_unstable();
+        moved
+    }
+
+    #[test]
+    fn only_the_columns_that_are_working_ever_move() {
+        // One session working must not make the whole panel appear to move.
+        // An operator glancing at eight columns is looking for the one that
+        // changed, and a surface where everything animated would tell them
+        // nothing at all.
+        let mut snapshot = populated();
+        snapshot.sessions = vec![
+            SessionLine::new("first", "ready", Tone::Normal),
+            SessionLine::new("second", "working", Tone::Active),
+            SessionLine::new("third", "ready", Tone::Normal),
+            SessionLine::new("fourth", "asking", Tone::Attention),
+        ];
+
+        assert_eq!(
+            moving_columns(&snapshot),
+            [1],
+            "only the working column should differ between frames"
+        );
+    }
+
+    #[test]
+    fn a_panel_with_nothing_working_is_perfectly_still() {
+        let mut snapshot = populated();
+        snapshot.sessions = vec![
+            SessionLine::new("first", "ready", Tone::Normal),
+            SessionLine::new("second", "unsent", Tone::Normal),
+        ];
+
+        assert!(
+            moving_columns(&snapshot).is_empty(),
+            "nothing is working, so nothing should move"
+        );
+        assert!(
+            !snapshot.is_animated(),
+            "and it should not ask to be redrawn"
+        );
     }
 
     fn populated() -> UiSnapshot {

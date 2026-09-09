@@ -15,11 +15,10 @@ use crate::canvas::{Area, Canvas};
 /// stays where it is, so the hop reads as the mascot moving rather than the
 /// whole picture sliding.
 const ART: &[&str] = &[
-    "########.....",
-    "##########...",
-    "##########...",
-    "########.....",
-    ".......+..+.+",
+    "###########.................",
+    "#.######.##.................",
+    "##############+...+.+....+.+",
+    ".############...............",
 ];
 
 /// The star, one character per quadrant.
@@ -262,8 +261,8 @@ mod tests {
 
         // The longer line is fourteen characters ending in a right-hand
         // quadrant, so twenty-eight across, and two lines is four down.
-        assert_eq!(width, 13, "as wide as the artwork");
-        assert_eq!(height, 5, "and as tall");
+        assert_eq!(width, 28, "as wide as the artwork");
+        assert_eq!(height, 4, "and as tall");
         assert!(mascot.quadrant_count() > 20, "the body should be solid");
     }
 
@@ -349,9 +348,9 @@ mod tests {
         let mascot = Mascot::new();
         let (width, height) = mascot.measure(10.0, 2.0);
 
-        // Thirteen quadrants of ten with twelve two-pixel gaps, by five.
-        assert!((width - (13.0 * 12.0 - 2.0)).abs() < f32::EPSILON);
-        assert!((height - (5.0 * 12.0 - 2.0)).abs() < f32::EPSILON);
+        // Twenty-eight quadrants of ten with twenty-seven two-pixel gaps, by four.
+        assert!((width - (28.0 * 12.0 - 2.0)).abs() < f32::EPSILON);
+        assert!((height - (4.0 * 12.0 - 2.0)).abs() < f32::EPSILON);
     }
 
     #[test]

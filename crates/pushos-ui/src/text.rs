@@ -69,6 +69,16 @@ const SUBSTITUTES: &[(char, char)] = &[
     ('\u{23fb}', 'o'),
     ('\u{29c9}', '#'),
     ('\u{23bf}', 'L'),
+    // The prompt a coding agent draws, and the marks around what it is doing.
+    // Dropping these lost the one character that says where a line begins, and
+    // the lines beneath it stopped lining up with anything.
+    ('\u{276f}', '>'),
+    ('\u{276e}', '<'),
+    ('\u{25b8}', '>'),
+    ('\u{25b9}', '>'),
+    ('\u{2039}', '<'),
+    ('\u{203a}', '>'),
+    ('\u{2026}', '.'),
 ];
 
 /// How a run of text should be drawn.

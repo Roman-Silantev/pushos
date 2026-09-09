@@ -25,6 +25,22 @@ fn main() -> std::io::Result<()> {
         "overlay" => overlay(),
         "notes" => notes(),
         "focus" => focus(),
+        "focus-idle" => {
+            let mut idle = focus();
+            if let Some(view) = idle.focus.as_mut() {
+                "ready".clone_into(&mut view.state);
+                view.tone = Tone::Normal;
+            }
+            idle
+        }
+        "sessions-a" => UiSnapshot {
+            frame: 0,
+            ..sessions()
+        },
+        "sessions-b" => UiSnapshot {
+            frame: 11,
+            ..sessions()
+        },
         "focus-mid" => UiSnapshot {
             frame: 4,
             ..focus()
@@ -140,11 +156,17 @@ fn focus() -> UiSnapshot {
             Focus::new("ttys005", "Sprint 2 setup")
                 .doing("working", Tone::Active)
                 .saying([
-                    "Read the migration and the two callers it has.".to_owned(),
-                    "The second one passes the old column name, so it would fail at run time."
+                    "> Read the migration and the two callers it has.".to_owned(),
+                    "> The second one passes the old column name, so it would fail at run time."
                         .to_owned(),
                     "Renaming it now and running the tests.".to_owned(),
                     "cargo test --workspace".to_owned(),
+                ])
+                .beside([
+                    SessionLine::new("Ads performance", "asking", Tone::Attention),
+                    SessionLine::new("API key auth", "working", Tone::Active),
+                    SessionLine::new("iPhone modem", "unsent", Tone::Normal),
+                    SessionLine::new("Sprint planning", "ready", Tone::Normal),
                 ]),
         ),
         ..page()
