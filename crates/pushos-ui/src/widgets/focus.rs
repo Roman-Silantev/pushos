@@ -38,6 +38,14 @@ const RULE: f32 = 1.0;
 const RULE_GAP: f32 = 6.0;
 /// Space between lines of what was said.
 const LINE_GAP: f32 = 3.0;
+/// The column the mark sits in.
+///
+/// Fixed rather than measured, because the two marks are different shapes: the
+/// mascot is wide and short, having been written for terminal cells, and the
+/// star is square. A column that resized with the mark would shift every word
+/// on the panel each time a session started working.
+const MARK_COLUMN: f32 = 116.0;
+
 /// Side of one quadrant of the star.
 ///
 /// The star is nine quadrants square, so this is what decides how much of the
@@ -47,7 +55,11 @@ const QUADRANT: f32 = 7.0;
 const QUADRANT_GAP: f32 = 2.0;
 /// Space between the marks and the words beside them.
 const MARK_GAP: f32 = 16.0;
-/// Side of one quadrant of the mascot, which is far wider than the star.
+/// Side of one quadrant of the mascot.
+///
+/// It is twenty-eight quadrants across, so this is smaller than the star's:
+/// the two are different shapes and what they share is the column, not the
+/// size of a block.
 const MASCOT_QUADRANT: f32 = 3.0;
 /// Gap between those quadrants.
 const MASCOT_GAP: f32 = 1.0;
@@ -97,29 +109,42 @@ pub(crate) fn draw_focus(
     let (mark_width, mark_height) = mark.measure(quadrant, gap);
     mark.draw(
         canvas,
-        (inner.x, inner.y + (inner.height - mark_height) / 2.0),
+        (
+            // Centred in a column of its own so the words beside it never move.
+            inner.x + (MARK_COLUMN - mark_width) / 2.0,
+            inner.y + (inner.height - mark_height) / 2.0,
+        ),
         quadrant,
         gap,
         pace(focus.tone, frame),
         theme.accent,
     );
 
-    // The rest of the panel is what the operator is reading, less a column on
-    // the right for the sessions they are not. Being deep in one of eight is
-    // no reason to lose sight of the other seven, and one of them waiting on a
-    // person is exactly what they would want to be told.
+    // The header spans everything to the right of the mark, so the state sits
+    // in the far corner and the rule under it runs the whole way across. Only
+    // what is below the rule is divided.
+    let across = Area::new(
+        inner.x + MARK_COLUMN + MARK_GAP,
+        inner.y,
+        inner.width - MARK_COLUMN - MARK_GAP,
+        inner.height,
+    );
+    let after_header = draw_header(canvas, text, theme, across, focus, colour, frame);
+
+    // Below it, the sessions the operator is not reading take a column under
+    // the state they belong with. Being deep in one of eight is no reason to
+    // lose sight of the other seven, and one of them waiting on a person is
+    // exactly what they would want to be told.
     let keeps_others = !focus.others.is_empty();
     let reserved = if keeps_others { OTHERS_WIDTH } else { 0.0 };
 
     let words = Area::new(
-        inner.x + mark_width + MARK_GAP,
-        inner.y,
-        inner.width - mark_width - MARK_GAP - reserved,
-        inner.height,
+        across.x,
+        after_header,
+        across.width - reserved,
+        inner.bottom() - after_header,
     );
-
-    let after_header = draw_header(canvas, text, theme, words, focus, colour, frame);
-    draw_said(canvas, text, theme, words, after_header, &focus.lines);
+    draw_said(canvas, text, theme, words, words.y, &focus.lines);
 
     if keeps_others {
         let beside = Area::new(

@@ -9,6 +9,15 @@ use pushos_domain::color::Rgb;
 
 use crate::canvas::{Area, Canvas};
 
+/// How much taller than wide one quadrant is drawn.
+///
+/// The artwork was written in terminal block characters, and a terminal cell
+/// is about twice as tall as it is wide. Drawn as squares the mascot comes out
+/// seven times wider than it is tall, which reads as a strip cut out of
+/// something rather than as a shape. Drawn at the proportions it was written
+/// for, it is the shape somebody drew.
+const TALLNESS: f32 = 2.0;
+
 /// The mascot, one character per quadrant.
 ///
 /// `#` is the body, which sweeps and hops. `+` is a fleck, which twinkles and
@@ -86,6 +95,8 @@ pub struct Mascot {
     height: u16,
     /// Whether it leaves the ground.
     hops: bool,
+    /// How much taller than wide each quadrant is drawn.
+    tallness: f32,
 }
 
 impl Mascot {
@@ -102,6 +113,9 @@ impl Mascot {
     pub fn star() -> Self {
         let mut star = Self::from_art(STAR);
         star.hops = false;
+        // Square, unlike the mascot: this one was drawn here rather than in a
+        // terminal, and a burst has to be round to read as one.
+        star.tallness = 1.0;
         star
     }
 
@@ -130,6 +144,7 @@ impl Mascot {
         Self {
             quadrants,
             hops: true,
+            tallness: TALLNESS,
             width,
             height,
         }
@@ -147,8 +162,9 @@ impl Mascot {
 
     /// The size in pixels at a given quadrant size, including the gaps.
     pub fn measure(&self, quadrant: f32, gap: f32) -> (f32, f32) {
-        let span = |count: u16| f32::from(count) * (quadrant + gap) - gap;
-        (span(self.width), span(self.height))
+        let across = f32::from(self.width) * (quadrant + gap) - gap;
+        let down = f32::from(self.height) * (quadrant * self.tallness + gap) - gap;
+        (across, down)
     }
 
     /// How far off the ground the mascot is, in quadrants.
@@ -186,11 +202,13 @@ impl Mascot {
     ) {
         let (left, top) = origin;
         let step = quadrant + gap;
+        let tall = quadrant * self.tallness;
+        let down = tall + gap;
         // The body hops; the flecks around it stay where they are, which is
         // what makes the hop read as the mascot moving rather than the whole
         // picture sliding. The star does not hop at all.
         let hop = if self.hops {
-            Self::lift(phase) * step
+            Self::lift(phase) * down
         } else {
             0.0
         };
@@ -198,13 +216,13 @@ impl Mascot {
         for cell in &self.quadrants {
             let area = Area::new(
                 left + f32::from(cell.x) * step,
-                top + f32::from(cell.y) * step - if cell.sparkle { 0.0 } else { hop },
+                top + f32::from(cell.y) * down - if cell.sparkle { 0.0 } else { hop },
                 quadrant,
-                quadrant,
+                tall,
             );
             canvas.fill_rounded(
                 area,
-                quadrant * 0.18,
+                quadrant * 0.22,
                 color.dimmed(self.brightness(*cell, phase)),
             );
         }
@@ -310,6 +328,26 @@ mod tests {
     }
 
     #[test]
+    fn the_mascot_is_drawn_at_the_proportions_it_was_written_for() {
+        // Written in terminal block characters, and a terminal cell is about
+        // twice as tall as it is wide. Drawn as squares it comes out seven
+        // times wider than it is tall and reads as a strip cut out of
+        // something rather than as a shape.
+        let mascot = Mascot::new();
+        let (width, height) = mascot.measure(4.0, 1.0);
+        assert!(width / height < 4.0, "{width} by {height} is still a slab");
+    }
+
+    #[test]
+    fn the_star_is_drawn_square() {
+        // It was drawn here rather than in a terminal, and a burst has to be
+        // round to read as one.
+        let star = Mascot::star();
+        let (width, height) = star.measure(4.0, 1.0);
+        assert!((width - height).abs() < f32::EPSILON, "{width} by {height}");
+    }
+
+    #[test]
     fn the_mascot_hops_and_the_star_does_not() {
         // The star stands for the work rather than for PushOS, and a status
         // light that jumped about would be harder to read at a glance than one
@@ -348,9 +386,11 @@ mod tests {
         let mascot = Mascot::new();
         let (width, height) = mascot.measure(10.0, 2.0);
 
-        // Twenty-eight quadrants of ten with twenty-seven two-pixel gaps, by four.
+        // Twenty-eight quadrants of ten with twenty-seven two-pixel gaps
+        // across, and four of twenty down, because the artwork was written for
+        // terminal cells and those are twice as tall as they are wide.
         assert!((width - (28.0 * 12.0 - 2.0)).abs() < f32::EPSILON);
-        assert!((height - (4.0 * 12.0 - 2.0)).abs() < f32::EPSILON);
+        assert!((height - (4.0 * 22.0 - 2.0)).abs() < f32::EPSILON);
     }
 
     #[test]
