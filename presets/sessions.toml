@@ -1,16 +1,40 @@
 # PushOS: sessions
 #
-# The coding sessions you already have open, on pads.
-#
-# PushOS did not start these and does not own them: a pseudo-terminal belongs
-# to whoever created it. What it can do is watch them and type into them, which
-# is most of what a pad is for. It reads each window's title, which for a
-# coding agent is what that session is working on, so the screen shows eight
-# real names rather than eight device numbers.
+# The coding sessions you already have open, mapped across the whole
+# instrument. PushOS did not start these and does not own them: a
+# pseudo-terminal belongs to whoever created it. What it can do is watch them
+# and type into them, which is most of what a surface is for.
 #
 # The first time you run this, macOS asks whether PushOS may control Terminal.
 # Say yes; that permission is what makes all of this work, and `pushos doctor`
 # reports on it.
+#
+# --- The map -----------------------------------------------------------------
+#
+#   Row above the screen     select a session without disturbing it
+#   Row below the screen     open one and read what it last said
+#   Bottom row of pads       the same eight, under your fingers
+#   Second row of pads       replies: yes, no, enter, continue, accept, send
+#
+#   Encoder 1                walk through the sessions, opening each
+#   Encoder 2                move back through what one has said
+#   Master encoder           volume
+#
+#   Up / Down                step through the sessions one at a time
+#   Left / Right             move the eight in view, for more than eight
+#   Page left / Page right   move between pages
+#
+#   Play                     play or pause music
+#   Stop                     interrupt whichever session you are reading
+#   New                      press Enter in it
+#   Duplicate                accept what it is suggesting
+#   Undo                     dismiss, which is Escape
+#   Session                  back to the eight
+#   Note                     the replies page
+#   Setup                    what PushOS is doing
+#
+# Everything acting on "whichever session you are reading" means one control
+# serves all of them, however many there are.
 
 [runtime]
 home_page = "sessions"
@@ -34,31 +58,24 @@ description = "What each window is working on, and what it last said"
 [[pages]]
 id = "answer"
 name = "Answer"
-description = "Reply to whichever session you are looking at"
+description = "Reply to whichever session you are reading"
 
 # --- Moving about ------------------------------------------------------------
 
 [[bindings]]
-control = "button.upper_1"
+control = "button.session"
 gesture = "press"
 action = "page.show"
 target = "sessions"
 label = "Sessions"
 
 [[bindings]]
-control = "button.upper_2"
+control = "button.note"
 gesture = "press"
 action = "page.show"
 target = "answer"
 label = "Answer"
 
-[[bindings]]
-control = "button.session"
-gesture = "press"
-action = "page.home"
-label = "Home"
-
-# The two arrows beside the screen move between pages, wherever you are.
 [[bindings]]
 control = "button.page_right"
 gesture = "press"
@@ -71,17 +88,29 @@ gesture = "press"
 action = "page.previous"
 label = "Previous page"
 
+# --- More than eight ---------------------------------------------------------
+# Eight pads, eight columns and eight buttons, because that is what the
+# hardware has. With more sessions than that, these move which eight are in
+# view; the pads keep their meaning and the display follows.
+
 [[bindings]]
-control = "button.play"
+control = "button.right"
 gesture = "press"
-action = "media.play_pause"
-label = "Play/Pause"
+action = "session.bank"
+label = "Next eight"
+params = { by = 1 }
+
+[[bindings]]
+control = "button.left"
+gesture = "press"
+action = "session.bank"
+label = "Previous eight"
+params = { by = -1 }
 
 # --- Browsing without looking at the pads ------------------------------------
-# The first encoder walks through the open sessions and opens each one as it
-# arrives, so you can turn the knob and read. The up and down arrows do the
-# same thing for a hand that is already on the buttons. Neither needs you to
-# have chosen anything first: turning from nothing starts at one end.
+# The first encoder walks through every open session, not just the eight in
+# view, and opens each one as it arrives. The arrows do the same for a hand
+# already on the buttons.
 
 [[bindings]]
 control = "encoder.1"
@@ -124,185 +153,324 @@ action = "session.scroll"
 label = "Forward"
 params = { by = -1 }
 
-# The touch strip does the same, for a thumb rather than a hand.
 [[bindings]]
-control = "button.left"
-gesture = "press"
-action = "session.scroll"
-label = "Back"
-params = { by = 2 }
+control = "encoder.master"
+gesture = "turn_right"
+action = "media.volume_up"
+label = "Volume up"
 
 [[bindings]]
-control = "button.right"
-gesture = "press"
-action = "session.scroll"
-label = "Forward"
-params = { by = -2 }
+control = "encoder.master"
+gesture = "turn_left"
+action = "media.volume_down"
+label = "Volume down"
 
-# --- One pad per window ------------------------------------------------------
-# Eight pads on the bottom row, one per terminal device. A tap selects that
-# session and puts the last few lines of it on the screen; a hold brings its
-# window to the front.
-#
-# `tty:ttys000` is exact and stable for as long as that window is open. If you
-# would rather name them by what they are working on, write the words instead:
-#
-#   target = "Sprint 2"
-#
-# which matches any session whose title contains them, and keeps working when
-# the window moves to another device.
-#
-# A session opened this way stays on the screen until you look away. Tapping
-# another pad shows that one instead, and the button below returns you to the
-# eight.
+[[bindings]]
+control = "button.play"
+gesture = "press"
+action = "media.play_pause"
+label = "Play/Pause"
+
+# --- Acting on whichever session you are reading ------------------------------
+# One control each, serving all of them however many there are.
+
+[[bindings]]
+control = "button.stop"
+gesture = "press"
+action = "session.interrupt"
+label = "Interrupt"
+
+[[bindings]]
+control = "button.new"
+gesture = "press"
+action = "session.press"
+label = "Enter"
+params = { key = "enter" }
+
+[[bindings]]
+control = "button.duplicate"
+gesture = "press"
+action = "session.press"
+label = "Accept"
+params = { key = "tab" }
+
+[[bindings]]
+control = "button.undo"
+gesture = "press"
+action = "session.press"
+label = "Dismiss"
+params = { key = "escape" }
+
+[[bindings]]
+control = "button.setup"
+gesture = "press"
+action = "session.show"
+label = "What it said"
+
+# --- Session 1 -----------------------------------------------------------------
+
+[[bindings]]
+control = "button.upper_1"
+gesture = "press"
+action = "session.select"
+target = "slot:1"
+label = "Select 1"
+
+[[bindings]]
+control = "button.lower_1"
+gesture = "press"
+action = "session.show"
+target = "slot:1"
+label = "Open 1"
+
+[[bindings]]
+control = "pad.56"
+gesture = "tap"
+page = "sessions"
+action = "session.show"
+target = "slot:1"
+label = "Session 1"
+
+[[bindings]]
+control = "pad.56"
+gesture = "hold"
+page = "sessions"
+action = "session.focus"
+target = "slot:1"
+label = "Show window 1"
+
+# --- Session 2 -----------------------------------------------------------------
+
+[[bindings]]
+control = "button.upper_2"
+gesture = "press"
+action = "session.select"
+target = "slot:2"
+label = "Select 2"
+
+[[bindings]]
+control = "button.lower_2"
+gesture = "press"
+action = "session.show"
+target = "slot:2"
+label = "Open 2"
+
+[[bindings]]
+control = "pad.57"
+gesture = "tap"
+page = "sessions"
+action = "session.show"
+target = "slot:2"
+label = "Session 2"
+
+[[bindings]]
+control = "pad.57"
+gesture = "hold"
+page = "sessions"
+action = "session.focus"
+target = "slot:2"
+label = "Show window 2"
+
+# --- Session 3 -----------------------------------------------------------------
+
+[[bindings]]
+control = "button.upper_3"
+gesture = "press"
+action = "session.select"
+target = "slot:3"
+label = "Select 3"
+
+[[bindings]]
+control = "button.lower_3"
+gesture = "press"
+action = "session.show"
+target = "slot:3"
+label = "Open 3"
+
+[[bindings]]
+control = "pad.58"
+gesture = "tap"
+page = "sessions"
+action = "session.show"
+target = "slot:3"
+label = "Session 3"
+
+[[bindings]]
+control = "pad.58"
+gesture = "hold"
+page = "sessions"
+action = "session.focus"
+target = "slot:3"
+label = "Show window 3"
+
+# --- Session 4 -----------------------------------------------------------------
+
+[[bindings]]
+control = "button.upper_4"
+gesture = "press"
+action = "session.select"
+target = "slot:4"
+label = "Select 4"
+
+[[bindings]]
+control = "button.lower_4"
+gesture = "press"
+action = "session.show"
+target = "slot:4"
+label = "Open 4"
+
+[[bindings]]
+control = "pad.59"
+gesture = "tap"
+page = "sessions"
+action = "session.show"
+target = "slot:4"
+label = "Session 4"
+
+[[bindings]]
+control = "pad.59"
+gesture = "hold"
+page = "sessions"
+action = "session.focus"
+target = "slot:4"
+label = "Show window 4"
+
+# --- Session 5 -----------------------------------------------------------------
+
+[[bindings]]
+control = "button.upper_5"
+gesture = "press"
+action = "session.select"
+target = "slot:5"
+label = "Select 5"
+
+[[bindings]]
+control = "button.lower_5"
+gesture = "press"
+action = "session.show"
+target = "slot:5"
+label = "Open 5"
+
+[[bindings]]
+control = "pad.60"
+gesture = "tap"
+page = "sessions"
+action = "session.show"
+target = "slot:5"
+label = "Session 5"
+
+[[bindings]]
+control = "pad.60"
+gesture = "hold"
+page = "sessions"
+action = "session.focus"
+target = "slot:5"
+label = "Show window 5"
+
+# --- Session 6 -----------------------------------------------------------------
+
+[[bindings]]
+control = "button.upper_6"
+gesture = "press"
+action = "session.select"
+target = "slot:6"
+label = "Select 6"
+
+[[bindings]]
+control = "button.lower_6"
+gesture = "press"
+action = "session.show"
+target = "slot:6"
+label = "Open 6"
+
+[[bindings]]
+control = "pad.61"
+gesture = "tap"
+page = "sessions"
+action = "session.show"
+target = "slot:6"
+label = "Session 6"
+
+[[bindings]]
+control = "pad.61"
+gesture = "hold"
+page = "sessions"
+action = "session.focus"
+target = "slot:6"
+label = "Show window 6"
+
+# --- Session 7 -----------------------------------------------------------------
+
+[[bindings]]
+control = "button.upper_7"
+gesture = "press"
+action = "session.select"
+target = "slot:7"
+label = "Select 7"
+
+[[bindings]]
+control = "button.lower_7"
+gesture = "press"
+action = "session.show"
+target = "slot:7"
+label = "Open 7"
+
+[[bindings]]
+control = "pad.62"
+gesture = "tap"
+page = "sessions"
+action = "session.show"
+target = "slot:7"
+label = "Session 7"
+
+[[bindings]]
+control = "pad.62"
+gesture = "hold"
+page = "sessions"
+action = "session.focus"
+target = "slot:7"
+label = "Show window 7"
+
+# --- Session 8 -----------------------------------------------------------------
 
 [[bindings]]
 control = "button.upper_8"
 gesture = "press"
-page = "sessions"
-action = "page.home"
-label = "All eight"
+action = "session.select"
+target = "slot:8"
+label = "Select 8"
 
 [[bindings]]
-control = "pad.56"
-gesture = "tap"
-page = "sessions"
+control = "button.lower_8"
+gesture = "press"
 action = "session.show"
-target = "tty:ttys000"
-label = "ttys000"
-
-[[bindings]]
-control = "pad.56"
-gesture = "hold"
-page = "sessions"
-action = "session.focus"
-target = "tty:ttys000"
-label = "Show window"
-
-[[bindings]]
-control = "pad.57"
-gesture = "tap"
-page = "sessions"
-action = "session.show"
-target = "tty:ttys001"
-label = "ttys001"
-
-[[bindings]]
-control = "pad.57"
-gesture = "hold"
-page = "sessions"
-action = "session.focus"
-target = "tty:ttys001"
-label = "Show window"
-
-[[bindings]]
-control = "pad.58"
-gesture = "tap"
-page = "sessions"
-action = "session.show"
-target = "tty:ttys002"
-label = "ttys002"
-
-[[bindings]]
-control = "pad.58"
-gesture = "hold"
-page = "sessions"
-action = "session.focus"
-target = "tty:ttys002"
-label = "Show window"
-
-[[bindings]]
-control = "pad.59"
-gesture = "tap"
-page = "sessions"
-action = "session.show"
-target = "tty:ttys003"
-label = "ttys003"
-
-[[bindings]]
-control = "pad.59"
-gesture = "hold"
-page = "sessions"
-action = "session.focus"
-target = "tty:ttys003"
-label = "Show window"
-
-[[bindings]]
-control = "pad.60"
-gesture = "tap"
-page = "sessions"
-action = "session.show"
-target = "tty:ttys004"
-label = "ttys004"
-
-[[bindings]]
-control = "pad.60"
-gesture = "hold"
-page = "sessions"
-action = "session.focus"
-target = "tty:ttys004"
-label = "Show window"
-
-[[bindings]]
-control = "pad.61"
-gesture = "tap"
-page = "sessions"
-action = "session.show"
-target = "tty:ttys005"
-label = "ttys005"
-
-[[bindings]]
-control = "pad.61"
-gesture = "hold"
-page = "sessions"
-action = "session.focus"
-target = "tty:ttys005"
-label = "Show window"
-
-[[bindings]]
-control = "pad.62"
-gesture = "tap"
-page = "sessions"
-action = "session.show"
-target = "tty:ttys006"
-label = "ttys006"
-
-[[bindings]]
-control = "pad.62"
-gesture = "hold"
-page = "sessions"
-action = "session.focus"
-target = "tty:ttys006"
-label = "Show window"
+target = "slot:8"
+label = "Open 8"
 
 [[bindings]]
 control = "pad.63"
 gesture = "tap"
 page = "sessions"
 action = "session.show"
-target = "tty:ttys007"
-label = "ttys007"
+target = "slot:8"
+label = "Session 8"
 
 [[bindings]]
 control = "pad.63"
 gesture = "hold"
 page = "sessions"
 action = "session.focus"
-target = "tty:ttys007"
-label = "Show window"
+target = "slot:8"
+label = "Show window 8"
 
-# --- Answering ---------------------------------------------------------------
-# Every one of these acts on whichever session you last selected, so one pad
-# serves all eight.
-#
-# There are two ways to reply, and they are not the same thing. `session.send`
-# types a line and submits it, which is how you answer a question. `session.press`
+# --- Replying ----------------------------------------------------------------
+# There are two ways to reply and they are not the same. `session.send` types a
+# line and submits it, which is how you answer a question. `session.press`
 # presses a single key and submits nothing, which is how you accept what is
-# being suggested: Tab takes the suggestion and leaves it there for you to look
-# at, and Enter afterwards sends it.
+# being suggested: Tab takes it and leaves it there to read, and Enter sends it.
 
 [[bindings]]
-control = "pad.0"
+control = "pad.48"
 gesture = "tap"
 page = "answer"
 action = "session.send"
@@ -310,7 +478,7 @@ label = "Yes"
 params = { text = "y\n" }
 
 [[bindings]]
-control = "pad.1"
+control = "pad.49"
 gesture = "tap"
 page = "answer"
 action = "session.send"
@@ -318,25 +486,23 @@ label = "No"
 params = { text = "n\n" }
 
 [[bindings]]
-control = "pad.2"
+control = "pad.50"
 gesture = "tap"
 page = "answer"
-action = "session.send"
+action = "session.press"
 label = "Enter"
-params = { text = "\n" }
+params = { key = "enter" }
 
 [[bindings]]
-control = "pad.3"
+control = "pad.51"
 gesture = "tap"
 page = "answer"
 action = "session.send"
 label = "Continue"
 params = { text = "continue\n" }
 
-# Accepting a suggested follow-up. Tab takes it, and the pad beside it sends
-# it, so you can read what you are about to say before you say it.
 [[bindings]]
-control = "pad.4"
+control = "pad.52"
 gesture = "tap"
 page = "answer"
 action = "session.press"
@@ -344,7 +510,7 @@ label = "Accept"
 params = { key = "tab" }
 
 [[bindings]]
-control = "pad.5"
+control = "pad.53"
 gesture = "tap"
 page = "answer"
 action = "session.press"
@@ -352,8 +518,9 @@ label = "Send it"
 params = { key = "enter" }
 
 # Moving through a list of choices, for when a session is offering several.
+
 [[bindings]]
-control = "pad.9"
+control = "pad.54"
 gesture = "tap"
 page = "answer"
 action = "session.press"
@@ -361,41 +528,9 @@ label = "Up"
 params = { key = "up" }
 
 [[bindings]]
-control = "pad.10"
+control = "pad.55"
 gesture = "tap"
 page = "answer"
 action = "session.press"
 label = "Down"
 params = { key = "down" }
-
-[[bindings]]
-control = "pad.11"
-gesture = "tap"
-page = "answer"
-action = "session.press"
-label = "Dismiss"
-params = { key = "escape" }
-
-# Interrupting sends the control character, not the word, so a session waiting
-# at a prompt is stopped rather than told about stopping. On a hold, because
-# stopping something by brushing a pad would be worse than stopping it slowly.
-[[bindings]]
-control = "pad.7"
-gesture = "hold"
-page = "answer"
-action = "session.interrupt"
-label = "Interrupt"
-
-[[bindings]]
-control = "pad.8"
-gesture = "tap"
-page = "answer"
-action = "session.show"
-label = "What it said"
-
-[[bindings]]
-control = "button.upper_8"
-gesture = "press"
-page = "answer"
-action = "page.back"
-label = "Back"

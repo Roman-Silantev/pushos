@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use pushos_domain::action::{ActionContext, ActionResult, ActionStatus, DisplayIntent};
-use pushos_domain::attached::{Attached, AttachedTarget};
+use pushos_domain::attached::{Attached, AttachedTarget, BANK};
 use pushos_domain::error::{ActionError, ErrorClass};
 use pushos_domain::ids::{ActionVerb, AttachedId, ProviderName};
 use pushos_domain::permissions::Permission;
@@ -41,6 +41,12 @@ pub struct SessionProvider {
     /// without asking. A binding with no target acts on this one, the way it
     /// does for agents and terminals.
     selected: watch::Sender<Option<AttachedId>>,
+    /// Which bank of eight the surface is showing.
+    ///
+    /// Published, because the display draws that bank and the lights under the
+    /// pads have to agree with it. Eight pads serve any number of sessions by
+    /// moving this rather than by meaning something different.
+    bank: watch::Sender<usize>,
     /// How far back through what a session said the operator has scrolled.
     ///
     /// Lines from the bottom. Reset whenever they look at something else,
@@ -54,6 +60,7 @@ impl SessionProvider {
         Self {
             sessions,
             selected: watch::channel(None).0,
+            bank: watch::channel(0).0,
             scrolled: AtomicUsize::new(0),
         }
     }
@@ -61,6 +68,39 @@ impl SessionProvider {
     /// Follows which session the operator is looking at.
     pub fn watch(&self) -> watch::Receiver<Option<AttachedId>> {
         self.selected.subscribe()
+    }
+
+    /// Follows which bank of eight the surface is showing.
+    pub fn banked(&self) -> watch::Receiver<usize> {
+        self.bank.subscribe()
+    }
+
+    /// Where the bank starts, counted in sessions.
+    pub fn showing_from(&self) -> usize {
+        *self.bank.borrow()
+    }
+
+    /// Moves the bank, and reports where it left it.
+    ///
+    /// Clamped rather than wrapped: an operator paging through a list wants to
+    /// arrive at the end of it, not back at the beginning without noticing.
+    fn move_bank(&self, by: i64, open: usize) -> usize {
+        let last = open.saturating_sub(1) / BANK * BANK;
+        let held = self.showing_from();
+
+        let moved = if by >= 0 {
+            held.saturating_add(usize::try_from(by).unwrap_or(0).saturating_mul(BANK))
+        } else {
+            held.saturating_sub(
+                usize::try_from(by.unsigned_abs())
+                    .unwrap_or(0)
+                    .saturating_mul(BANK),
+            )
+        };
+
+        let moved = moved.min(last);
+        self.bank.send_replace(moved);
+        moved
     }
 
     /// The one the operator is looking at, if any.
@@ -93,6 +133,16 @@ impl SessionProvider {
                 })?;
 
         let open = self.sessions.discover().await.map_err(into_action_error)?;
+
+        if let AttachedTarget::Slot(at) = target {
+            // Counted within the bank in view, so a pad means "the third of
+            // these" and keeps that meaning as the bank moves.
+            let index = self.showing_from() + usize::from(at) - 1;
+            return open
+                .into_iter()
+                .nth(index)
+                .ok_or_else(|| invalid("nothing is open in that position"));
+        }
 
         if target == AttachedTarget::Selected {
             let held = self.selected();
@@ -213,6 +263,7 @@ impl ActionProvider for SessionProvider {
                 "select",
                 "next",
                 "previous",
+                "bank",
                 "show",
                 "scroll",
                 "focus",
@@ -259,6 +310,29 @@ impl ActionProvider for SessionProvider {
                 let forward = context.definition.selector.verb.as_str() == "next";
                 let session = self.step(forward).await?;
                 self.focused(&session).await
+            }
+
+            // Moving the eight the surface is showing, so any number of
+            // sessions is reachable from eight pads.
+            "bank" => {
+                let by = context
+                    .params()
+                    .get("by")
+                    .and_then(pushos_domain::action::ParamValue::as_integer)
+                    .unwrap_or(1);
+
+                let open = self.sessions.discover().await.map_err(into_action_error)?;
+                let from = self.move_bank(by, open.len());
+                let last = (from + BANK).min(open.len());
+
+                Ok(ActionResult {
+                    status: ActionStatus::Completed,
+                    message: Some(format!("{}-{last} of {}", from + 1, open.len())),
+                    display: Some(DisplayIntent::Toast {
+                        title: format!("sessions {}-{last}", from + 1),
+                        detail: Some(format!("of {}", open.len())),
+                    }),
+                })
             }
 
             "scroll" => {

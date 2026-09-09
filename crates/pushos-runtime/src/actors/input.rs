@@ -83,6 +83,9 @@ pub struct InputTask {
     /// for a session that is stuck on a question has to look different from
     /// seven that are not.
     attached: Option<watch::Receiver<Vec<pushos_domain::attached::Attached>>>,
+    /// Which bank of eight is being shown, so a pad naming a slot lights for
+    /// the session actually under it.
+    bank: Option<watch::Receiver<usize>>,
     /// What the sessions are doing, published by whoever is watching them.
     ///
     /// The latest list is the only one that matters, and a pipeline built for
@@ -133,6 +136,7 @@ impl InputTask {
             projects: None,
             listening: None,
             attached: None,
+            bank: None,
             config,
             bus,
             view,
@@ -163,8 +167,10 @@ impl InputTask {
     pub fn watching(
         mut self,
         attached: watch::Receiver<Vec<pushos_domain::attached::Attached>>,
+        bank: watch::Receiver<usize>,
     ) -> Self {
         self.attached = Some(attached);
+        self.bank = Some(bank);
         self
     }
 
@@ -238,6 +244,12 @@ impl InputTask {
 
                 moved = wait_for_attached(self.attached.as_mut()) => {
                     if moved {
+                        self.publish();
+                    }
+                }
+
+                banked = wait_for_bank(self.bank.as_mut()) => {
+                    if banked {
                         self.publish();
                     }
                 }
@@ -436,18 +448,25 @@ impl InputTask {
             .as_ref()
             .map(|held| held.borrow().clone())
             .unwrap_or_default();
+        let from = self.bank.as_ref().map_or(0, |bank| *bank.borrow());
         // A dropped receiver means the renderer is gone, which shutdown handles.
-        let _ = self.view.send(build_view(&self.surface, &sessions));
+        let _ = self.view.send(build_view(&self.surface, &sessions, from));
     }
 }
 
 fn build_view(
     surface: &SurfaceState,
     sessions: &[pushos_domain::attached::Attached],
+    from: usize,
 ) -> SurfaceView {
     let context = surface.context(false);
     SurfaceView {
-        leds: Arc::new(leds::plan_for(surface.config(), &context, sessions)),
+        leds: Arc::new(leds::plan_showing(
+            surface.config(),
+            &context,
+            sessions,
+            from,
+        )),
         snapshot: Arc::new(surface.snapshot()),
         context,
     }
@@ -481,6 +500,14 @@ async fn wait_for_attached(
 ) -> bool {
     match attached {
         Some(attached) => attached.changed().await.is_ok(),
+        None => std::future::pending().await,
+    }
+}
+
+/// Waits for the bank being shown to move, or forever when none is watched.
+async fn wait_for_bank(bank: Option<&mut watch::Receiver<usize>>) -> bool {
+    match bank {
+        Some(bank) => bank.changed().await.is_ok(),
         None => std::future::pending().await,
     }
 }

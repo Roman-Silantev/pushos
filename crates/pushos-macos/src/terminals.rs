@@ -184,7 +184,13 @@ impl AttachedSessions for TerminalAppSessions {
         let reply = self.ask(DISCOVER, &[GLANCE.to_string()]).await?;
 
         let records = reply.split(RECORD).filter(|r| !r.trim().is_empty()).count();
-        let found: Vec<Attached> = reply.split(RECORD).filter_map(parse).collect();
+        let mut found: Vec<Attached> = reply.split(RECORD).filter_map(parse).collect();
+
+        // By device, which is the one thing a window cannot change about
+        // itself. Terminal answers in whatever order it likes, and a pad that
+        // meant a different session each time it was polled would be worse
+        // than no pad at all.
+        found.sort_by(|left, right| left.id.as_str().cmp(right.id.as_str()));
 
         // A reply too long to hand back is cut from the front, which loses
         // whole windows silently. Saying so beats an operator counting seven

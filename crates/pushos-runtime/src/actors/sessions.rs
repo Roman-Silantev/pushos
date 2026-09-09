@@ -31,6 +31,8 @@ pub(crate) struct SessionPublisher {
     attached: Option<watch::Receiver<Vec<pushos_domain::attached::Attached>>>,
     /// Which of those the operator is looking at.
     looking_at: Option<watch::Receiver<Option<pushos_domain::ids::AttachedId>>>,
+    /// Which bank of eight the surface is showing.
+    bank: Option<watch::Receiver<usize>>,
     refresh: SessionRefresh,
 }
 
@@ -54,6 +56,7 @@ impl SessionPublisher {
             workflows: None,
             attached: None,
             looking_at: None,
+            bank: None,
             refresh,
         }
     }
@@ -81,9 +84,11 @@ impl SessionPublisher {
         mut self,
         found: watch::Receiver<Vec<pushos_domain::attached::Attached>>,
         looking_at: watch::Receiver<Option<pushos_domain::ids::AttachedId>>,
+        bank: watch::Receiver<usize>,
     ) -> Self {
         self.attached = Some(found);
         self.looking_at = Some(looking_at);
+        self.bank = Some(bank);
         self
     }
 
@@ -121,14 +126,38 @@ impl SessionPublisher {
                 .looking_at
                 .as_ref()
                 .and_then(|held| held.borrow().clone());
-            lines.extend(super::attached_lines(
-                &attached.borrow(),
-                looking_at.as_ref(),
-            ));
+            let from = self.bank.as_ref().map_or(0, |bank| *bank.borrow());
+
+            // Only the bank in view, and in the order they were found rather
+            // than by urgency: these are on eight pads, and a pad must not
+            // change meaning while the operator is looking at it.
+            let open = attached.borrow();
+            let showing = open
+                .iter()
+                .skip(from)
+                .take(pushos_domain::attached::BANK)
+                .cloned()
+                .collect::<Vec<_>>();
+            return merge_with_sessions(
+                lines,
+                super::attached_lines(&showing, looking_at.as_ref()),
+            );
         }
 
         merge(lines)
     }
+}
+
+/// Merges what PushOS runs with what it merely watches.
+///
+/// The watched ones keep the order they were found in and take the columns
+/// after PushOS's own, because they are on pads and a pad must not change
+/// meaning under a finger. Only PushOS's own are ordered by urgency.
+fn merge_with_sessions(mine: Vec<SessionLine>, watched: Vec<SessionLine>) -> Vec<SessionLine> {
+    let mut all = merge(mine);
+    let room = SLOT_COUNT.saturating_sub(all.len());
+    all.extend(watched.into_iter().take(room));
+    all
 }
 
 /// Merges everything that is running into the lines the display shows.

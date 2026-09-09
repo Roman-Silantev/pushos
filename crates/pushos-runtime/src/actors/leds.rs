@@ -32,20 +32,21 @@ const ADVERTISED: [Gesture; 5] = [
 ];
 
 /// Builds the light plan for the current surface.
-pub(crate) fn plan_for(
+pub(crate) fn plan_showing(
     config: &RuntimeConfig,
     context: &SurfaceContext,
     sessions: &[Attached],
+    from: usize,
 ) -> LedPlan {
     let mut plan = LedPlan::new();
 
     for pad in PadIndex::all() {
         let control = ControlId::Pad(pad);
-        plan.set(control, light_for(config, context, control, sessions));
+        plan.set(control, light_for(config, context, control, sessions, from));
     }
 
     for control in ControlId::all().filter(|control| matches!(control, ControlId::Button(_))) {
-        plan.set(control, light_for(config, context, control, sessions));
+        plan.set(control, light_for(config, context, control, sessions, from));
     }
 
     plan
@@ -64,6 +65,7 @@ fn session_on(
     context: &SurfaceContext,
     control: ControlId,
     sessions: &[Attached],
+    from: usize,
 ) -> Option<Activity> {
     let target: AttachedTarget = ADVERTISED
         .iter()
@@ -79,6 +81,14 @@ fn session_on(
         .and_then(|binding| binding.action.params.text("target"))
         .and_then(|written| written.parse().ok())?;
 
+    // A slot is a position in the bank being shown, so it is resolved the same
+    // way the provider resolves it. Anything else answers for itself.
+    if let AttachedTarget::Slot(at) = target {
+        return sessions
+            .get(from + usize::from(at) - 1)
+            .map(|session| session.activity);
+    }
+
     sessions
         .iter()
         .find(|session| target.matches(session))
@@ -90,10 +100,11 @@ fn light_for(
     context: &SurfaceContext,
     control: ControlId,
     sessions: &[Attached],
+    from: usize,
 ) -> LedState {
     // What a session is doing outranks the fact that a pad is bound: the pad
     // being bound is what the operator already knows.
-    if let Some(activity) = session_on(config, context, control, sessions) {
+    if let Some(activity) = session_on(config, context, control, sessions, from) {
         return LedState::from_status(activity.status_color());
     }
 
@@ -149,7 +160,7 @@ mod tests {
             "#
         ));
 
-        let plan = plan_for(&config, &SurfaceContext::empty(), &[]);
+        let plan = plan_showing(&config, &SurfaceContext::empty(), &[], 0);
         let lit: Vec<_> = plan
             .states()
             .iter()
@@ -172,8 +183,8 @@ mod tests {
             "#
         ));
 
-        let on_home = plan_for(&config, &SurfaceContext::empty().on_page("home"), &[]);
-        let on_music = plan_for(&config, &SurfaceContext::empty().on_page("music"), &[]);
+        let on_home = plan_showing(&config, &SurfaceContext::empty().on_page("home"), &[], 0);
+        let on_music = plan_showing(&config, &SurfaceContext::empty().on_page("music"), &[], 0);
 
         assert_eq!(
             on_home
@@ -204,7 +215,7 @@ mod tests {
             "#
         ));
 
-        let plan = plan_for(&config, &SurfaceContext::empty(), &[]);
+        let plan = plan_showing(&config, &SurfaceContext::empty(), &[], 0);
         assert!(
             plan.states()
                 .iter()
@@ -214,7 +225,7 @@ mod tests {
 
     #[test]
     fn a_plan_covers_every_pad_and_button_and_nothing_else() {
-        let plan = plan_for(&config(PAGES), &SurfaceContext::empty(), &[]);
+        let plan = plan_showing(&config(PAGES), &SurfaceContext::empty(), &[], 0);
         assert!(
             plan.states()
                 .iter()
@@ -243,8 +254,8 @@ mod tests {
             "#
         ));
 
-        let on_home = plan_for(&config, &SurfaceContext::empty().on_page("home"), &[]);
-        let on_music = plan_for(&config, &SurfaceContext::empty().on_page("music"), &[]);
+        let on_home = plan_showing(&config, &SurfaceContext::empty().on_page("home"), &[], 0);
+        let on_music = plan_showing(&config, &SurfaceContext::empty().on_page("music"), &[], 0);
 
         let changes = on_music.changes_from(&on_home);
         assert_eq!(changes.len(), 1, "only pad 1 differs between the two pages");

@@ -214,13 +214,28 @@ pub enum AttachedTarget {
     Titled(String),
     /// The one the operator most recently selected.
     Selected,
+    /// The session in this position of what the surface is currently showing.
+    ///
+    /// One-based, and counted within the bank of eight in view, so a pad means
+    /// "the third of these" rather than one particular window. That is what
+    /// lets eight pads serve any number of sessions: the bank moves and the
+    /// pads keep their meaning.
+    Slot(u8),
 }
+
+/// How many sessions the surface shows at once.
+///
+/// Eight, because there are eight pads in a row, eight buttons under the
+/// screen and eight columns on it. Anything else would need an operator to
+/// count across.
+pub const BANK: usize = 8;
 
 impl fmt::Display for AttachedTarget {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Device(device) => write!(f, "tty:{device}"),
             Self::Titled(title) => write!(f, "title:{title}"),
+            Self::Slot(at) => write!(f, "slot:{at}"),
             Self::Selected => f.write_str("selected"),
         }
     }
@@ -246,6 +261,17 @@ impl FromStr for AttachedTarget {
             } else {
                 Ok(Self::Device(device.to_owned()))
             };
+        }
+        if let Some(at) = text.strip_prefix("slot:") {
+            return at
+                .trim()
+                .parse::<u8>()
+                .ok()
+                .filter(|at| (1..=BANK_MAX).contains(at))
+                .map(Self::Slot)
+                .ok_or(MalformedTarget {
+                    written: text.to_owned(),
+                });
         }
         if let Some(title) = text.strip_prefix("title:") {
             let title = title.trim();
@@ -275,15 +301,26 @@ impl AttachedTarget {
                 session.id.as_str() == device || session.device() == device.trim_start_matches('/')
             }
             Self::Titled(words) => session.title.to_lowercase().contains(&words.to_lowercase()),
-            // Answered by whoever holds the selection, not by a session.
-            Self::Selected => false,
+            // Both answered by whoever holds the surface rather than by a
+            // session: one is a position among others, and the other is a
+            // choice. Neither is something a session can know about itself.
+            Self::Slot(_) | Self::Selected => false,
         }
     }
 }
 
+/// The highest slot a pad may name.
+///
+/// The same eight as [`BANK`], written in the type a slot is counted in. The
+/// two are kept in step by a test rather than by arithmetic, because a bank is
+/// a handful of controls on a physical surface and not a number that grows.
+const BANK_MAX: u8 = 8;
+
 /// A target that is not written in a form PushOS understands.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-#[error("`{written}` is not a session; write `tty:ttys003`, `title:some words`, or `selected`")]
+#[error(
+    "`{written}` is not a session; write `tty:ttys003`, `title:some words`, `slot:3` or `selected`"
+)]
 pub struct MalformedTarget {
     /// What was written.
     pub written: String,
@@ -428,7 +465,7 @@ mod tests {
 
     #[test]
     fn a_target_survives_being_written_down_and_read_back() {
-        for written in ["tty:ttys003", "title:sprint 2 setup", "selected"] {
+        for written in ["tty:ttys003", "title:sprint 2 setup", "slot:3", "selected"] {
             let target: AttachedTarget = written.parse().expect("well formed");
             assert_eq!(target.to_string(), written);
         }
@@ -442,6 +479,39 @@ mod tests {
             "Sprint 2".parse::<AttachedTarget>().expect("well formed"),
             AttachedTarget::Titled("Sprint 2".to_owned())
         );
+    }
+
+    #[test]
+    fn a_slot_may_name_every_control_in_the_bank_and_no_more() {
+        assert_eq!(usize::from(BANK_MAX), BANK, "the two must stay in step");
+    }
+
+    #[test]
+    fn a_slot_outside_the_bank_is_refused() {
+        // There are eight pads in a row. A binding naming a ninth would be one
+        // that never fired, and never saying so is worse than refusing it.
+        for written in ["slot:0", "slot:9", "slot:100", "slot:x", "slot:"] {
+            assert!(
+                written.parse::<AttachedTarget>().is_err(),
+                "`{written}` should be refused"
+            );
+        }
+        for at in 1..=8 {
+            assert_eq!(
+                format!("slot:{at}")
+                    .parse::<AttachedTarget>()
+                    .expect("valid"),
+                AttachedTarget::Slot(at)
+            );
+        }
+    }
+
+    #[test]
+    fn a_slot_is_answered_by_the_surface_rather_than_by_a_session() {
+        // A session cannot know where it sits among the others, any more than
+        // it can know whether it is the selected one.
+        let session = session("/dev/ttys003", "Anything");
+        assert!(!AttachedTarget::Slot(1).matches(&session));
     }
 
     #[test]
