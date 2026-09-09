@@ -5,10 +5,12 @@
 //! worth. A header carrying what it is and what it is doing, and under that as
 //! many lines of what it last said as will fit.
 //!
-//! The mark on the left is the mascot, at the size of the header and drawn in
-//! PushOS's own orange. It moves while the thing being watched is working and
-//! stands still when it is not, so the state is legible from across a desk
-//! before a word has been read.
+//! The mark on the left is the star, drawn in PushOS's own orange. It breathes
+//! while the thing being watched is working and sits still when it is not, so
+//! the state is legible from across a desk before a word has been read. It
+//! breathes rather than hops because it stands for the work rather than for
+//! PushOS, and a status light that jumped about would be harder to read than
+//! one that does not move at all.
 
 use pushos_domain::color::Rgb;
 
@@ -32,19 +34,15 @@ const RULE: f32 = 1.0;
 const RULE_GAP: f32 = 6.0;
 /// Space between lines of what was said.
 const LINE_GAP: f32 = 3.0;
-/// Side of one quadrant of the mascot.
+/// Side of one quadrant of the star.
 ///
-/// The burst is eleven quadrants square, so this is what decides how much of
-/// the panel it takes. Big enough to be the mark rather than a smudge: a
-/// glance at this screen should say whose surface it is and whether the thing
-/// being watched is moving, before a word has been read.
-const QUADRANT: f32 = 6.0;
+/// The star is nine quadrants square, so this is what decides how much of the
+/// panel it takes. Big enough to be the mark rather than a smudge.
+const QUADRANT: f32 = 7.0;
 /// Gap between those quadrants.
 const QUADRANT_GAP: f32 = 2.0;
-/// Space between the mascot and the words beside it.
+/// Space between the star and the words beside it.
 const MARK_GAP: f32 = 16.0;
-/// Room left above the mascot for it to hop into.
-const HOP_ROOM: f32 = 14.0;
 /// Width of the bar that repeats the state at the right.
 const BAR_WIDTH: f32 = 64.0;
 /// Height of that bar.
@@ -70,18 +68,13 @@ pub(crate) fn draw_focus(
     let inner = panel.inset(PADDING);
     let colour = tone_color(theme, focus.tone);
 
-    // The mascot takes a column down the left and the words take the rest, so
-    // it is a part of the layout rather than something perched on top of it.
+    // The star takes a column down the left and the words take the rest, so it
+    // is a part of the layout rather than something perched on top of it.
     let (mark_width, mark_height) = mascot.measure(QUADRANT, QUADRANT_GAP);
     let phase = if focus.is_animated() { frame } else { 0 };
     mascot.draw(
         canvas,
-        // Sitting a little below centre, so the room it hops into is above it
-        // rather than off the top of the panel.
-        (
-            inner.x,
-            inner.y + (inner.height - mark_height) / 2.0 + HOP_ROOM / 2.0,
-        ),
+        (inner.x, inner.y + (inner.height - mark_height) / 2.0),
         QUADRANT,
         QUADRANT_GAP,
         phase,

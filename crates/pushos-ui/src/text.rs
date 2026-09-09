@@ -18,6 +18,59 @@ const FONT_BYTES: &[u8] = include_bytes!("../../../assets/fonts/Inter.ttf");
 /// What is appended when text has to be cut short.
 const ELLIPSIS: char = '\u{2026}';
 
+/// What a character the typeface has no glyph for is drawn as instead.
+///
+/// PushOS shows text it did not write: a terminal's screen is full of box
+/// rules, spinners, arrows and whatever else the program inside chose to draw
+/// with. A typeface small enough to compile into the binary will not have all
+/// of it, and the alternative to substituting is a row of empty rectangles,
+/// which tells an operator nothing and looks broken.
+///
+/// Anything not listed and not in the typeface is dropped rather than
+/// guessed at.
+const SUBSTITUTES: &[(char, char)] = &[
+    // Box drawing and rules, of which a terminal screen is mostly made.
+    ('\u{2500}', '-'),
+    ('\u{2501}', '-'),
+    ('\u{2550}', '='),
+    ('\u{2502}', '|'),
+    ('\u{2503}', '|'),
+    ('\u{2551}', '|'),
+    // Arrows, which agents use to point at what they are waiting for.
+    ('\u{2190}', '<'),
+    ('\u{2192}', '>'),
+    ('\u{2191}', '^'),
+    ('\u{2193}', 'v'),
+    ('\u{25b6}', '>'),
+    ('\u{25c0}', '<'),
+    ('\u{23f5}', '>'),
+    // Bullets and marks.
+    ('\u{2022}', '.'),
+    ('\u{00b7}', '.'),
+    ('\u{2713}', '+'),
+    ('\u{2714}', '+'),
+    ('\u{2717}', 'x'),
+    ('\u{2718}', 'x'),
+    ('\u{2733}', '*'),
+    ('\u{2736}', '*'),
+    ('\u{273b}', '*'),
+    // The spinner frames a coding agent turns in its own output.
+    ('\u{25d0}', 'o'),
+    ('\u{25d1}', 'o'),
+    ('\u{25d2}', 'o'),
+    ('\u{25d3}', 'o'),
+    ('\u{2588}', '#'),
+    ('\u{2591}', '.'),
+    ('\u{2592}', ':'),
+    ('\u{2593}', '#'),
+    // What a coding agent draws around its own tool calls.
+    ('\u{23fa}', '*'),
+    ('\u{23f8}', '='),
+    ('\u{23fb}', 'o'),
+    ('\u{29c9}', '#'),
+    ('\u{23bf}', 'L'),
+];
+
 /// How a run of text should be drawn.
 ///
 /// Grouping these keeps [`TextRenderer::draw`] to three arguments and makes a
@@ -99,9 +152,38 @@ impl TextRenderer {
 
     /// How wide `text` would be at `size`.
     pub fn width(&mut self, text: &str, size: f32) -> f32 {
-        text.chars()
+        // Collected before measuring, because deciding what is drawable reads
+        // the typeface and measuring writes to the glyph cache.
+        let drawable: Vec<char> = text.chars().filter_map(|c| self.readable(c)).collect();
+        drawable
+            .into_iter()
             .map(|character| self.advance(character, size))
             .sum()
+    }
+
+    /// Whether the typeface can draw a character at all.
+    ///
+    /// Public so a development tool can report what a terminal draws that this
+    /// typeface does not have, which is how the substitution list was written.
+    pub fn can_draw(&self, character: char) -> bool {
+        self.font.has_glyph(character)
+    }
+
+    /// The character to draw in place of one the typeface cannot.
+    ///
+    /// `None` when there is nothing sensible: a character nobody can read is
+    /// worse than a gap, because a row of empty rectangles reads as a fault in
+    /// PushOS rather than as a glyph somebody else chose.
+    fn readable(&self, character: char) -> Option<char> {
+        if character.is_whitespace() || self.font.has_glyph(character) {
+            return Some(character);
+        }
+
+        SUBSTITUTES
+            .iter()
+            .find(|(from, _)| *from == character)
+            .map(|(_, to)| *to)
+            .filter(|to| self.font.has_glyph(*to))
     }
 
     /// The distance from one baseline to the next at `size`.
@@ -142,8 +224,10 @@ impl TextRenderer {
 
     /// Shortens `text` so it fits within `max_width`, appending an ellipsis.
     pub fn truncate(&mut self, text: &str, size: f32, max_width: f32) -> String {
+        // Substituted here as well as measured, so what is drawn is exactly
+        // what was measured and nothing tofu reaches the panel.
         if self.width(text, size) <= max_width {
-            return text.to_owned();
+            return text.chars().filter_map(|c| self.readable(c)).collect();
         }
 
         let ellipsis = self.advance(ELLIPSIS, size);
@@ -152,9 +236,10 @@ impl TextRenderer {
             return String::new();
         }
 
+        let drawable: Vec<char> = text.chars().filter_map(|c| self.readable(c)).collect();
         let mut kept = String::new();
         let mut used = 0.0;
-        for character in text.chars() {
+        for character in drawable {
             let advance = self.advance(character, size);
             if used + advance > budget {
                 break;
@@ -241,6 +326,87 @@ pub struct FontUnavailable {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn nothing_the_typeface_cannot_draw_reaches_the_panel() {
+        // PushOS shows text it did not write. A terminal screen is full of box
+        // rules, spinners and arrows, and a row of empty rectangles reads as a
+        // fault in PushOS rather than as a glyph somebody else chose.
+        let mut text = super::TextRenderer::embedded().expect("the font is compiled in");
+        let screen =
+            "\u{2500}\u{2500}\u{2502} \u{25d0} working \u{2190} back \u{2713} done \u{2588}";
+
+        let drawn = text.truncate(screen, 12.0, 1_000.0);
+        for character in drawn.chars() {
+            assert!(
+                character.is_whitespace() || text.font.has_glyph(character),
+                "`{character}` would be drawn as an empty rectangle"
+            );
+        }
+    }
+
+    #[test]
+    fn a_substituted_line_still_says_what_it_said() {
+        let mut text = super::TextRenderer::embedded().expect("the font is compiled in");
+        // A rule and a spinner, both of which this typeface lacks and both of
+        // which a coding session draws constantly.
+        let drawn = text.truncate("\u{2500}\u{2500} \u{25d0} 3 failed", 12.0, 1_000.0);
+
+        assert!(drawn.contains("3 failed"), "the words survive: {drawn}");
+        assert!(
+            drawn.contains("--"),
+            "and the rule becomes something: {drawn}"
+        );
+        assert!(drawn.contains('o'), "and so does the spinner: {drawn}");
+    }
+
+    #[test]
+    fn every_character_a_coding_session_draws_is_readable() {
+        // Written from what one actually puts on screen, checked against the
+        // typeface rather than assumed.
+        let mut text = super::TextRenderer::embedded().expect("the font is compiled in");
+        let seen = "\u{2500}\u{2502}\u{25d0}\u{2733}\u{23f5}\u{2714}\u{2718}\u{2588}";
+
+        let drawn = text.truncate(seen, 12.0, 1_000.0);
+        assert_eq!(
+            drawn.chars().count(),
+            seen.chars().count(),
+            "every one of these has a stand-in: {drawn}"
+        );
+    }
+
+    #[test]
+    fn a_character_with_no_sensible_stand_in_is_dropped_rather_than_guessed() {
+        let mut text = super::TextRenderer::embedded().expect("the font is compiled in");
+        // A private-use glyph from somebody's patched terminal font.
+        let odd = '\u{1f680}';
+        assert!(
+            !text.can_draw(odd),
+            "this test needs a character it cannot draw"
+        );
+
+        let drawn = text.truncate(&format!("before {odd} after"), 12.0, 1_000.0);
+        assert!(!drawn.contains(odd), "{drawn}");
+        assert!(drawn.contains("before"), "{drawn}");
+        assert!(drawn.contains("after"), "{drawn}");
+    }
+
+    #[test]
+    fn what_is_measured_is_what_is_drawn() {
+        // Measuring the original and drawing the substitute would put text in
+        // the wrong place, and centred text somewhere else entirely.
+        let mut text = super::TextRenderer::embedded().expect("the font is compiled in");
+        let original = "\u{2500}\u{2500}\u{2500} done";
+
+        let measured = text.width(original, 12.0);
+        let drawn = text.truncate(original, 12.0, 1_000.0);
+        let redrawn = text.width(&drawn, 12.0);
+
+        assert!(
+            (measured - redrawn).abs() < 0.01,
+            "measured {measured} but would draw {redrawn}"
+        );
+    }
+
     use pushos_domain::ports::DisplayFrame;
 
     use super::*;

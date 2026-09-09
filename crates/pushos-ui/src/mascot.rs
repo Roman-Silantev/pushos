@@ -9,27 +9,35 @@ use pushos_domain::color::Rgb;
 
 use crate::canvas::{Area, Canvas};
 
-/// The artwork, one character per cell.
+/// The mascot, one character per quadrant.
 ///
-/// A burst: four long rays and four short ones, which is the mark Claude is
-/// drawn with. Written out rather than composed from block characters because
-/// what matters is that a person can see the shape in the source and change
-/// it, and because the block characters made it read as a solid blob with
-/// flecks beside it rather than as anything.
-///
-/// `#` is the body, which sweeps. `+` is a tip, which twinkles.
+/// `#` is the body, which sweeps and hops. `+` is a fleck, which twinkles and
+/// stays where it is, so the hop reads as the mascot moving rather than the
+/// whole picture sliding.
 const ART: &[&str] = &[
-    ".....+.....",
-    ".....#.....",
-    "..+..#..+..",
-    "...#.#.#...",
-    "....###....",
-    "+#.#####.#+",
-    "....###....",
-    "...#.#.#...",
-    "..+..#..+..",
-    ".....#.....",
-    ".....+.....",
+    "########.....",
+    "##########...",
+    "##########...",
+    "########.....",
+    ".......+..+.+",
+];
+
+/// The star, one character per quadrant.
+///
+/// A burst of four long rays and four short ones. It pulses where the mascot
+/// hops: it stands for something being worked on rather than for PushOS
+/// itself, and a status light that jumped about would be harder to read at a
+/// glance than one that breathes.
+const STAR: &[&str] = &[
+    "....+....",
+    "....#....",
+    "..+.#.+..",
+    "...###...",
+    "+#######+",
+    "...###...",
+    "..+.#.+..",
+    "....#....",
+    "....+....",
 ];
 
 /// The mascot's colour.
@@ -77,12 +85,25 @@ pub struct Mascot {
     quadrants: Vec<Quadrant>,
     width: u16,
     height: u16,
+    /// Whether it leaves the ground.
+    hops: bool,
 }
 
 impl Mascot {
     /// Builds the mascot from its artwork.
     pub fn new() -> Self {
         Self::from_art(ART)
+    }
+
+    /// Builds the star.
+    ///
+    /// The same geometry, a different shape and a different movement: this one
+    /// breathes rather than hops, because it stands for something being worked
+    /// on and a status light that jumped about would be harder to read.
+    pub fn star() -> Self {
+        let mut star = Self::from_art(STAR);
+        star.hops = false;
+        star
     }
 
     fn from_art(art: &[&str]) -> Self {
@@ -109,6 +130,7 @@ impl Mascot {
         let height = u16::try_from(art.len()).unwrap_or(0);
         Self {
             quadrants,
+            hops: true,
             width,
             height,
         }
@@ -167,8 +189,12 @@ impl Mascot {
         let step = quadrant + gap;
         // The body hops; the flecks around it stay where they are, which is
         // what makes the hop read as the mascot moving rather than the whole
-        // picture sliding.
-        let hop = Self::lift(phase) * step;
+        // picture sliding. The star does not hop at all.
+        let hop = if self.hops {
+            Self::lift(phase) * step
+        } else {
+            0.0
+        };
 
         for cell in &self.quadrants {
             let area = Area::new(
@@ -186,7 +212,18 @@ impl Mascot {
     }
 
     /// How bright one quadrant is at a given point in the animation.
+    ///
+    /// The mascot has a highlight travelling across it. The star breathes
+    /// instead: the whole body rises and falls together, which is what a thing
+    /// that is working looks like and what a thing that is not does not.
     fn brightness(&self, cell: Quadrant, phase: u32) -> f32 {
+        if !self.hops && !cell.sparkle {
+            #[allow(clippy::cast_precision_loss)]
+            let through = (phase % SWEEP_STEPS) as f32 / SWEEP_STEPS as f32;
+            let breath = (through * std::f32::consts::TAU).cos();
+            return FLOOR + (1.0 - FLOOR) * (0.5 + breath / 2.0);
+        }
+
         if cell.sparkle {
             // Sparkles blink out of step with each other, so the flecks look
             // scattered rather than synchronised.
@@ -225,8 +262,8 @@ mod tests {
 
         // The longer line is fourteen characters ending in a right-hand
         // quadrant, so twenty-eight across, and two lines is four down.
-        assert_eq!(width, 11, "as wide as the artwork");
-        assert_eq!(height, 11, "and as tall, because a burst is square");
+        assert_eq!(width, 13, "as wide as the artwork");
+        assert_eq!(height, 5, "and as tall");
         assert!(mascot.quadrant_count() > 20, "the body should be solid");
     }
 
@@ -246,40 +283,65 @@ mod tests {
 
     #[test]
     fn the_artwork_uses_only_marks_the_mascot_knows() {
-        for line in ART {
-            for character in line.chars() {
-                assert!(
-                    matches!(character, '#' | '+' | '.'),
-                    "`{character}` is in the artwork and draws nothing"
-                );
+        for art in [ART, STAR] {
+            for line in art {
+                for character in line.chars() {
+                    assert!(
+                        matches!(character, '#' | '+' | '.'),
+                        "`{character}` is in the artwork and draws nothing"
+                    );
+                }
             }
         }
     }
 
     #[test]
-    fn the_burst_is_symmetrical() {
+    fn the_star_is_symmetrical() {
         // It is a mark rather than a picture, and a lopsided one would look
         // like a mistake at every size.
-        for row in ART {
+        for row in STAR {
             let forwards: Vec<char> = row.chars().collect();
             let backwards: Vec<char> = row.chars().rev().collect();
             assert_eq!(forwards, backwards, "`{row}` is not the same both ways");
         }
 
-        let flipped: Vec<&&str> = ART.iter().rev().collect();
-        let upright: Vec<&&str> = ART.iter().collect();
-        assert_eq!(upright, flipped, "the burst is not the same way up");
+        let flipped: Vec<&&str> = STAR.iter().rev().collect();
+        let upright: Vec<&&str> = STAR.iter().collect();
+        assert_eq!(upright, flipped, "the star is not the same way up");
     }
 
     #[test]
-    fn the_tips_twinkle_and_the_body_sweeps() {
-        let mascot = Mascot::new();
-        let tips = mascot.quadrants.iter().filter(|cell| cell.sparkle).count();
-        assert_eq!(tips, 8, "a burst has eight points");
-        assert!(
-            mascot.quadrant_count() > tips,
-            "and a body to hang them off"
-        );
+    fn the_mascot_hops_and_the_star_does_not() {
+        // The star stands for the work rather than for PushOS, and a status
+        // light that jumped about would be harder to read at a glance than one
+        // that breathes.
+        assert!(Mascot::new().hops);
+        assert!(!Mascot::star().hops);
+    }
+
+    #[test]
+    fn the_star_breathes_rather_than_being_swept_across() {
+        // A highlight travelling across it would say "something is moving
+        // through here"; rising and falling together says "this is alive".
+        let star = Mascot::star();
+        let body = star
+            .quadrants
+            .iter()
+            .find(|cell| !cell.sparkle)
+            .copied()
+            .expect("the star has a body");
+
+        let brightest = star.brightness(body, 0);
+        let dimmest = star.brightness(body, SWEEP_STEPS / 2);
+        assert!(brightest > dimmest, "it should rise and fall");
+
+        // Every part of the body together, rather than one part at a time.
+        for cell in star.quadrants.iter().filter(|cell| !cell.sparkle) {
+            assert!(
+                (star.brightness(*cell, 0) - brightest).abs() < f32::EPSILON,
+                "the whole body should breathe together"
+            );
+        }
     }
 
     #[test]
@@ -287,9 +349,9 @@ mod tests {
         let mascot = Mascot::new();
         let (width, height) = mascot.measure(10.0, 2.0);
 
-        // Eleven quadrants of ten with ten two-pixel gaps.
-        assert!((width - (11.0 * 12.0 - 2.0)).abs() < f32::EPSILON);
-        assert!((height - (11.0 * 12.0 - 2.0)).abs() < f32::EPSILON);
+        // Thirteen quadrants of ten with twelve two-pixel gaps, by five.
+        assert!((width - (13.0 * 12.0 - 2.0)).abs() < f32::EPSILON);
+        assert!((height - (5.0 * 12.0 - 2.0)).abs() < f32::EPSILON);
     }
 
     #[test]

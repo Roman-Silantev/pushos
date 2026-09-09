@@ -24,6 +24,7 @@ pub struct PushRenderer {
     theme: Theme,
     layout: Layout,
     mascot: Mascot,
+    star: Mascot,
     last: Option<UiSnapshot>,
 }
 
@@ -41,6 +42,7 @@ impl PushRenderer {
             theme,
             layout: Layout::standard(),
             mascot: Mascot::new(),
+            star: Mascot::star(),
             last: None,
         })
     }
@@ -104,7 +106,7 @@ impl PushRenderer {
                 &mut self.canvas,
                 &mut self.text,
                 &self.theme,
-                &self.mascot,
+                &self.star,
                 focus,
                 snapshot.frame,
             );
