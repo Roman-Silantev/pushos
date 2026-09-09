@@ -20,14 +20,25 @@ const TALLNESS: f32 = 2.0;
 
 /// The mascot, one character per quadrant.
 ///
-/// `#` is the body, which sweeps and hops. `+` is a fleck, which twinkles and
-/// stays where it is, so the hop reads as the mascot moving rather than the
-/// whole picture sliding.
+/// Clawd, as the Claude Code command line draws him: three lines of block
+/// characters, with his feet on the third. Drawn here as the quadrants those
+/// characters are made of, because every block element is a rectangle and
+/// PushOS can draw a rectangle at any size crisply, which a typeface carrying
+/// the glyphs could not.
+///
+/// The feet were once on the same line as the body, which made him two lines
+/// tall with his feet trailing off to the right. He read as a strip with
+/// debris beside it, which is exactly what that is.
+///
+/// `#` is the body, which sweeps. `+` is a foot, which twinkles. Both hop:
+/// they are the same creature, and feet that stayed on the ground while he
+/// jumped would read as him coming apart.
 const ART: &[&str] = &[
-    "###########.................",
-    "#.######.##.................",
-    "##############+...+.+....+.+",
-    ".############...............",
+    ".############...",
+    ".##.######.##...",
+    "###############.",
+    ".############...",
+    "+.+....+.+......",
 ];
 
 /// The star, one character per quadrant.
@@ -204,9 +215,10 @@ impl Mascot {
         let step = quadrant + gap;
         let tall = quadrant * self.tallness;
         let down = tall + gap;
-        // The body hops; the flecks around it stay where they are, which is
-        // what makes the hop read as the mascot moving rather than the whole
-        // picture sliding. The star does not hop at all.
+        // All of him together. Feet that stayed on the ground while the body
+        // jumped read as him coming apart, which is what a mascot drawn in
+        // separate blocks must never be allowed to look like. The star does
+        // not hop at all.
         let hop = if self.hops {
             Self::lift(phase) * down
         } else {
@@ -216,7 +228,7 @@ impl Mascot {
         for cell in &self.quadrants {
             let area = Area::new(
                 left + f32::from(cell.x) * step,
-                top + f32::from(cell.y) * down - if cell.sparkle { 0.0 } else { hop },
+                top + f32::from(cell.y) * down - hop,
                 quadrant,
                 tall,
             );
@@ -279,8 +291,8 @@ mod tests {
 
         // The longer line is fourteen characters ending in a right-hand
         // quadrant, so twenty-eight across, and two lines is four down.
-        assert_eq!(width, 28, "as wide as the artwork");
-        assert_eq!(height, 4, "and as tall");
+        assert_eq!(width, 15, "as wide as the artwork he actually fills");
+        assert_eq!(height, 5, "and as tall");
         assert!(mascot.quadrant_count() > 20, "the body should be solid");
     }
 
@@ -339,6 +351,75 @@ mod tests {
     }
 
     #[test]
+    fn clawd_stays_in_one_piece_when_he_jumps() {
+        // Feet that stayed on the ground while the body left it read as him
+        // coming apart, which at the size a header allows is indistinguishable
+        // from a rendering fault.
+        let mascot = Mascot::new();
+        let mut first = DisplayFrame::blank();
+        let mut mid_hop = DisplayFrame::blank();
+
+        for (phase, frame) in [(0, &mut first), (HOP_AIRBORNE / 2, &mut mid_hop)] {
+            let mut canvas = Canvas::new().expect("the display size is valid");
+            canvas.clear(Rgb::BLACK);
+            mascot.draw(&mut canvas, (40.0, 60.0), 6.0, 2.0, phase, MASCOT);
+            canvas.present_into(frame);
+        }
+
+        // Every lit row moves up together, so the gap between his body and his
+        // feet is the same on the ground as in the air.
+        let rows = |frame: &DisplayFrame| -> Vec<usize> {
+            let width = pushos_domain::ports::DISPLAY_WIDTH;
+            (0..pushos_domain::ports::DISPLAY_HEIGHT)
+                .filter(|y| (0..width).any(|x| frame.pixel(x, *y).is_some_and(|pixel| pixel != 0)))
+                .collect()
+        };
+
+        let (grounded, airborne) = (rows(&first), rows(&mid_hop));
+        let span = |rows: &[usize]| rows[rows.len() - 1] - rows[0];
+
+        // Within a pixel, because a hop of a fractional height lands the
+        // blocks on slightly different rows and softens their edges.
+        assert!(
+            span(&grounded).abs_diff(span(&airborne)) <= 1,
+            "he should be the same height in the air: {} then {}",
+            span(&grounded),
+            span(&airborne)
+        );
+        assert!(
+            airborne[0] < grounded[0],
+            "and further off the ground: {} then {}",
+            grounded[0],
+            airborne[0]
+        );
+    }
+
+    #[test]
+    fn clawd_has_his_feet_under_him() {
+        // They were once on the same line as his body, trailing off to the
+        // right, which made him a strip with debris beside it.
+        let feet: Vec<u16> = Mascot::new()
+            .quadrants
+            .iter()
+            .filter(|cell| cell.sparkle)
+            .map(|cell| cell.y)
+            .collect();
+        let lowest_body = Mascot::new()
+            .quadrants
+            .iter()
+            .filter(|cell| !cell.sparkle)
+            .map(|cell| cell.y)
+            .max()
+            .expect("he has a body");
+
+        assert!(!feet.is_empty(), "he has feet");
+        assert!(
+            feet.iter().any(|y| *y > lowest_body),
+            "and they are under him"
+        );
+    }
+
+    #[test]
     fn the_star_is_drawn_square() {
         // It was drawn here rather than in a terminal, and a burst has to be
         // round to read as one.
@@ -386,11 +467,11 @@ mod tests {
         let mascot = Mascot::new();
         let (width, height) = mascot.measure(10.0, 2.0);
 
-        // Twenty-eight quadrants of ten with twenty-seven two-pixel gaps
-        // across, and four of twenty down, because the artwork was written for
-        // terminal cells and those are twice as tall as they are wide.
-        assert!((width - (28.0 * 12.0 - 2.0)).abs() < f32::EPSILON);
-        assert!((height - (4.0 * 22.0 - 2.0)).abs() < f32::EPSILON);
+        // Fifteen quadrants of ten with fourteen two-pixel gaps across, and
+        // five of twenty down, because the artwork was written for terminal
+        // cells and those are twice as tall as they are wide.
+        assert!((width - (15.0 * 12.0 - 2.0)).abs() < f32::EPSILON);
+        assert!((height - (5.0 * 22.0 - 2.0)).abs() < f32::EPSILON);
     }
 
     #[test]
