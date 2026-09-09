@@ -83,6 +83,10 @@ string_id!(
     NodeId
 );
 string_id!(
+    /// Identifies an installable pack of agents, workflows, pages and bindings.
+    PackId
+);
+string_id!(
     /// Identifies one place notes are kept.
     SourceId
 );

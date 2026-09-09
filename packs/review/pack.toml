@@ -1,0 +1,25 @@
+id = "review"
+name = "Code Review Pack"
+version = "1.0.0"
+
+description = """
+A reviewer who reads what was written, a page to watch them from, and a
+workflow that builds, tests and asks before anything ships.
+"""
+
+author = "PushOS"
+license = "Apache-2.0"
+minimum_pushos_version = "0.1.0"
+
+[requires]
+# What the pack cannot work without. PushOS shows this before installing and
+# writes the grant itself once you have agreed; the pack cannot grant itself
+# anything.
+permissions = ["shell.execute"]
+
+# What it would use and works without.
+optional_permissions = ["filesystem.read"]
+
+# Agent providers it expects to be able to start. A role names providers in
+# preference order, so a missing one is reported rather than fatal.
+providers = ["claude", "codex"]

@@ -1,0 +1,54 @@
+# Scoped to the pack's own page, so installing this pack cannot change what a
+# control means anywhere you had already set up.
+
+[[bindings]]
+control = "pad.48"
+gesture = "tap"
+page = "review"
+action = "agent.start"
+target = "reviewer"
+label = "Reviewer"
+
+[[bindings]]
+control = "pad.48"
+gesture = "hold"
+page = "review"
+action = "agent.select"
+target = "reviewer"
+label = "Select reviewer"
+
+[[bindings]]
+control = "pad.49"
+gesture = "tap"
+page = "review"
+action = "workflow.start"
+target = "review"
+label = "Review"
+
+[[bindings]]
+control = "pad.50"
+gesture = "tap"
+page = "review"
+action = "workflow.approve"
+label = "Approve"
+
+[[bindings]]
+control = "pad.50"
+gesture = "hold"
+page = "review"
+action = "workflow.reject"
+label = "Reject"
+
+[[bindings]]
+control = "pad.51"
+gesture = "tap"
+page = "review"
+action = "workflow.cancel"
+label = "Cancel run"
+
+[[bindings]]
+control = "pad.56"
+gesture = "tap"
+page = "review"
+action = "page.back"
+label = "Back"

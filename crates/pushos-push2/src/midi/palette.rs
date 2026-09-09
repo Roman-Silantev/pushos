@@ -113,3 +113,19 @@ mod tests {
         }
     }
 }
+
+#[cfg(test)]
+mod queue_tests {
+    use super::PALETTE_ENTRIES;
+
+    #[test]
+    fn the_palette_is_larger_than_the_writer_will_queue() {
+        // Which is why it is sent with a call that waits for room. If this ever
+        // stops being true the reason for that call disappears, and someone
+        // will reasonably simplify it back into a dropping one.
+        assert!(
+            usize::from(PALETTE_ENTRIES) > crate::midi::transport::OUTPUT_CAPACITY,
+            "the palette now fits the queue; see `MidiLink::send_now`"
+        );
+    }
+}

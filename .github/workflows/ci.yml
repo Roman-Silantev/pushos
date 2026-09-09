@@ -60,6 +60,7 @@ jobs:
           -p pushos-ui
           -p pushos-runtime
           -p pushos-memory
+          -p pushos-packs
           -p pushos-voice
           -p pushos-testkit
 

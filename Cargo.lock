@@ -2623,6 +2623,7 @@ dependencies = [
  "pushos-domain",
  "pushos-macos",
  "pushos-memory",
+ "pushos-packs",
  "pushos-push2",
  "pushos-runtime",
  "pushos-storage",
@@ -2688,6 +2689,18 @@ dependencies = [
  "pushos-domain",
  "pushos-storage",
  "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "pushos-packs"
+version = "0.1.0"
+dependencies = [
+ "pushos-config",
+ "pushos-domain",
+ "serde",
+ "thiserror 2.0.20",
+ "toml",
  "tracing",
 ]
 

@@ -30,6 +30,7 @@ pub mod gesture;
 pub mod ids;
 pub mod input;
 pub mod memory;
+pub mod pack;
 pub mod page;
 pub mod permissions;
 pub mod ports;

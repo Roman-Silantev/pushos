@@ -422,6 +422,43 @@ Deliberately small. PushOS is a control surface, not a knowledge base, and
 memory earns its place by doing two things: capturing a thought in one press,
 and putting what is already known in front of the agent about to work.
 
+## A pack is a directory, and consent is a decision
+
+A pack is ordinary configuration with a manifest on the front. Installing one
+copies a directory in; removing one deletes what was copied and nothing else.
+There is no package database and no lock file, so what is installed is what is
+in the packs directory, and an operator can list it with `ls`.
+
+What the manifest adds beyond the files is consent. A pack declares what it
+needs, PushOS shows that before anything is written, and the operator agrees to
+a list they read.
+
+**A pack cannot grant itself anything**, and that is enforced rather than
+promised. A pack whose own files contain a permissions section is refused, and
+so is one arriving with the file PushOS writes grants into, because the reader
+is told to skip that name. The grant lives inside the installed pack under a
+name PushOS owns, so which permissions came from a decision is visible by
+reading the directory, and deleting that file withdraws them while leaving the
+pack installed.
+
+Three more decisions worth stating:
+
+- **Everything is checked before anything is copied.** A pack that would make
+  the surface ambiguous is refused with the bindings named, rather than
+  installed and then reported at every startup. `--force` replaces a pack; it
+  does not skip the checks, or it would become the way everything gets
+  installed.
+- **Packs load before the operator's own files**, so where a setting can only
+  have one value, what they wrote wins. A pack is a starting point they were
+  offered, not something that overrules them.
+- **A pack describes roles, not vendors.** An agent role in a pack names no
+  preferred provider, because which agent fills a role is the operator's
+  choice. The manifest says which providers it expects and the review shows
+  that; a missing one is reported rather than fatal.
+
+Disabling keeps the files and stops loading them, so turning a pack off does
+not cost whatever the operator changed inside it.
+
 ## Failures are classified, not stringified
 
 Every error carries a class: retryable, validation, permission,
@@ -461,6 +498,13 @@ answer, and it comes back as a failed action with the exit code.
   permission a shell action does.
 - **Terminals PushOS started, PushOS stops.** Leaving them running when the
   runtime exits would be a leak the operator has to clean up by hand.
+- **What is said once is waited on; what is said repeatedly may be dropped.**
+  The outgoing MIDI queue is deliberately shallow, because during operation the
+  latest state is what matters and a lost light is corrected by the next
+  redraw. The colour palette, the mode change that claims the surface and the
+  blank that starts it from a known state have nothing after them to correct
+  them, so those wait for room. Getting this wrong was silently dropping half
+  the palette at every connect.
 - **The one `unsafe` in PushOS is asking macOS what was said.** It is scoped to
   a single module, everything it touches is made and dropped inside one
   function, and what leaves is a `String` and an error. Widening it would need a

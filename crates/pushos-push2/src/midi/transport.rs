@@ -24,7 +24,12 @@ use super::{decode, sysex};
 const INPUT_CAPACITY: usize = 512;
 
 /// How many outgoing batches may queue before writes are dropped.
-const OUTPUT_CAPACITY: usize = 64;
+///
+/// Smaller than the colour palette on purpose: during operation the latest
+/// state is what matters and a dropped light is corrected by the next redraw,
+/// so a deep queue would only add latency. The handful of messages that are
+/// said once go through [`MidiLink::send_now`] instead.
+pub(crate) const OUTPUT_CAPACITY: usize = 64;
 
 /// The MIDI real-time start message, which begins the shared animation phase.
 ///
@@ -94,9 +99,11 @@ impl MidiLink {
             writer: Some(writer),
         };
 
-        // Take ownership of the surface, then start the animation phase.
-        link.send_raw(sysex::set_midi_mode(role));
-        link.send_raw(MIDI_START.to_vec());
+        // Take ownership of the surface, then start the animation phase. Both
+        // are said once and never again: a dropped mode change leaves the Push
+        // talking to Live, and a dropped start leaves every blink still.
+        link.send_now(sysex::set_midi_mode(role));
+        link.send_now(MIDI_START.to_vec());
 
         Ok((link, events_rx))
     }
@@ -109,9 +116,38 @@ impl MidiLink {
         self.enqueue(MidiCommand::Batch(messages));
     }
 
-    /// Queues one system-exclusive or real-time message.
-    pub(crate) fn send_raw(&self, bytes: Vec<u8>) {
-        self.enqueue(MidiCommand::Raw(bytes));
+    /// Sends one message, waiting for room rather than dropping it.
+    ///
+    /// Every system-exclusive message PushOS sends is like this. There is no
+    /// queueing version, because there is nothing PushOS says this way that it
+    /// would say again: the palette, the mode change and the start of the
+    /// animation phase are each said once.
+    ///
+    /// A dropped light is corrected by the next redraw, but a dropped palette
+    /// entry is a colour that stays wrong for as long as the Push is plugged
+    /// in, and a dropped mode change leaves the surface talking to Live.
+    ///
+    /// Waiting here is safe: this is the connecting path, not the input path,
+    /// and the writer drains steadily. A stopped writer returns rather than
+    /// blocking, because a disconnected channel is never full again.
+    pub(crate) fn send_now(&self, bytes: Vec<u8>) {
+        if self.commands.send(MidiCommand::Raw(bytes)).is_err() {
+            debug!("MIDI writer has stopped; discarding outgoing message");
+        }
+    }
+
+    /// Sends a batch, waiting for room rather than dropping it.
+    ///
+    /// For the batch that runs at connect and at disconnect. During operation a
+    /// dropped batch is corrected by the next redraw, but the one that puts the
+    /// surface into a known state has nothing after it to correct it.
+    pub(crate) fn send_batch_now(&self, messages: Vec<[u8; 3]>) {
+        if messages.is_empty() {
+            return;
+        }
+        if self.commands.send(MidiCommand::Batch(messages)).is_err() {
+            debug!("MIDI writer has stopped; discarding outgoing batch");
+        }
     }
 
     /// How many outgoing batches have been dropped because the writer fell behind.

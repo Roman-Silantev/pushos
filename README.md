@@ -55,6 +55,7 @@ a test holds it to that.
 ```bash
 pushos presets   # list the configurations PushOS ships with
 pushos init      # write one of them
+pushos pack      # install and manage packs of agents, workflows and pages
 pushos check     # validate it without running anything
 pushos doctor    # report on hardware, configuration and host integrations
 pushos run       # run it
@@ -100,6 +101,10 @@ pushos workspaces # list the projects it knows about
   wrote means exactly one thing and runs it, and anything else goes to the agent
   you were already working with. Anything irreversible waits for a press,
   because transcription is not authorisation.
+- **Packs**, installable directories of agents, workflows, pages and bindings.
+  Nothing is written until you have seen what one adds and what it is asking
+  for, and a pack cannot grant itself anything: that is enforced rather than
+  promised. Removing one deletes what was copied in and nothing else.
 - **Notes**, kept as Markdown files in directories you chose. One pad writes
   down what you just dictated, one finds it again, one puts what it found in
   front of the agent you are working with. PushOS keeps an index so search is
@@ -146,6 +151,16 @@ Six ship, from `blank` to `ai-engineer`, and each is tested against the
 providers PushOS actually ships: every action exists, every binding has the
 permission it needs, and nothing is granted that is not used. See
 [`presets/`](presets/).
+
+Add to a surface with packs, which bring their own agents, workflows and pages:
+
+```bash
+pushos pack show packs/review
+pushos pack install packs/review
+```
+
+Nothing is written until you have seen what a pack adds and what it asks for,
+and a pack cannot grant itself anything. See [`packs/`](packs/).
 
 ```toml
 [[pages]]
@@ -291,6 +306,7 @@ crates/
 ├── pushos-workspaces  projects, what each restores, and its working trees
 ├── pushos-voice       push to talk: capturing, recognising and routing speech
 ├── pushos-memory      notes as Markdown files, and finding them again
+├── pushos-packs       installable packs: reading, reviewing, installing
 ├── pushos-api         the local control socket and its protocol
 ├── pushos-runtime     the event bus, supervision and wiring
 ├── pushos-macos       the macOS half: processes, media, apps, Shortcuts
@@ -364,8 +380,9 @@ Built and tested:
 | Phase 9 | Push to talk, recognised on this Mac |
 | Phase 10 | Notes: Markdown on disk, searchable, and briefings for agents |
 | Phase 11 | Presets: six tested surfaces to start from |
+| Phase 12 | Packs: installable agents, workflows and pages, with a review |
 
-Next: the wider ecosystem. `SPEC.md` holds the full plan.
+`SPEC.md` and `AGENT_PACKS_SPEC.md` hold the full plan.
 
 ## Contributing
 

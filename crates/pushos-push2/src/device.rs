@@ -62,21 +62,33 @@ impl Push2Device {
     }
 
     /// Replaces the factory palette with the PushOS colour cube.
+    ///
+    /// Sent once, at connect, and never sent again, so every entry has to
+    /// arrive. There are more entries than the writer's queue holds; dropping
+    /// the overflow would leave colours wrong for as long as the Push is
+    /// plugged in, and nothing would ever correct them.
     fn install_palette(&self) {
         for index in 0..palette::PALETTE_ENTRIES {
             let color = palette::entry(index);
-            self.midi.send_raw(sysex::set_palette_entry(
+            self.midi.send_now(sysex::set_palette_entry(
                 index,
                 color,
                 palette::white_value(color),
             ));
         }
-        self.midi.send_raw(sysex::reapply_palette());
+        self.midi.send_now(sysex::reapply_palette());
     }
 
+    /// Puts every light out, so the surface starts from a known state.
+    ///
+    /// Waited on rather than queued, and for the same reason as the palette:
+    /// this runs at connect, straight after a hundred and twenty-nine palette
+    /// messages, and at disconnect, when there is nothing after it. A dropped
+    /// light during operation is corrected by the next redraw. These two are
+    /// not.
     fn blank_all_leds(&self) {
         let messages: Vec<_> = ControlId::all().filter_map(encode::led_off).collect();
-        self.midi.send_batch(messages);
+        self.midi.send_batch_now(messages);
     }
 }
 
@@ -84,8 +96,10 @@ impl Drop for Push2Device {
     fn drop(&mut self) {
         self.blank_all_leds();
         // Hand the surface back so Live behaves normally once PushOS exits.
+        // Waited on rather than queued: this is the last thing PushOS says, and
+        // a dropped one leaves the Push in a mode nobody chose.
         if self.role != PortRole::Live {
-            self.midi.send_raw(sysex::set_midi_mode(PortRole::Live));
+            self.midi.send_now(sysex::set_midi_mode(PortRole::Live));
         }
     }
 }

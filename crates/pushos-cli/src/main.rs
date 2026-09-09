@@ -10,7 +10,7 @@ mod presets;
 use clap::Parser;
 use tracing_subscriber::EnvFilter;
 
-use crate::cli::{Cli, Command};
+use crate::cli::{Cli, Command, PackCommand};
 
 /// Exit status when PushOS could not do what it was asked.
 const FAILURE: i32 = 1;
@@ -32,6 +32,7 @@ async fn main() -> std::process::ExitCode {
             commands::init::list();
             Ok(())
         }
+        Command::Pack { command } => run_pack(command, cli.config.as_deref()),
         Command::Init { preset, force } => {
             commands::init::execute(cli.config.as_deref(), &preset, force)
         }
@@ -42,6 +43,26 @@ async fn main() -> std::process::ExitCode {
         Err(report) => {
             eprintln!("{report}");
             std::process::ExitCode::from(u8::try_from(FAILURE).unwrap_or(1))
+        }
+    }
+}
+
+/// Carries out one pack command.
+fn run_pack(command: PackCommand, config: Option<&std::path::Path>) -> Result<(), String> {
+    use pushos_domain::pack::PackState;
+
+    match command {
+        PackCommand::List => commands::pack::list(config),
+        PackCommand::Show { path } => commands::pack::show(config, &path),
+        PackCommand::Install { path, yes, force } => {
+            commands::pack::install(config, &path, yes, force)
+        }
+        PackCommand::Remove { pack } => commands::pack::remove(config, &pack),
+        PackCommand::Enable { pack } => {
+            commands::pack::set_state(config, &pack, PackState::Enabled)
+        }
+        PackCommand::Disable { pack } => {
+            commands::pack::set_state(config, &pack, PackState::Disabled)
         }
     }
 }

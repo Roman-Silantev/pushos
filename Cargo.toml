@@ -28,6 +28,7 @@ pushos-config = { path = "crates/pushos-config" }
 pushos-storage = { path = "crates/pushos-storage" }
 pushos-terminal = { path = "crates/pushos-terminal" }
 pushos-memory = { path = "crates/pushos-memory" }
+pushos-packs = { path = "crates/pushos-packs" }
 pushos-voice = { path = "crates/pushos-voice" }
 pushos-workflows = { path = "crates/pushos-workflows" }
 pushos-workspaces = { path = "crates/pushos-workspaces" }

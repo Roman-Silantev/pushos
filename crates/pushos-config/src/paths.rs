@@ -9,6 +9,18 @@ pub const MAIN_FILE: &str = "pushos.toml";
 /// The subdirectory whose files are merged after the main file.
 pub const INCLUDE_DIRECTORY: &str = "conf.d";
 
+/// The directory installed packs live in, one directory each.
+pub const PACK_DIRECTORY: &str = "packs";
+
+/// The manifest at the top of a pack.
+pub const PACK_MANIFEST: &str = "pack.toml";
+
+/// The file that marks an installed pack as switched off.
+///
+/// A file rather than a database row, so an operator can disable a pack with
+/// `touch` and see why it is off by looking.
+pub const PACK_DISABLED: &str = "disabled";
+
 /// The default configuration directory.
 ///
 /// Follows the operator's `XDG_CONFIG_HOME` when set, so a machine that already
@@ -70,7 +82,11 @@ pub fn files_for(root: &Path) -> Vec<PathBuf> {
         return vec![root.to_path_buf()];
     }
 
-    let mut files = Vec::new();
+    // Packs first, so that what the operator wrote themselves is read after and
+    // wins where a setting can only have one value. A pack is a starting point
+    // they were offered, not a thing that overrules them.
+    let mut files = pack_files(root);
+
     let main = root.join(MAIN_FILE);
     if main.is_file() {
         files.push(main);
@@ -90,6 +106,61 @@ pub fn files_for(root: &Path) -> Vec<PathBuf> {
     files.extend(included);
 
     files
+}
+
+/// Every configuration file belonging to an enabled pack.
+///
+/// Packs are read in name order, and each pack's own files in name order
+/// within it, so what a surface ends up being never depends on how the file
+/// system happened to list a directory.
+pub fn pack_files(root: &Path) -> Vec<PathBuf> {
+    let mut packs: Vec<PathBuf> = std::fs::read_dir(root.join(PACK_DIRECTORY))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect();
+    packs.sort();
+
+    let mut files = Vec::new();
+    for pack in packs {
+        if pack.join(PACK_DISABLED).exists() {
+            continue;
+        }
+        files.extend(files_in_pack(&pack));
+    }
+    files
+}
+
+/// The configuration files inside one pack, in the order they are merged.
+///
+/// Everything ending in `.toml` at any depth, except the manifest, which
+/// describes the pack rather than contributing to the surface.
+pub fn files_in_pack(pack: &Path) -> Vec<PathBuf> {
+    let manifest = pack.join(PACK_MANIFEST);
+    let mut found = Vec::new();
+    let mut pending = vec![pack.to_path_buf()];
+
+    while let Some(directory) = pending.pop() {
+        let Ok(entries) = std::fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if entry.file_name().to_string_lossy().starts_with('.') {
+                continue;
+            }
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|it| it == "toml") && path != manifest {
+                found.push(path);
+            }
+        }
+    }
+
+    found.sort();
+    found
 }
 
 #[cfg(test)]

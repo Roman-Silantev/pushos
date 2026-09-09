@@ -1,0 +1,11 @@
+# A role, not a process. Which provider fills it can change without any binding
+# changing, and a binding names the role rather than a session.
+
+# No `preferred` list: a pack should not decide which vendor fills a role. The
+# manifest says which providers it expects, PushOS shows that before you
+# install, and the role then uses whichever of yours is available.
+
+[[agents]]
+id = "reviewer"
+name = "Reviewer"
+objective = "Read the diff and say what is wrong with it, briefly and specifically"

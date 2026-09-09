@@ -22,6 +22,7 @@ pushos-bindings = { workspace = true }
 pushos-config = { workspace = true }
 pushos-macos = { workspace = true }
 pushos-memory = { workspace = true }
+pushos-packs = { workspace = true }
 pushos-ui = { workspace = true }
 pushos-push2 = { workspace = true }
 pushos-runtime = { workspace = true }

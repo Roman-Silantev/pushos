@@ -1,0 +1,49 @@
+# Build, test, read, then ask. The asking step is what makes the rest safe: a
+# workflow that could ship without a person is one nobody should install.
+
+[[workflows]]
+id = "review"
+name = "Build and review"
+description = "Build it, test it, have it read, then stop for a person"
+start = "check"
+max_steps = 24
+timeout_seconds = 3600
+
+[[workflows.nodes]]
+id = "check"
+kind = "terminal"
+terminal = "review-tests"
+program = "cargo"
+args = ["test"]
+next = "read"
+on_failure = "failed"
+
+[[workflows.nodes]]
+id = "read"
+kind = "agent"
+agent = "reviewer"
+prompt = "Read the diff on this branch and say what is wrong with it."
+next = "ask"
+on_failure = "failed"
+
+[[workflows.nodes]]
+id = "ask"
+kind = "approval"
+question = "Ship it?"
+approve = "shipped"
+reject = "held"
+
+[[workflows.nodes]]
+id = "shipped"
+kind = "end"
+outcome = "succeeded"
+
+[[workflows.nodes]]
+id = "held"
+kind = "end"
+outcome = "cancelled"
+
+[[workflows.nodes]]
+id = "failed"
+kind = "end"
+outcome = "failed"
