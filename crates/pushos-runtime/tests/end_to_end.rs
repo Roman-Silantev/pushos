@@ -51,6 +51,12 @@ action = "test.two"
 control = "button.play"
 gesture = "press"
 action = "page.next"
+
+[[bindings]]
+control = "touchstrip"
+gesture = "slide"
+action = "test.two"
+label = "Scrub"
 "#;
 
 /// A configuration directory a test can rewrite while PushOS is running.
@@ -204,6 +210,45 @@ async fn tapping_a_bound_pad_runs_its_action() {
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].selector.to_string(), "test.one");
 
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn a_slide_carries_where_the_finger_was_to_the_action() {
+    // The one thing on the surface whose meaning is nowhere in configuration.
+    // A binding says which action a slide runs; only the hardware can say
+    // where along the strip it ran it.
+    let harness = Harness::start(CONFIG);
+    let at = Instant::now();
+    harness
+        .surface
+        .inject(ControlEvent::new(
+            ControlId::TouchStrip,
+            InputPhase::Touch,
+            at,
+        ))
+        .await;
+    harness
+        .surface
+        .inject(ControlEvent::new(
+            ControlId::TouchStrip,
+            // Three quarters of the way up a fourteen-bit strip.
+            InputPhase::Position { value: 12_288 },
+            at,
+        ))
+        .await;
+
+    harness.wait_for_calls(1).await;
+    let calls = harness.provider.calls();
+    assert_eq!(calls[0].selector.to_string(), "test.two");
+    assert_eq!(
+        calls[0]
+            .params
+            .get("at")
+            .and_then(pushos_domain::action::ParamValue::as_integer),
+        Some(75),
+        "in whole percent from the bottom"
+    );
     harness.stop().await;
 }
 

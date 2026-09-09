@@ -247,6 +247,85 @@ fn encoder_turns_report_direction_and_delta() {
     assert_eq!(events[1].detail, GestureDetail::Delta(-2));
 }
 
+/// The lowest reading that stands for `percent` of the way up the strip.
+fn along(percent: u32) -> InputPhase {
+    InputPhase::Position {
+        value: u16::try_from(percent.min(100) * 16_383 / 100 + 1).expect("within the strip"),
+    }
+}
+
+#[test]
+fn a_finger_on_the_strip_reports_where_it_is() {
+    let strip = ControlId::TouchStrip;
+    let mut surface = Surface::bare();
+    surface.input(strip, InputPhase::Touch, 0);
+    surface.input(strip, along(40), 5);
+
+    let events = surface.drain_events();
+    assert_eq!(events[0].gesture, Gesture::Touch);
+    assert_eq!(events[1].gesture, Gesture::Slide);
+    assert_eq!(events[1].detail.percent(), Some(40));
+}
+
+#[test]
+fn a_strip_reports_once_per_percent_travelled() {
+    // The hardware sends a reading whenever the finger moves at all, which is
+    // far finer than anything can act on. One action per percent is as fine as
+    // a finger is, and a hundredth of the work.
+    let strip = ControlId::TouchStrip;
+    let mut surface = Surface::bare();
+    surface.input(strip, InputPhase::Touch, 0);
+    // A percent of the strip is a hundred and sixty-odd of these, so all of
+    // these readings stand for the same place on it.
+    for step in 0..25u16 {
+        surface.input(
+            strip,
+            InputPhase::Position {
+                value: 8_000 + step,
+            },
+            5 + u64::from(step),
+        );
+    }
+
+    let slides = surface
+        .drain()
+        .into_iter()
+        .filter(|gesture| *gesture == Gesture::Slide)
+        .count();
+    assert_eq!(slides, 1, "readings inside one percent are one gesture");
+}
+
+#[test]
+fn a_new_finger_reports_where_it_landed_even_in_the_same_place() {
+    let strip = ControlId::TouchStrip;
+    let mut surface = Surface::bare();
+    surface.input(strip, InputPhase::Touch, 0);
+    surface.input(strip, along(60), 5);
+    surface.input(strip, InputPhase::TouchRelease, 10);
+    surface.input(strip, InputPhase::Touch, 500);
+    surface.input(strip, along(60), 505);
+
+    let slides = surface
+        .drain()
+        .into_iter()
+        .filter(|gesture| *gesture == Gesture::Slide)
+        .count();
+    assert_eq!(slides, 2, "a fresh touch is news wherever it lands");
+}
+
+#[test]
+fn aftertouch_is_not_a_gesture() {
+    // Pressure drives widgets directly. Making it one would put an action
+    // behind every gram of a finger resting on a pad. A place along the strip
+    // is different: it is where the operator asked to be, and nothing else on
+    // the surface says it.
+    let mut surface = Surface::bare();
+    surface.press(pad(0), 0);
+    surface.input(pad(0), InputPhase::Pressure { amount: 90 }, 5);
+
+    assert_eq!(surface.drain(), [Gesture::Press]);
+}
+
 #[test]
 fn a_turn_while_shift_is_held_is_a_shift_turn_in_either_direction() {
     let encoder = ControlId::Encoder(EncoderId::Track(0));
@@ -272,18 +351,6 @@ fn a_zero_delta_turn_produces_nothing() {
         ControlId::Encoder(EncoderId::Master),
         InputPhase::Turn { delta: 0 },
         0,
-    );
-    assert!(surface.drain().is_empty());
-}
-
-#[test]
-fn continuous_streams_are_not_gestures() {
-    let mut surface = Surface::bare();
-    surface.input(pad(0), InputPhase::Pressure { amount: 90 }, 0);
-    surface.input(
-        ControlId::TouchStrip,
-        InputPhase::Position { value: 4_096 },
-        10,
     );
     assert!(surface.drain().is_empty());
 }

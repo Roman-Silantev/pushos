@@ -13,6 +13,7 @@ use std::time::Duration;
 use pushos_api::protocol::{FailureKind, Request, Response};
 use pushos_api::{ControlClient, ControlServer};
 use pushos_config::{BindingAddress, BindingSpec, ConfigStore};
+use pushos_domain::gesture::Gesture;
 use pushos_domain::ids::ExecutionId;
 use pushos_domain::ports::PushOutput;
 use pushos_runtime::{Runtime, Shutdown};
@@ -188,7 +189,7 @@ async fn the_vocabulary_covers_the_whole_surface_so_a_client_hard_codes_nothing(
         141,
         "every control should be offered"
     );
-    assert_eq!(vocabulary.gestures.len(), 13);
+    assert_eq!(vocabulary.gestures.len(), Gesture::ALL.len());
     assert_eq!(vocabulary.pages.len(), 2);
 
     let pads: Vec<_> = vocabulary

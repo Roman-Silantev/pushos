@@ -19,9 +19,13 @@
 # Each row has one job. The pads choose which session, the row above the screen
 # takes you to it, and the row below says something to it.
 #
+#   Tempo encoder            move the eight in view, for more than eight
 #   Encoder 1                walk through the sessions, opening each
 #   Encoder 2                move back through what one has said
 #   Master encoder           volume
+#
+#   Touch strip              slide through everything a session has said:
+#                            the bottom is now, the top is as far back as it goes
 #
 #   Up / Down                step through the sessions one at a time
 #   Left / Right             move the eight in view, for more than eight
@@ -99,6 +103,25 @@ label = "Previous eight"
 params = { by = -1 }
 
 # --- Browsing without looking at the pads ------------------------------------
+# The leftmost encoder moves the eight the pads stand for, so more than eight
+# sessions are reachable without leaving the hand that is already on the knobs.
+# The same job as the arrows beside the display, given to the control nearest
+# the screen it changes.
+
+[[bindings]]
+control = "encoder.tempo"
+gesture = "turn_right"
+action = "session.bank"
+label = "Next eight"
+params = { by = 1 }
+
+[[bindings]]
+control = "encoder.tempo"
+gesture = "turn_left"
+action = "session.bank"
+label = "Previous eight"
+params = { by = -1 }
+
 # The first encoder walks through every open session, not just the eight in
 # view, and opens each one as it arrives. The arrows do the same for a hand
 # already on the buttons.
@@ -143,6 +166,19 @@ gesture = "turn_right"
 action = "session.scroll"
 label = "Forward"
 params = { by = -1 }
+
+# --- The touch strip ----------------------------------------------------------
+# A session says far more than the panel holds, and the encoder walks through it
+# a line at a time. The strip is the way to cross all of it at once: where your
+# finger is along it is where you stand in what the session has said, with now
+# at the bottom and the beginning at the top, the same way the words run. The
+# bar beside them says where you have got to.
+
+[[bindings]]
+control = "touchstrip"
+gesture = "slide"
+action = "session.scrub"
+label = "Scrub the session"
 
 [[bindings]]
 control = "encoder.master"

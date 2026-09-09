@@ -141,6 +141,30 @@ impl From<&str> for ParamValue {
     }
 }
 
+impl From<String> for ParamValue {
+    fn from(value: String) -> Self {
+        Self::Text(Arc::from(value))
+    }
+}
+
+impl From<i64> for ParamValue {
+    fn from(value: i64) -> Self {
+        Self::Integer(value)
+    }
+}
+
+impl From<u8> for ParamValue {
+    fn from(value: u8) -> Self {
+        Self::Integer(i64::from(value))
+    }
+}
+
+impl From<bool> for ParamValue {
+    fn from(value: bool) -> Self {
+        Self::Flag(value)
+    }
+}
+
 /// The parameters attached to one action definition.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
@@ -304,6 +328,8 @@ pub enum DisplayIntent {
         tone: crate::color::StatusColor,
         /// What it last said, most recent last.
         lines: Vec<String>,
+        /// Where those lines sit in a history longer than the panel.
+        depth: Option<Depth>,
     },
     /// Show a list of things the operator asked for.
     ///
@@ -317,6 +343,46 @@ pub enum DisplayIntent {
         /// The list, in the order it should be read.
         lines: Vec<String>,
     },
+}
+
+/// The parameter an analogue gesture fills in before it is dispatched.
+///
+/// Named for what it means to the operator rather than to the hardware: a
+/// binding on a touch strip says where along it the finger is, in whole percent
+/// from the bottom, and never mentions the bits the wire carries. Recognition
+/// puts it there; providers read it like any other parameter.
+pub const READING: &str = "at";
+
+/// Where a focused view sits in a history longer than the panel holds.
+///
+/// Carried because a control that scrubs through hundreds of lines is unusable
+/// without something on screen saying where it has got to. A view showing
+/// everything there is leaves this out rather than drawing a full bar.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Depth {
+    /// How many lines are newer than the last one on the panel.
+    pub back: usize,
+    /// How many lines the whole history holds.
+    pub total: usize,
+}
+
+impl Depth {
+    /// Describes a window of `shown` lines ending `back` from the newest.
+    ///
+    /// `None` when everything there is already fits, because a bar that was
+    /// always full would be one more thing to read and never anything to act
+    /// on.
+    pub const fn of(total: usize, shown: usize, back: usize) -> Option<Self> {
+        if total <= shown {
+            return None;
+        }
+        Some(Self { back, total })
+    }
+
+    /// The deepest a window of `shown` lines can go before it runs out.
+    pub const fn deepest(total: usize, shown: usize) -> usize {
+        total.saturating_sub(shown)
+    }
 }
 
 /// The normalised outcome every action returns.

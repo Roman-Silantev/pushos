@@ -4,6 +4,7 @@
 //! to live state, which is what guarantees it can never block behind a lock, a
 //! model, the network or the database.
 
+use pushos_domain::action::Depth;
 use pushos_domain::color::LedState;
 use pushos_domain::controls::ControlId;
 use pushos_domain::ids::PageId;
@@ -265,6 +266,11 @@ pub struct Focus {
     /// deep in one session still needs to know that another is stuck waiting
     /// on them.
     pub others: Vec<SessionLine>,
+    /// Where these lines sit in a history longer than the panel holds.
+    ///
+    /// Drawn as a bar beside them, so a hand on the touch strip can see where
+    /// it has scrolled to. Absent when everything there is already fits.
+    pub depth: Option<Depth>,
 }
 
 impl Focus {
@@ -278,6 +284,7 @@ impl Focus {
             lines: Vec::new(),
             others: Vec::new(),
             back: None,
+            depth: None,
         }
     }
 
@@ -307,6 +314,13 @@ impl Focus {
     #[must_use]
     pub fn saying(mut self, lines: impl IntoIterator<Item = String>) -> Self {
         self.lines = lines.into_iter().collect();
+        self
+    }
+
+    /// Says where those lines sit in a longer history.
+    #[must_use]
+    pub fn at_depth(mut self, depth: Option<Depth>) -> Self {
+        self.depth = depth;
         self
     }
 

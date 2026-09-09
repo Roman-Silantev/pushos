@@ -232,6 +232,7 @@ impl SurfaceState {
                 state,
                 tone,
                 lines,
+                depth,
             } => {
                 // The others come from what the surface already knows, so a
                 // provider never has to describe anything but its own thing.
@@ -245,6 +246,7 @@ impl SurfaceState {
                 let mut view = pushos_ui::Focus::new(kind, title)
                     .doing(state, tone_of(tone))
                     .saying(lines)
+                    .at_depth(depth)
                     .beside(others);
                 if let Some(control) = self.way_back() {
                     view = view.leaving_with(control);

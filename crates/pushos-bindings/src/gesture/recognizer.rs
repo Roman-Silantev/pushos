@@ -26,6 +26,13 @@ pub struct GestureRecognizer {
     timing: GestureTiming,
     interest: GestureInterest,
     states: HashMap<ControlId, ControlState>,
+    /// Where each touch strip was last reported to be, in whole percent.
+    ///
+    /// The strip sends a reading whenever the finger moves at all, which is
+    /// far finer than anything can act on. Holding the last one reported turns
+    /// that stream into one gesture per percent travelled, and forgetting it on
+    /// touch means a fresh finger always reports where it landed.
+    slid: HashMap<ControlId, u8>,
     shift_held: bool,
 }
 
@@ -36,6 +43,7 @@ impl GestureRecognizer {
             timing,
             interest,
             states: HashMap::new(),
+            slid: HashMap::new(),
             shift_held: false,
         }
     }
@@ -70,6 +78,7 @@ impl GestureRecognizer {
     /// disconnect cannot complete as a hold against a device that is gone.
     pub fn reset(&mut self) {
         self.states.clear();
+        self.slid.clear();
         self.shift_held = false;
     }
 
@@ -81,6 +90,8 @@ impl GestureRecognizer {
             InputPhase::Up => self.on_up(event.control, event.at, out),
             InputPhase::Turn { delta } => Self::on_turn(self.shift_held, &event, delta, out),
             InputPhase::Touch => {
+                // A new finger has no history, so wherever it lands is news.
+                self.slid.remove(&event.control);
                 out.push(GestureEvent::simple(
                     event.control,
                     Gesture::Touch,
@@ -88,15 +99,40 @@ impl GestureRecognizer {
                 ));
             }
             InputPhase::TouchRelease => {
+                self.slid.remove(&event.control);
                 out.push(GestureEvent::simple(
                     event.control,
                     Gesture::TouchRelease,
                     event.at,
                 ));
             }
-            // Continuous streams drive widgets directly; they are not gestures.
-            InputPhase::Pressure { .. } | InputPhase::Position { .. } => {}
+            InputPhase::Position { value } => self.on_position(&event, value, out),
+            // Aftertouch drives widgets directly; it is not a gesture.
+            InputPhase::Pressure { .. } => {}
         }
+    }
+
+    /// Reports a finger's place along a strip, once per percent travelled.
+    ///
+    /// The reading is absolute, so nothing is lost by dropping the ones that
+    /// land where the last one did: the next report still says where the finger
+    /// is. What that saves is an action dispatched for every wire message on a
+    /// control that sends hundreds a second.
+    fn on_position(&mut self, event: &ControlEvent, value: u16, out: &mut Vec<GestureEvent>) {
+        let detail = GestureDetail::Position(value);
+        let Some(percent) = detail.percent() else {
+            return;
+        };
+        if self.slid.insert(event.control, percent) == Some(percent) {
+            return;
+        }
+
+        out.push(GestureEvent::detailed(
+            event.control,
+            Gesture::Slide,
+            detail,
+            event.at,
+        ));
     }
 
     /// Advances time, appending any gestures that have now become due.

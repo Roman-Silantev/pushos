@@ -363,7 +363,8 @@ id = "running"
 name = "Running"
 description = "Every coding session open on this machine, and what it is doing"
 
-# Eight pads, however many sessions. The arrows move which eight are in view.
+# Eight pads, however many sessions. The arrows and the leftmost encoder move
+# which eight are in view.
 
 [[bindings]]
 control = "button.right"
@@ -396,6 +397,22 @@ action = "session.previous"
 label = "Previous session"
 
 [[bindings]]
+control = "encoder.tempo"
+gesture = "turn_right"
+page = "running"
+action = "session.bank"
+label = "Next eight"
+params = { by = 1 }
+
+[[bindings]]
+control = "encoder.tempo"
+gesture = "turn_left"
+page = "running"
+action = "session.bank"
+label = "Previous eight"
+params = { by = -1 }
+
+[[bindings]]
 control = "encoder.1"
 gesture = "turn_right"
 page = "running"
@@ -424,6 +441,16 @@ page = "running"
 action = "session.scroll"
 label = "Forward"
 params = { by = -1 }
+
+# The strip crosses the whole of what a session has said in one movement, with
+# now at the bottom and the beginning at the top.
+
+[[bindings]]
+control = "touchstrip"
+gesture = "slide"
+page = "running"
+action = "session.scrub"
+label = "Scrub the session"
 
 [[bindings]]
 control = "pad.56"

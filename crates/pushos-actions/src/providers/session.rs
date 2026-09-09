@@ -9,7 +9,9 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use pushos_domain::action::{ActionContext, ActionResult, ActionStatus, DisplayIntent};
+use pushos_domain::action::{
+    ActionContext, ActionResult, ActionStatus, Depth, DisplayIntent, MissingParam, READING,
+};
 use pushos_domain::attached::{Attached, AttachedTarget, BANK};
 use pushos_domain::error::{ActionError, ErrorClass};
 use pushos_domain::ids::{ActionVerb, AttachedId, ProviderName};
@@ -17,7 +19,9 @@ use pushos_domain::permissions::Permission;
 use pushos_domain::ports::{
     ActionProvider, AttachError, AttachedSessions, Key, ProviderCapabilities,
 };
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use tokio::sync::watch;
 use tracing::info;
@@ -52,6 +56,34 @@ pub struct SessionProvider {
     /// Lines from the bottom. Reset whenever they look at something else,
     /// because a scroll position belongs to the thing it was scrolling.
     scrolled: AtomicUsize,
+    /// What was open, and what one of them had said, as last seen.
+    ///
+    /// Every answer here costs a process, and a finger crossing the touch
+    /// strip asks a hundred times a second. Believing the last answer for a
+    /// fraction of one keeps the surface honest without asking the machine to
+    /// spawn `osascript` for every percent of travel.
+    seen: Mutex<Seen>,
+}
+
+/// The last answers, and when they were given.
+#[derive(Debug, Default)]
+struct Seen {
+    open: Option<(Vec<Attached>, Instant)>,
+    said: Option<(AttachedId, Vec<String>, Instant)>,
+}
+
+/// How long one of those answers is believed for.
+///
+/// Short enough that nothing on the panel is visibly behind what a session is
+/// doing, and long enough that one movement of a finger is one look rather
+/// than a hundred.
+const BELIEVED: Duration = Duration::from_millis(300);
+
+impl Seen {
+    /// Whether an answer given at `at` is still worth believing.
+    fn fresh(at: Instant, now: Instant) -> bool {
+        now.duration_since(at) < BELIEVED
+    }
 }
 
 impl SessionProvider {
@@ -62,6 +94,7 @@ impl SessionProvider {
             selected: watch::channel(None).0,
             bank: watch::channel(0).0,
             scrolled: AtomicUsize::new(0),
+            seen: Mutex::new(Seen::default()),
         }
     }
 
@@ -113,6 +146,23 @@ impl SessionProvider {
         self.sessions.discover().await
     }
 
+    /// What is open, as last seen, asking again only when that has gone stale.
+    async fn open(&self) -> Result<Vec<Attached>, ActionError> {
+        let now = Instant::now();
+        if let Ok(seen) = self.seen.lock()
+            && let Some((open, at)) = &seen.open
+            && Seen::fresh(*at, now)
+        {
+            return Ok(open.clone());
+        }
+
+        let open = self.sessions.discover().await.map_err(into_action_error)?;
+        if let Ok(mut seen) = self.seen.lock() {
+            seen.open = Some((open.clone(), Instant::now()));
+        }
+        Ok(open)
+    }
+
     /// The thing that can see other terminals, for whoever has to poll it.
     pub fn watcher(&self) -> Arc<dyn AttachedSessions> {
         Arc::clone(&self.sessions)
@@ -132,7 +182,7 @@ impl SessionProvider {
                     ActionError::backend(error.to_string(), ErrorClass::Validation, error)
                 })?;
 
-        let open = self.sessions.discover().await.map_err(into_action_error)?;
+        let open = self.open().await?;
 
         if let AttachedTarget::Slot(at) = target {
             // Counted within the bank in view, so a pad means "the third of
@@ -180,7 +230,7 @@ impl SessionProvider {
     /// Wraps, and starts at one end when nothing is selected, so an operator
     /// turning an encoder never has to have chosen something first.
     async fn step(&self, forward: bool) -> Result<Attached, ActionError> {
-        let open = self.sessions.discover().await.map_err(into_action_error)?;
+        let open = self.open().await?;
         if open.is_empty() {
             return Err(invalid("nothing is open"));
         }
@@ -217,19 +267,56 @@ impl SessionProvider {
         moved
     }
 
-    /// Builds the focused view of a session, at wherever it is scrolled to.
-    async fn focused(&self, session: &Attached) -> Result<ActionResult, ActionError> {
-        let seen = self
+    /// Jumps to a place in what a session said, given as a percentage.
+    ///
+    /// The bottom of the strip is what the session is saying now and the top is
+    /// as far back as it goes, so the reading runs the same way the words on
+    /// the panel do: older is higher up.
+    fn scrub(&self, at: u8, most: usize) -> usize {
+        let back = most.saturating_mul(usize::from(at.min(100))) / 100;
+        self.scrolled.store(back, Ordering::Relaxed);
+        back
+    }
+
+    /// Everything a session has said that is worth showing, oldest first.
+    ///
+    /// Believed briefly, for the same reason the list of open sessions is:
+    /// scrubbing through what one said is a hundred questions about a thing
+    /// that has not changed.
+    async fn history(&self, session: &Attached) -> Result<Vec<String>, ActionError> {
+        let now = Instant::now();
+        if let Ok(seen) = self.seen.lock()
+            && let Some((id, said, at)) = &seen.said
+            && *id == session.id
+            && Seen::fresh(*at, now)
+        {
+            return Ok(said.clone());
+        }
+
+        let screen = self
             .sessions
             .read(&session.id, READ_MOST)
             .await
             .map_err(into_action_error)?;
+        let said = last_lines(&screen, READ_MOST);
+        if let Ok(mut seen) = self.seen.lock() {
+            seen.said = Some((session.id.clone(), said.clone(), Instant::now()));
+        }
+        Ok(said)
+    }
 
-        let said = last_lines(&seen, SHOWN_LINES);
-        let back = self.scrolled.load(Ordering::Relaxed).min(said.len());
-        let shown = said[..said.len() - back].to_vec();
+    /// Builds the focused view of a session, at wherever it is scrolled to.
+    ///
+    /// The panel holds a window rather than the whole history, so this is where
+    /// the two meet: the operator's scroll position decides which window, and
+    /// how deep that window is goes with it so the panel can draw it.
+    fn view(&self, session: &Attached, said: &[String]) -> ActionResult {
+        let deepest = Depth::deepest(said.len(), SHOWN_LINES);
+        let back = self.scrolled.load(Ordering::Relaxed).min(deepest);
+        let end = said.len() - back;
+        let start = end.saturating_sub(SHOWN_LINES);
 
-        Ok(ActionResult {
+        ActionResult {
             status: ActionStatus::Completed,
             message: Some(session.label().to_owned()),
             // Focused rather than reported: an operator who tapped a pad to
@@ -245,9 +332,16 @@ impl SessionProvider {
                 title: session.label().to_owned(),
                 state: session.activity.describe().to_owned(),
                 tone: session.activity.status_color(),
-                lines: shown,
+                lines: said[start..end].to_vec(),
+                depth: Depth::of(said.len(), SHOWN_LINES, back),
             }),
-        })
+        }
+    }
+
+    /// Reads a session and builds the view of it in one go.
+    async fn focused(&self, session: &Attached) -> Result<ActionResult, ActionError> {
+        let said = self.history(session).await?;
+        Ok(self.view(session, &said))
     }
 }
 
@@ -266,6 +360,7 @@ impl ActionProvider for SessionProvider {
                 "bank",
                 "show",
                 "scroll",
+                "scrub",
                 "focus",
                 "send",
                 "press",
@@ -321,7 +416,7 @@ impl ActionProvider for SessionProvider {
                     .and_then(pushos_domain::action::ParamValue::as_integer)
                     .unwrap_or(1);
 
-                let open = self.sessions.discover().await.map_err(into_action_error)?;
+                let open = self.open().await?;
                 let from = self.move_bank(by, open.len());
                 let last = (from + BANK).min(open.len());
 
@@ -343,8 +438,29 @@ impl ActionProvider for SessionProvider {
                     .unwrap_or(-1);
 
                 let session = self.resolve(&context).await?;
-                self.scroll(by, SHOWN_LINES);
-                self.focused(&session).await
+                let said = self.history(&session).await?;
+                self.scroll(by, Depth::deepest(said.len(), SHOWN_LINES));
+                Ok(self.view(&session, &said))
+            }
+
+            // The touch strip. The finger's place along it is where in the
+            // history to stand, so this is a jump rather than a nudge and
+            // needs the whole of what was said to jump within.
+            "scrub" => {
+                let at = context
+                    .params()
+                    .get(READING)
+                    .and_then(pushos_domain::action::ParamValue::as_integer)
+                    .and_then(|at| u8::try_from(at.clamp(0, 100)).ok())
+                    .ok_or(MissingParam {
+                        key: READING.to_owned(),
+                        expected: "a percentage",
+                    })?;
+
+                let session = self.resolve(&context).await?;
+                let said = self.history(&session).await?;
+                self.scrub(at, Depth::deepest(said.len(), SHOWN_LINES));
+                Ok(self.view(&session, &said))
             }
 
             "focus" => {
@@ -418,10 +534,10 @@ impl ActionProvider for SessionProvider {
 /// and the whole panel is theirs for it.
 const READ_MOST: usize = 2_000;
 
-/// How many lines of it to keep.
+/// How many lines of it the panel shows at once.
 ///
-/// The panel decides how many it can draw; this is only the ceiling on what is
-/// carried to it.
+/// The window an operator reads. Everything behind it is still there and is
+/// what the touch strip and the scroll knob move through.
 const SHOWN_LINES: usize = 8;
 
 /// The last few lines that have anything on them.
@@ -762,74 +878,194 @@ mod tests {
         assert!(matches!(result.display, Some(DisplayIntent::Focus { .. })));
     }
 
+    /// A history longer than the panel holds, numbered so a window is readable.
+    fn said(lines: usize) -> String {
+        use std::fmt::Write as _;
+        (1..=lines).fold(String::new(), |mut screen, line| {
+            let _ = writeln!(screen, "line {line}");
+            screen
+        })
+    }
+
+    /// What the panel is showing, as the numbers of the lines on it.
+    fn window(result: &ActionResult) -> Vec<usize> {
+        let Some(DisplayIntent::Focus { lines, .. }) = &result.display else {
+            panic!("focused");
+        };
+        lines
+            .iter()
+            .map(|line| {
+                line.trim_start_matches("line ")
+                    .parse()
+                    .expect("the fixture numbers its lines")
+            })
+            .collect()
+    }
+
+    async fn moved(provider: &SessionProvider, verb: &str, key: &str, by: i64) -> ActionResult {
+        let mut moving = context(verb, Some("sprint"));
+        moving.definition.params.set(key, ParamValue::Integer(by));
+        provider.execute(moving).await.expect("open")
+    }
+
     #[tokio::test]
-    async fn scrolling_moves_back_through_what_was_said_and_stops_at_the_end() {
+    async fn scrolling_moves_back_through_what_was_said() {
         let (provider, fake) = rig();
-        fake.showing("one\ntwo\nthree\nfour\n");
+        fake.showing(&said(12));
         provider
             .execute(context("select", Some("sprint")))
             .await
             .expect("open");
 
-        let mut back = context("scroll", Some("sprint"));
-        back.definition.params.set("by", ParamValue::Integer(2));
-        let result = provider.execute(back).await.expect("open");
+        let result = moved(&provider, "scroll", "by", 2).await;
+        assert_eq!(window(&result), [3, 4, 5, 6, 7, 8, 9, 10], "two lines back");
 
-        let Some(DisplayIntent::Focus { lines, kind, .. }) = result.display else {
+        let Some(DisplayIntent::Focus { kind, .. }) = result.display else {
             panic!("focused");
         };
-        assert_eq!(lines, ["one", "two"], "two lines back");
         assert!(kind.contains("back"), "and it says so: {kind}");
     }
 
     #[tokio::test]
-    async fn scrolling_past_the_beginning_stays_at_the_beginning() {
+    async fn scrolling_stops_at_each_end_of_what_was_said() {
         let (provider, fake) = rig();
-        fake.showing("one\ntwo\n");
+        fake.showing(&said(12));
         provider
             .execute(context("select", Some("sprint")))
             .await
             .expect("open");
 
-        let mut far = context("scroll", Some("sprint"));
-        far.definition.params.set("by", ParamValue::Integer(500));
-        provider.execute(far).await.expect("open");
+        let far = moved(&provider, "scroll", "by", 500).await;
+        assert_eq!(window(&far), [1, 2, 3, 4, 5, 6, 7, 8], "the beginning");
 
-        let mut forward = context("scroll", Some("sprint"));
-        forward
-            .definition
-            .params
-            .set("by", ParamValue::Integer(-500));
-        let result = provider.execute(forward).await.expect("open");
+        let forward = moved(&provider, "scroll", "by", -500).await;
+        assert_eq!(
+            window(&forward),
+            [5, 6, 7, 8, 9, 10, 11, 12],
+            "and back to what it is saying now"
+        );
+    }
 
-        let Some(DisplayIntent::Focus { lines, .. }) = result.display else {
+    #[tokio::test]
+    async fn a_history_that_fits_has_nowhere_to_scroll_to() {
+        let (provider, fake) = rig();
+        fake.showing(&said(4));
+        provider
+            .execute(context("select", Some("sprint")))
+            .await
+            .expect("open");
+
+        let result = moved(&provider, "scroll", "by", 2).await;
+        assert_eq!(window(&result), [1, 2, 3, 4], "all of it, and no moving");
+
+        let Some(DisplayIntent::Focus { depth, .. }) = result.display else {
             panic!("focused");
         };
-        assert_eq!(lines, ["one", "two"], "and back to the bottom");
+        assert_eq!(depth, None, "and no bar, because there is nowhere to go");
+    }
+
+    #[tokio::test]
+    async fn the_strip_crosses_the_whole_history_in_one_movement() {
+        let (provider, fake) = rig();
+        fake.showing(&said(108));
+        provider
+            .execute(context("select", Some("sprint")))
+            .await
+            .expect("open");
+
+        // The bottom of the strip is what the session is saying now.
+        let bottom = moved(&provider, "scrub", READING, 0).await;
+        assert_eq!(*window(&bottom).last().expect("a window"), 108);
+
+        // The top is as far back as it goes.
+        let top = moved(&provider, "scrub", READING, 100).await;
+        assert_eq!(window(&top), [1, 2, 3, 4, 5, 6, 7, 8], "the beginning");
+
+        // And halfway is halfway, in one movement rather than fifty turns.
+        let middle = moved(&provider, "scrub", READING, 50).await;
+        assert_eq!(*window(&middle).first().expect("a window"), 51);
+    }
+
+    #[tokio::test]
+    async fn the_panel_is_told_where_in_the_history_it_is() {
+        let (provider, fake) = rig();
+        fake.showing(&said(108));
+        provider
+            .execute(context("select", Some("sprint")))
+            .await
+            .expect("open");
+
+        let result = moved(&provider, "scrub", READING, 100).await;
+        let Some(DisplayIntent::Focus { depth, .. }) = result.display else {
+            panic!("focused");
+        };
+        assert_eq!(
+            depth,
+            Some(Depth {
+                back: 100,
+                total: 108
+            }),
+            "so a hand on the strip can see where it has got to"
+        );
+    }
+
+    #[tokio::test]
+    async fn crossing_the_strip_is_one_look_at_the_machine_and_not_a_hundred() {
+        // Every answer costs a process. A finger crossing the strip asks a
+        // hundred times a second, and nothing it is reading changed between
+        // one percent and the next.
+        let (provider, fake) = rig();
+        fake.showing(&said(108));
+        provider
+            .execute(context("select", Some("sprint")))
+            .await
+            .expect("open");
+
+        let before = fake.calls().len();
+        for at in 0..100 {
+            moved(&provider, "scrub", READING, at).await;
+        }
+
+        let asked = fake.calls().len() - before;
+        assert!(
+            asked <= 2,
+            "a hundred percent of travel asked the machine {asked} times"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_slide_with_no_reading_is_refused_rather_than_guessed_at() {
+        // The value comes from the hardware, so a binding that reached a
+        // provider without one is a fault and not a jump to the beginning.
+        let (provider, fake) = rig();
+        fake.showing(&said(12));
+        let error = provider
+            .execute(context("scrub", Some("sprint")))
+            .await
+            .expect_err("nothing said where the finger was");
+        assert_eq!(error.class(), ErrorClass::Validation);
     }
 
     #[tokio::test]
     async fn looking_at_something_else_starts_it_at_the_bottom() {
         // A scroll position belongs to the thing it was scrolling.
         let (provider, fake) = rig();
-        fake.showing("one\ntwo\nthree\n");
+        fake.showing(&said(12));
         provider
             .execute(context("select", Some("sprint")))
             .await
             .expect("open");
-
-        let mut back = context("scroll", Some("sprint"));
-        back.definition.params.set("by", ParamValue::Integer(2));
-        provider.execute(back).await.expect("open");
+        moved(&provider, "scroll", "by", 2).await;
 
         let result = provider
             .execute(context("show", Some("review")))
             .await
             .expect("open");
-        let Some(DisplayIntent::Focus { lines, .. }) = result.display else {
-            panic!("focused");
-        };
-        assert_eq!(lines.len(), 3, "the new one starts where it is now");
+        assert_eq!(
+            window(&result),
+            [5, 6, 7, 8, 9, 10, 11, 12],
+            "the new one starts where it is now"
+        );
     }
 
     #[tokio::test]

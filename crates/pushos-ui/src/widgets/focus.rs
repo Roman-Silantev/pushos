@@ -16,6 +16,7 @@
 //! that needs watching, which is when a little life is welcome and no
 //! information is being displaced.
 
+use pushos_domain::action::Depth;
 use pushos_domain::color::Rgb;
 
 use crate::canvas::{Area, Canvas};
@@ -79,6 +80,14 @@ const BAR_HEIGHT: f32 = 4.0;
 const SWEEP: u32 = 44;
 /// How much of the bar the moving part covers.
 const SWEEP_WIDTH: f32 = 0.34;
+/// Width of the bar saying where in a long history the panel is.
+const DEPTH_WIDTH: f32 = 3.0;
+/// Shortest that bar's moving part is allowed to be.
+///
+/// A window of eight lines in a history of a thousand would otherwise be a
+/// thumb too small to see, which is the case where knowing where you are
+/// matters most.
+const DEPTH_LEAST: f32 = 8.0;
 
 /// Draws the focused view across the whole display.
 pub(crate) fn draw_focus(
@@ -146,6 +155,24 @@ pub(crate) fn draw_focus(
     );
     draw_said(canvas, text, theme, words, words.y, &focus.lines);
 
+    // Where these lines sit in everything the session has said, drawn in the
+    // gap the mark left. A hand on the touch strip is moving through hundreds
+    // of lines with nothing else on the panel saying how far it has got.
+    if let Some(depth) = focus.depth {
+        draw_depth(
+            canvas,
+            theme,
+            Area::new(
+                inner.x + MARK_COLUMN + (MARK_GAP - DEPTH_WIDTH) / 2.0,
+                words.y,
+                DEPTH_WIDTH,
+                words.height,
+            ),
+            depth,
+            focus.lines.len(),
+        );
+    }
+
     if keeps_others {
         let beside = Area::new(
             inner.x + inner.width - OTHERS_WIDTH + MARK_GAP,
@@ -166,6 +193,39 @@ pub(crate) fn draw_focus(
             TextStyle::left(theme.sizes.label, theme.muted, OTHERS_WIDTH).aligned(Align::Right),
         );
     }
+}
+
+/// Draws where the shown lines sit in a longer history.
+///
+/// A track for everything that was said and a thumb for the part on the panel,
+/// laid out the way the strip beside it is: the newest is at the bottom, and
+/// sliding a finger up travels back through what happened, which is the
+/// direction the words themselves already run.
+fn draw_depth(canvas: &mut Canvas, theme: &Theme, track: Area, depth: Depth, shown: usize) {
+    if track.height <= 0.0 || depth.total == 0 {
+        return;
+    }
+    canvas.fill_rounded(track, DEPTH_WIDTH / 2.0, theme.divider);
+
+    let total = as_length(depth.total);
+    let window = as_length(shown.min(depth.total));
+    let start = as_length(depth.total.saturating_sub(depth.back + shown));
+
+    let height = (track.height * window / total).max(DEPTH_LEAST);
+    // Clamped so a thumb widened to the minimum cannot run off the end.
+    let top = (track.height * start / total).min(track.height - height);
+
+    canvas.fill_rounded(
+        Area::new(track.x, track.y + top, track.width, height),
+        DEPTH_WIDTH / 2.0,
+        theme.accent,
+    );
+}
+
+/// A line count as a length to divide by.
+#[allow(clippy::cast_precision_loss)]
+fn as_length(lines: usize) -> f32 {
+    lines as f32
 }
 
 /// How fast the mark moves, which says which kind of state this is.
