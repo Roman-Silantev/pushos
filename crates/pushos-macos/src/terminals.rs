@@ -17,7 +17,7 @@ use pushos_domain::attached::{Attached, activity_of};
 use pushos_domain::error::{ActionError, ErrorClass};
 use pushos_domain::ids::AttachedId;
 use pushos_domain::ports::{AttachError, AttachedSessions, Key, ProcessRunner};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::script::ScriptRunner;
 
@@ -64,9 +64,19 @@ end run"#;
 
 /// How much of each screen to read while looking at what is open.
 ///
-/// Enough to hold the prompt and a question above it, and no more: this is
-/// read for every window every few seconds.
-const GLANCE: usize = 900;
+/// Enough to hold the prompt and a question above it, and no more. This is
+/// read for every window at once, and a reply that outgrows what a subprocess
+/// can hand back is truncated from the front, which loses whole windows. The
+/// focused view asks for its own screen, one window at a time, where there is
+/// room to spare.
+const GLANCE: usize = 220;
+
+/// What a terminal device path begins with.
+///
+/// Checked rather than assumed. A reply too long to hand back is cut from the
+/// front, and the surviving fragment starts in the middle of somebody's screen;
+/// without this it would become a session named after whatever it landed on.
+const DEVICE_PREFIX: &str = "/dev/";
 
 /// Returns the tail of what one tab has on screen.
 const READ: &str = r#"on run argv
@@ -172,7 +182,20 @@ impl TerminalAppSessions {
 impl AttachedSessions for TerminalAppSessions {
     async fn discover(&self) -> Result<Vec<Attached>, AttachError> {
         let reply = self.ask(DISCOVER, &[GLANCE.to_string()]).await?;
+
+        let records = reply.split(RECORD).filter(|r| !r.trim().is_empty()).count();
         let found: Vec<Attached> = reply.split(RECORD).filter_map(parse).collect();
+
+        // A reply too long to hand back is cut from the front, which loses
+        // whole windows silently. Saying so beats an operator counting seven
+        // pads where there are eight.
+        if found.len() < records {
+            warn!(
+                kept = found.len(),
+                records, "some terminals could not be read; the reply was too long"
+            );
+        }
+
         debug!(sessions = found.len(), "found terminals already open");
         Ok(found)
     }
@@ -235,7 +258,7 @@ impl AttachedSessions for TerminalAppSessions {
 fn parse(record: &str) -> Option<Attached> {
     let mut fields = record.trim().split(FIELD);
     let device = fields.next()?.trim();
-    if device.is_empty() {
+    if !device.starts_with(DEVICE_PREFIX) {
         return None;
     }
 

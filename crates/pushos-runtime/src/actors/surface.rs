@@ -51,6 +51,21 @@ pub struct SurfaceState {
     listening: pushos_domain::voice::Listening,
 }
 
+/// How a status reads on the display.
+///
+/// The one place the two vocabularies meet. The domain says what a thing is;
+/// the display says how loud that should be, and whether anything moves.
+const fn tone_of(status: pushos_domain::color::StatusColor) -> Tone {
+    use pushos_domain::color::StatusColor;
+    match status {
+        StatusColor::Working | StatusColor::Workflow => Tone::Active,
+        StatusColor::Waiting => Tone::Attention,
+        StatusColor::Failed => Tone::Failure,
+        StatusColor::Idle | StatusColor::Unassigned => Tone::Muted,
+        StatusColor::Complete | StatusColor::Selected => Tone::Normal,
+    }
+}
+
 /// Something that goes away on its own.
 #[derive(Debug)]
 struct Timed<T> {
@@ -175,11 +190,12 @@ impl SurfaceState {
                 kind,
                 title,
                 state,
+                tone,
                 lines,
             } => {
                 self.focus = Some(
                     pushos_ui::Focus::new(kind, title)
-                        .doing(state, Tone::Normal)
+                        .doing(state, tone_of(tone))
                         .saying(lines),
                 );
                 // An overlay on top of something being read closely would hide

@@ -23,9 +23,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("{} session(s) in {}", sessions.len(), watcher.describe());
     for session in &sessions {
         println!(
-            "  {:<10} {:<7} {}",
+            "  {:<10} {:<14} {}",
             session.device(),
-            if session.busy { "busy" } else { "idle" },
+            session.activity.describe(),
             session.label()
         );
     }

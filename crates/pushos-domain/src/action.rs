@@ -300,6 +300,8 @@ pub enum DisplayIntent {
         title: String,
         /// What it is doing, in a word.
         state: String,
+        /// How that state should read, and whether anything should move.
+        tone: crate::color::StatusColor,
         /// What it last said, most recent last.
         lines: Vec<String>,
     },

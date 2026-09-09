@@ -58,11 +58,86 @@ gesture = "press"
 action = "page.home"
 label = "Home"
 
+# The two arrows beside the screen move between pages, wherever you are.
+[[bindings]]
+control = "button.page_right"
+gesture = "press"
+action = "page.next"
+label = "Next page"
+
+[[bindings]]
+control = "button.page_left"
+gesture = "press"
+action = "page.previous"
+label = "Previous page"
+
 [[bindings]]
 control = "button.play"
 gesture = "press"
 action = "media.play_pause"
 label = "Play/Pause"
+
+# --- Browsing without looking at the pads ------------------------------------
+# The first encoder walks through the open sessions and opens each one as it
+# arrives, so you can turn the knob and read. The up and down arrows do the
+# same thing for a hand that is already on the buttons. Neither needs you to
+# have chosen anything first: turning from nothing starts at one end.
+
+[[bindings]]
+control = "encoder.1"
+gesture = "turn_right"
+action = "session.next"
+label = "Next session"
+
+[[bindings]]
+control = "encoder.1"
+gesture = "turn_left"
+action = "session.previous"
+label = "Previous session"
+
+[[bindings]]
+control = "button.down"
+gesture = "press"
+action = "session.next"
+label = "Next session"
+
+[[bindings]]
+control = "button.up"
+gesture = "press"
+action = "session.previous"
+label = "Previous session"
+
+# The second encoder moves back and forward through what the session you are
+# reading has said. The display says how far back you are.
+
+[[bindings]]
+control = "encoder.2"
+gesture = "turn_left"
+action = "session.scroll"
+label = "Back"
+params = { by = 1 }
+
+[[bindings]]
+control = "encoder.2"
+gesture = "turn_right"
+action = "session.scroll"
+label = "Forward"
+params = { by = -1 }
+
+# The touch strip does the same, for a thumb rather than a hand.
+[[bindings]]
+control = "button.left"
+gesture = "press"
+action = "session.scroll"
+label = "Back"
+params = { by = 2 }
+
+[[bindings]]
+control = "button.right"
+gesture = "press"
+action = "session.scroll"
+label = "Forward"
+params = { by = -2 }
 
 # --- One pad per window ------------------------------------------------------
 # Eight pads on the bottom row, one per terminal device. A tap selects that
