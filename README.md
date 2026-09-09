@@ -101,6 +101,11 @@ pushos workspaces # list the projects it knows about
   wrote means exactly one thing and runs it, and anything else goes to the agent
   you were already working with. Anything irreversible waits for a press,
   because transcription is not authorisation.
+- **The sessions you already have open**, on pads. PushOS reads what each
+  terminal window is working on, shows the last thing it said, and types into
+  whichever one you selected. It did not start them and does not own them: a
+  pseudo-terminal belongs to whoever created it. Watching and typing is most of
+  what a pad is for.
 - **Packs**, installable directories of agents, workflows, pages and bindings.
   Nothing is written until you have seen what one adds and what it is asking
   for, and a pack cannot grant itself anything: that is enforced rather than

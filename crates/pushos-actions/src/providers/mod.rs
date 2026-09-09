@@ -9,6 +9,7 @@ pub mod application;
 pub mod media;
 pub mod memory;
 pub mod page;
+pub mod session;
 pub mod shell;
 pub mod shortcut;
 pub mod terminal;

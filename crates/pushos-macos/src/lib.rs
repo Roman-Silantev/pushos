@@ -10,9 +10,11 @@ mod media;
 mod process;
 mod script;
 mod shortcuts;
+mod terminals;
 
 pub use applications::OpenLauncher;
 pub use media::{AppleScriptMedia, DEFAULT_PLAYER};
 pub use process::SystemProcessRunner;
 pub use script::{ApplicationName, ScriptRunner, UnsafeApplicationName};
 pub use shortcuts::ShortcutsCli;
+pub use terminals::TerminalAppSessions;

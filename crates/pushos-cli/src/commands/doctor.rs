@@ -5,9 +5,11 @@
 //! diagnostic that only ever says "fine" is worse than none.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use pushos_config::RuntimeConfig;
 use pushos_domain::ports::ProcessRunner;
+use pushos_domain::ports::AttachedSessions as _;
 use pushos_macos::SystemProcessRunner;
 use pushos_push2::{PortRole, Push2Device};
 use pushos_storage::StorageWriter;
@@ -58,6 +60,7 @@ pub(crate) async fn execute(requested: Option<&Path>) -> Result<(), String> {
     let mut findings = vec![check_configuration(&root), check_database(), check_push()];
     findings.extend(check_voice(&root));
     findings.extend(check_memory(&root));
+    findings.extend(check_attached(&root).await);
     findings.extend(check_host_tools().await);
 
     for finding in &findings {
@@ -133,6 +136,35 @@ fn check_push() -> Finding {
             "push 2",
             format!("{error}; check nothing else is holding the device"),
         ),
+    }
+}
+
+/// Reports whether PushOS can see the terminals already open.
+///
+/// Nothing at all unless the operator asked for it. macOS decides whether one
+/// application may control another, and the answer only arrives by trying, so
+/// this asks.
+async fn check_attached(root: &Path) -> Vec<Finding> {
+    let Ok(config) = pushos_config::load(root).and_then(|file| RuntimeConfig::build(&file)) else {
+        return Vec::new();
+    };
+    if !config.watch_sessions {
+        return Vec::new();
+    }
+
+    let watcher = pushos_macos::TerminalAppSessions::new(Arc::new(SystemProcessRunner::new()));
+    match watcher.discover().await {
+        Ok(open) => vec![Finding::new(
+            Verdict::Good,
+            "sessions",
+            format!(
+                "{} terminal(s) open in {}; asking every {:?}",
+                open.len(),
+                watcher.describe(),
+                config.session_poll
+            ),
+        )],
+        Err(error) => vec![Finding::new(Verdict::Blocking, "sessions", error.to_string())],
     }
 }
 

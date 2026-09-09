@@ -1,32 +1,40 @@
 # PushOS: sessions
 #
-# Eight coding sessions on eight pads, with what each one last said on the
-# screen and the state of each in the light under your finger.
+# The coding sessions you already have open, on pads.
 #
-# One thing to know first: PushOS can only show you terminals it runs itself.
-# It cannot attach to a window another application already opened, because the
-# pseudo-terminal belongs to whoever created it. So these pads start the
-# sessions, and from then on PushOS can see them.
+# PushOS did not start these and does not own them: a pseudo-terminal belongs
+# to whoever created it. What it can do is watch them and type into them, which
+# is most of what a pad is for. It reads each window's title, which for a
+# coding agent is what that session is working on, so the screen shows eight
+# real names rather than eight device numbers.
 #
-# Change `cwd` on each pad to the project it belongs to, and `text` on the hold
-# to whatever your test command is.
+# The first time you run this, macOS asks whether PushOS may control Terminal.
+# Say yes; that permission is what makes all of this work, and `pushos doctor`
+# reports on it.
 
 [runtime]
 home_page = "sessions"
 
 [permissions]
-# Terminals run programs on your behalf, which is what this permission is.
+# Typing into a live session runs whatever it makes of the keystrokes, which is
+# the same thing a terminal action does and needs the same saying yes to.
 granted = ["shell.execute", "media.control"]
+
+[sessions]
+# Nothing tells PushOS when a window opens, so it asks. Three seconds is faster
+# than you open windows and slower than the display is redrawn.
+watch = true
+poll_ms = 3000
 
 [[pages]]
 id = "sessions"
 name = "Sessions"
-description = "Eight coding sessions, and what each one last said"
+description = "What each window is working on, and what it last said"
 
 [[pages]]
-id = "tests"
-name = "Tests"
-description = "Run the tests in each session and watch them"
+id = "answer"
+name = "Answer"
+description = "Reply to whichever session you are looking at"
 
 # --- Moving about ------------------------------------------------------------
 
@@ -41,8 +49,8 @@ label = "Sessions"
 control = "button.upper_2"
 gesture = "press"
 action = "page.show"
-target = "tests"
-label = "Tests"
+target = "answer"
+label = "Answer"
 
 [[bindings]]
 control = "button.session"
@@ -56,359 +64,204 @@ gesture = "press"
 action = "media.play_pause"
 label = "Play/Pause"
 
-# --- The eight sessions ------------------------------------------------------
-# Tap a pad to start that session, or to select it when it is already running.
-# Hold it to stop it. The eight buttons below the screen select without
-# starting, so you can read one without touching what it is doing.
+# --- One pad per window ------------------------------------------------------
+# Eight pads on the bottom row, one per terminal device. A tap selects that
+# session and puts the last few lines of it on the screen; a hold brings its
+# window to the front.
+#
+# `tty:ttys000` is exact and stable for as long as that window is open. If you
+# would rather name them by what they are working on, write the words instead:
+#
+#   target = "Sprint 2"
+#
+# which matches any session whose title contains them, and keeps working when
+# the window moves to another device.
 
 [[bindings]]
 control = "pad.56"
 gesture = "tap"
 page = "sessions"
-action = "terminal.open"
-label = "one"
-params = { name = "one", program = "claude", cwd = "~/Projects/one" }
+action = "session.show"
+target = "tty:ttys000"
+label = "ttys000"
 
 [[bindings]]
 control = "pad.56"
 gesture = "hold"
 page = "sessions"
-action = "terminal.close"
-target = "name:one"
-label = "Stop one"
-
-[[bindings]]
-control = "button.lower_1"
-gesture = "press"
-page = "sessions"
-action = "terminal.select"
-target = "name:one"
-label = "one"
+action = "session.focus"
+target = "tty:ttys000"
+label = "Show window"
 
 [[bindings]]
 control = "pad.57"
 gesture = "tap"
 page = "sessions"
-action = "terminal.open"
-label = "two"
-params = { name = "two", program = "claude", cwd = "~/Projects/two" }
+action = "session.show"
+target = "tty:ttys001"
+label = "ttys001"
 
 [[bindings]]
 control = "pad.57"
 gesture = "hold"
 page = "sessions"
-action = "terminal.close"
-target = "name:two"
-label = "Stop two"
-
-[[bindings]]
-control = "button.lower_2"
-gesture = "press"
-page = "sessions"
-action = "terminal.select"
-target = "name:two"
-label = "two"
+action = "session.focus"
+target = "tty:ttys001"
+label = "Show window"
 
 [[bindings]]
 control = "pad.58"
 gesture = "tap"
 page = "sessions"
-action = "terminal.open"
-label = "three"
-params = { name = "three", program = "claude", cwd = "~/Projects/three" }
+action = "session.show"
+target = "tty:ttys002"
+label = "ttys002"
 
 [[bindings]]
 control = "pad.58"
 gesture = "hold"
 page = "sessions"
-action = "terminal.close"
-target = "name:three"
-label = "Stop three"
-
-[[bindings]]
-control = "button.lower_3"
-gesture = "press"
-page = "sessions"
-action = "terminal.select"
-target = "name:three"
-label = "three"
+action = "session.focus"
+target = "tty:ttys002"
+label = "Show window"
 
 [[bindings]]
 control = "pad.59"
 gesture = "tap"
 page = "sessions"
-action = "terminal.open"
-label = "four"
-params = { name = "four", program = "claude", cwd = "~/Projects/four" }
+action = "session.show"
+target = "tty:ttys003"
+label = "ttys003"
 
 [[bindings]]
 control = "pad.59"
 gesture = "hold"
 page = "sessions"
-action = "terminal.close"
-target = "name:four"
-label = "Stop four"
-
-[[bindings]]
-control = "button.lower_4"
-gesture = "press"
-page = "sessions"
-action = "terminal.select"
-target = "name:four"
-label = "four"
+action = "session.focus"
+target = "tty:ttys003"
+label = "Show window"
 
 [[bindings]]
 control = "pad.60"
 gesture = "tap"
 page = "sessions"
-action = "terminal.open"
-label = "five"
-params = { name = "five", program = "claude", cwd = "~/Projects/five" }
+action = "session.show"
+target = "tty:ttys004"
+label = "ttys004"
 
 [[bindings]]
 control = "pad.60"
 gesture = "hold"
 page = "sessions"
-action = "terminal.close"
-target = "name:five"
-label = "Stop five"
-
-[[bindings]]
-control = "button.lower_5"
-gesture = "press"
-page = "sessions"
-action = "terminal.select"
-target = "name:five"
-label = "five"
+action = "session.focus"
+target = "tty:ttys004"
+label = "Show window"
 
 [[bindings]]
 control = "pad.61"
 gesture = "tap"
 page = "sessions"
-action = "terminal.open"
-label = "six"
-params = { name = "six", program = "claude", cwd = "~/Projects/six" }
+action = "session.show"
+target = "tty:ttys005"
+label = "ttys005"
 
 [[bindings]]
 control = "pad.61"
 gesture = "hold"
 page = "sessions"
-action = "terminal.close"
-target = "name:six"
-label = "Stop six"
-
-[[bindings]]
-control = "button.lower_6"
-gesture = "press"
-page = "sessions"
-action = "terminal.select"
-target = "name:six"
-label = "six"
+action = "session.focus"
+target = "tty:ttys005"
+label = "Show window"
 
 [[bindings]]
 control = "pad.62"
 gesture = "tap"
 page = "sessions"
-action = "terminal.open"
-label = "seven"
-params = { name = "seven", program = "claude", cwd = "~/Projects/seven" }
+action = "session.show"
+target = "tty:ttys006"
+label = "ttys006"
 
 [[bindings]]
 control = "pad.62"
 gesture = "hold"
 page = "sessions"
-action = "terminal.close"
-target = "name:seven"
-label = "Stop seven"
-
-[[bindings]]
-control = "button.lower_7"
-gesture = "press"
-page = "sessions"
-action = "terminal.select"
-target = "name:seven"
-label = "seven"
+action = "session.focus"
+target = "tty:ttys006"
+label = "Show window"
 
 [[bindings]]
 control = "pad.63"
 gesture = "tap"
 page = "sessions"
-action = "terminal.open"
-label = "eight"
-params = { name = "eight", program = "claude", cwd = "~/Projects/eight" }
+action = "session.show"
+target = "tty:ttys007"
+label = "ttys007"
 
 [[bindings]]
 control = "pad.63"
 gesture = "hold"
 page = "sessions"
-action = "terminal.close"
-target = "name:eight"
-label = "Stop eight"
+action = "session.focus"
+target = "tty:ttys007"
+label = "Show window"
+
+# --- Answering ---------------------------------------------------------------
+# Every one of these acts on whichever session you last selected, so one pad
+# serves all eight. `session.send` types exactly what it is given: a lone
+# newline answers a prompt, and `y` agrees to one.
 
 [[bindings]]
-control = "button.lower_8"
-gesture = "press"
-page = "sessions"
-action = "terminal.select"
-target = "name:eight"
-label = "eight"
-
-# --- The tests page ----------------------------------------------------------
-# Same eight sessions, but a tap runs the tests in one and a hold runs them
-# everywhere. What each one last said is on the screen above.
-
-[[bindings]]
-control = "pad.56"
+control = "pad.0"
 gesture = "tap"
-page = "tests"
-action = "terminal.run"
-target = "name:one"
-label = "test one"
-params = { text = "cargo test" }
-
-[[bindings]]
-control = "button.lower_1"
-gesture = "press"
-page = "tests"
-action = "terminal.select"
-target = "name:one"
-label = "one"
-
-[[bindings]]
-control = "pad.57"
-gesture = "tap"
-page = "tests"
-action = "terminal.run"
-target = "name:two"
-label = "test two"
-params = { text = "cargo test" }
-
-[[bindings]]
-control = "button.lower_2"
-gesture = "press"
-page = "tests"
-action = "terminal.select"
-target = "name:two"
-label = "two"
-
-[[bindings]]
-control = "pad.58"
-gesture = "tap"
-page = "tests"
-action = "terminal.run"
-target = "name:three"
-label = "test three"
-params = { text = "cargo test" }
-
-[[bindings]]
-control = "button.lower_3"
-gesture = "press"
-page = "tests"
-action = "terminal.select"
-target = "name:three"
-label = "three"
-
-[[bindings]]
-control = "pad.59"
-gesture = "tap"
-page = "tests"
-action = "terminal.run"
-target = "name:four"
-label = "test four"
-params = { text = "cargo test" }
-
-[[bindings]]
-control = "button.lower_4"
-gesture = "press"
-page = "tests"
-action = "terminal.select"
-target = "name:four"
-label = "four"
-
-[[bindings]]
-control = "pad.60"
-gesture = "tap"
-page = "tests"
-action = "terminal.run"
-target = "name:five"
-label = "test five"
-params = { text = "cargo test" }
-
-[[bindings]]
-control = "button.lower_5"
-gesture = "press"
-page = "tests"
-action = "terminal.select"
-target = "name:five"
-label = "five"
-
-[[bindings]]
-control = "pad.61"
-gesture = "tap"
-page = "tests"
-action = "terminal.run"
-target = "name:six"
-label = "test six"
-params = { text = "cargo test" }
-
-[[bindings]]
-control = "button.lower_6"
-gesture = "press"
-page = "tests"
-action = "terminal.select"
-target = "name:six"
-label = "six"
-
-[[bindings]]
-control = "pad.62"
-gesture = "tap"
-page = "tests"
-action = "terminal.run"
-target = "name:seven"
-label = "test seven"
-params = { text = "cargo test" }
-
-[[bindings]]
-control = "button.lower_7"
-gesture = "press"
-page = "tests"
-action = "terminal.select"
-target = "name:seven"
-label = "seven"
-
-[[bindings]]
-control = "pad.63"
-gesture = "tap"
-page = "tests"
-action = "terminal.run"
-target = "name:eight"
-label = "test eight"
-params = { text = "cargo test" }
-
-[[bindings]]
-control = "button.lower_8"
-gesture = "press"
-page = "tests"
-action = "terminal.select"
-target = "name:eight"
-label = "eight"
-
-# Answering a prompt in whichever session you selected, without reaching for
-# the keyboard. `terminal.send` types exactly what it is given, so a lone
-# newline answers a question and `y` agrees to one.
-
-[[bindings]]
-control = "button.upper_7"
-gesture = "press"
-action = "terminal.send"
-target = "selected"
+page = "answer"
+action = "session.send"
 label = "Yes"
 params = { text = "y\n" }
 
 [[bindings]]
-control = "button.upper_8"
-gesture = "press"
-action = "terminal.send"
-target = "selected"
+control = "pad.1"
+gesture = "tap"
+page = "answer"
+action = "session.send"
+label = "No"
+params = { text = "n\n" }
+
+[[bindings]]
+control = "pad.2"
+gesture = "tap"
+page = "answer"
+action = "session.send"
 label = "Enter"
 params = { text = "\n" }
+
+[[bindings]]
+control = "pad.3"
+gesture = "tap"
+page = "answer"
+action = "session.send"
+label = "Continue"
+params = { text = "continue\n" }
+
+# Interrupting sends the control character, not the word, so a session waiting
+# at a prompt is stopped rather than told about stopping. On a hold, because
+# stopping something by brushing a pad would be worse than stopping it slowly.
+[[bindings]]
+control = "pad.7"
+gesture = "hold"
+page = "answer"
+action = "session.interrupt"
+label = "Interrupt"
+
+[[bindings]]
+control = "pad.8"
+gesture = "tap"
+page = "answer"
+action = "session.show"
+label = "What it said"
+
+[[bindings]]
+control = "button.upper_8"
+gesture = "press"
+page = "answer"
+action = "page.back"
+label = "Back"

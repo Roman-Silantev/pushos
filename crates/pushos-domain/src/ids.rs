@@ -83,6 +83,14 @@ string_id!(
     NodeId
 );
 string_id!(
+    /// Identifies a session running somewhere PushOS did not start it.
+    ///
+    /// The terminal device it is attached to, which is stable for as long as
+    /// that terminal is open and is the one thing a session cannot change
+    /// about itself.
+    AttachedId
+);
+string_id!(
     /// Identifies an installable pack of agents, workflows, pages and bindings.
     PackId
 );

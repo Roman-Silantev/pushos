@@ -7,15 +7,19 @@ use std::sync::Arc;
 
 use pushos_acp::{AcpBackend, AgentCommand};
 use pushos_actions::providers::{
-    agent, application, media, memory, page, shell, shortcut, terminal, voice, workflow, workspace,
+    agent, application, media, memory, page, session, shell, shortcut, terminal, voice, workflow,
+    workspace,
 };
 use pushos_agents::{AgentRoster, AgentSupervisor};
 use pushos_config::RuntimeConfig;
+use pushos_domain::ports::AttachedSessions as _;
 use pushos_domain::ports::{
     ActionProvider, AgentObserver, ProcessRunner, TerminalObserver, WorkspaceContext,
     WorkspaceMemoryStore,
 };
-use pushos_macos::{AppleScriptMedia, OpenLauncher, ShortcutsCli, SystemProcessRunner};
+use pushos_macos::{
+    AppleScriptMedia, OpenLauncher, ShortcutsCli, SystemProcessRunner, TerminalAppSessions,
+};
 use pushos_terminal::{PtyTerminals, TerminalSupervisor};
 use pushos_voice::{VoiceListener, VoiceRouter};
 use pushos_workflows::{WorkflowCatalogue, WorkflowEngine};
@@ -206,6 +210,27 @@ pub(crate) fn memory(
     )))
 }
 
+/// Builds the watcher for terminals the operator already had open.
+///
+/// Returns `None` unless it is switched on, because asking another application
+/// what is open is something macOS will ask the operator to allow, and doing
+/// that unbidden on a machine with no interest in the feature would be rude.
+pub(crate) fn attached(config: &RuntimeConfig) -> Option<Arc<session::SessionProvider>> {
+    if !config.watch_sessions {
+        return None;
+    }
+
+    let watcher = Arc::new(TerminalAppSessions::new(Arc::new(
+        SystemProcessRunner::new(),
+    )));
+    info!(
+        watching = watcher.describe(),
+        every = ?config.session_poll,
+        "watching the terminals already open"
+    );
+    Some(Arc::new(session::SessionProvider::new(watcher)))
+}
+
 /// Builds push to talk from configuration.
 ///
 /// Returns `None` when voice is not configured, because a surface that cannot
@@ -261,6 +286,10 @@ fn command_for(entry: &pushos_config::model::ProviderEntry) -> Option<AgentComma
 /// A provider whose backend cannot be configured is left out rather than
 /// installed in a broken state, so a binding that references it fails with
 /// "no provider" instead of failing halfway through doing something.
+///
+/// One argument per optional subsystem, because each is separately absent and
+/// bundling them into a struct would only move the list somewhere else.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn providers(
     config: &RuntimeConfig,
     agents: Option<&Arc<AgentSupervisor>>,
@@ -269,6 +298,7 @@ pub(crate) fn providers(
     workflows: Option<&Arc<WorkflowEngine>>,
     listening: Option<&Arc<voice::VoiceProvider>>,
     notes: Option<&Arc<memory::MemoryProvider>>,
+    sessions: Option<&Arc<session::SessionProvider>>,
 ) -> Vec<Arc<dyn ActionProvider>> {
     let processes: Arc<dyn ProcessRunner> = Arc::new(SystemProcessRunner::new());
     let launcher: Arc<dyn pushos_domain::ports::ApplicationLauncher> =
@@ -311,6 +341,11 @@ pub(crate) fn providers(
     // The same for notes: a namespace with no sources behind it would report
     // "unknown verb" rather than "none are configured".
     if let Some(provider) = notes {
+        providers.push(Arc::clone(provider) as Arc<dyn ActionProvider>);
+    }
+
+    // The same again for the terminals PushOS did not open.
+    if let Some(provider) = sessions {
         providers.push(Arc::clone(provider) as Arc<dyn ActionProvider>);
     }
 
@@ -362,6 +397,7 @@ pub(crate) fn shipped_providers(config: &RuntimeConfig) -> Vec<Arc<dyn ActionPro
         engine.as_ref(),
         voice(config).as_ref(),
         memory(config, None).as_ref(),
+        attached(config).as_ref(),
     )
 }
 
@@ -472,6 +508,7 @@ mod tests {
             engine(&settings, &idle_terminals(&settings)).as_ref(),
             voice(&settings).as_ref(),
             memory(&settings, None).as_ref(),
+            attached(&settings).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -496,6 +533,7 @@ mod tests {
             engine(&settings, &idle_terminals(&settings)).as_ref(),
             voice(&settings).as_ref(),
             memory(&settings, None).as_ref(),
+            attached(&settings).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -519,6 +557,7 @@ mod tests {
             engine(&settings, &idle_terminals(&settings)).as_ref(),
             voice(&settings).as_ref(),
             memory(&settings, None).as_ref(),
+            attached(&settings).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -638,6 +677,7 @@ mod tests {
             engine(&settings, &idle_terminals(&settings)).as_ref(),
             voice(&settings).as_ref(),
             memory(&settings, None).as_ref(),
+            attached(&settings).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -666,6 +706,7 @@ mod tests {
             engine(&unusable, &idle_terminals(&unusable)).as_ref(),
             voice(&unusable).as_ref(),
             memory(&unusable, None).as_ref(),
+            attached(&unusable).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())

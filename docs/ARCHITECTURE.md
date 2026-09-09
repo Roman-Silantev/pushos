@@ -459,6 +459,36 @@ Three more decisions worth stating:
 Disabling keeps the files and stops loading them, so turning a pack off does
 not cost whatever the operator changed inside it.
 
+## What PushOS owns, and what it only watches
+
+A terminal PushOS runs is PushOS's: it knows when the process exits and with
+what status, because it holds the pseudo-terminal. A window the operator
+already had open is not, and never can be, because that pseudo-terminal belongs
+to whoever created it.
+
+Both are useful and they are not the same thing, so they are two ports rather
+than one interface with holes in it. The terminal port promises an exit status;
+the attached one cannot, and does not pretend to. What it offers instead is what
+is genuinely available through a scriptable terminal: what is open, what each
+window calls itself, whether something is running in it, the last of what is on
+screen, and typing.
+
+Three decisions worth stating:
+
+- **A session is identified by its terminal device**, which is the one thing it
+  cannot change about itself. A binding may also name one by part of its title,
+  because that is what an operator remembers: they know which window is the
+  sprint work, not which one is on `ttys004`.
+- **Nothing here ever asks for attention.** PushOS cannot tell whether one of
+  these wants something, and a surface crying out about eight windows at once
+  would be worse than a quiet one.
+- **Nothing is watched unless the operator asked.** Reading another
+  application means asking macOS for permission to control it, and doing that
+  unbidden on a machine with no interest in the feature would be rude.
+
+Every script is fixed text with values passed as arguments, so nothing a window
+titles itself can change what runs.
+
 ## Failures are classified, not stringified
 
 Every error carries a class: retryable, validation, permission,

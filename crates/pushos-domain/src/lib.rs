@@ -20,6 +20,7 @@
 
 pub mod action;
 pub mod agent;
+pub mod attached;
 pub mod binding;
 pub mod color;
 pub mod context;

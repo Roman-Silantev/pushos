@@ -47,6 +47,9 @@ pub struct ConfigFile {
     /// Notes PushOS can capture and find.
     #[serde(default)]
     pub memory: MemorySection,
+    /// The terminals the operator already had open.
+    #[serde(default)]
+    pub sessions: SessionSection,
 }
 
 impl ConfigFile {
@@ -68,6 +71,7 @@ impl ConfigFile {
         self.workflows.extend(other.workflows);
         self.voice.merge(other.voice);
         self.memory.merge(other.memory);
+        self.sessions.merge(&other.sessions);
     }
 }
 
@@ -102,6 +106,34 @@ impl RuntimeSection {
         }
         if other.shell.is_some() {
             self.shell = other.shell;
+        }
+    }
+}
+
+/// The terminals the operator already had open.
+///
+/// Off unless switched on. PushOS asks another application what is open, which
+/// macOS will ask the operator to allow, and doing that unbidden on a machine
+/// with no interest in the feature would be rude.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SessionSection {
+    /// Whether to watch them at all.
+    #[serde(default)]
+    pub watch: bool,
+    /// How often to ask what is open, in milliseconds.
+    ///
+    /// Asking costs a subprocess. Defaults to every three seconds, which is
+    /// faster than an operator opens windows and slower than the display is
+    /// redrawn.
+    pub poll_ms: Option<u64>,
+}
+
+impl SessionSection {
+    fn merge(&mut self, other: &Self) {
+        self.watch |= other.watch;
+        if other.poll_ms.is_some() {
+            self.poll_ms = other.poll_ms;
         }
     }
 }

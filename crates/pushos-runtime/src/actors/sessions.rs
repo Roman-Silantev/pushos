@@ -10,6 +10,7 @@ use pushos_agents::AgentSupervisor;
 use pushos_terminal::TerminalSupervisor;
 use pushos_ui::{SLOT_COUNT, SessionLine, Tone};
 use pushos_workflows::WorkflowEngine;
+use tokio::sync::watch;
 
 use super::input::SessionRefresh;
 
@@ -23,6 +24,13 @@ pub(crate) struct SessionPublisher {
     agents: Option<Arc<AgentSupervisor>>,
     terminals: Option<Arc<TerminalSupervisor>>,
     workflows: Option<Arc<WorkflowEngine>>,
+    /// Sessions PushOS did not start, as last seen.
+    ///
+    /// Followed rather than asked for: asking costs a subprocess, and the
+    /// display is redrawn far more often than terminal windows open.
+    attached: Option<watch::Receiver<Vec<pushos_domain::attached::Attached>>>,
+    /// Which of those the operator is looking at.
+    looking_at: Option<watch::Receiver<Option<pushos_domain::ids::AttachedId>>>,
     refresh: SessionRefresh,
 }
 
@@ -32,6 +40,7 @@ impl std::fmt::Debug for SessionPublisher {
             .field("agents", &self.agents.is_some())
             .field("terminals", &self.terminals.is_some())
             .field("workflows", &self.workflows.is_some())
+            .field("attached", &self.attached.is_some())
             .finish_non_exhaustive()
     }
 }
@@ -43,6 +52,8 @@ impl SessionPublisher {
             agents: None,
             terminals: None,
             workflows: None,
+            attached: None,
+            looking_at: None,
             refresh,
         }
     }
@@ -62,6 +73,17 @@ impl SessionPublisher {
     /// Includes the workflow runs.
     pub(crate) fn with_workflows(mut self, engine: Arc<WorkflowEngine>) -> Self {
         self.workflows = Some(engine);
+        self
+    }
+
+    /// Includes the sessions PushOS did not start.
+    pub(crate) fn with_attached(
+        mut self,
+        found: watch::Receiver<Vec<pushos_domain::attached::Attached>>,
+        looking_at: watch::Receiver<Option<pushos_domain::ids::AttachedId>>,
+    ) -> Self {
+        self.attached = Some(found);
+        self.looking_at = Some(looking_at);
         self
     }
 
@@ -92,6 +114,17 @@ impl SessionPublisher {
 
         if let Some(workflows) = &self.workflows {
             lines.extend(super::run_lines(&workflows.runs().await));
+        }
+
+        if let Some(attached) = &self.attached {
+            let looking_at = self
+                .looking_at
+                .as_ref()
+                .and_then(|held| held.borrow().clone());
+            lines.extend(super::attached_lines(
+                &attached.borrow(),
+                looking_at.as_ref(),
+            ));
         }
 
         merge(lines)

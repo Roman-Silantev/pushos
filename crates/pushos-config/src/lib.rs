@@ -25,8 +25,8 @@ pub use error::{ConfigError, Problem};
 pub use loader::load;
 pub use memory::MemorySettings;
 pub use model::{
-    BindingEntry, ConfigFile, MemorySection, MemorySourceEntry, PageEntry, VoiceCommandEntry,
-    VoiceSection,
+    BindingEntry, ConfigFile, MemorySection, MemorySourceEntry, PageEntry, SessionSection,
+    VoiceCommandEntry, VoiceSection,
 };
 pub use spec::{BindingAddress, BindingSpec, PageSpec};
 pub use store::ConfigStore;

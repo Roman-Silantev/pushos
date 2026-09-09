@@ -35,6 +35,7 @@ pub struct Runtime {
     workflows: Option<WorkflowWiring>,
     voice: Option<Arc<pushos_actions::providers::voice::VoiceProvider>>,
     memory: Option<Arc<pushos_actions::providers::memory::MemoryProvider>>,
+    attached: Option<Arc<pushos_actions::providers::session::SessionProvider>>,
     bus: EventBus,
 }
 
@@ -85,6 +86,7 @@ impl Runtime {
             workflows: None,
             voice: None,
             memory: None,
+            attached: None,
             bus: EventBus::new(),
         }
     }
@@ -179,6 +181,21 @@ impl Runtime {
         self
     }
 
+    /// Watches the terminals the operator already had open.
+    ///
+    /// Optional: PushOS runs without this, it simply cannot see anything it did
+    /// not start itself. Takes the provider rather than the watcher, because
+    /// which session the operator is looking at is the provider's to know and
+    /// the display follows it.
+    #[must_use]
+    pub fn with_attached(
+        mut self,
+        provider: Arc<pushos_actions::providers::session::SessionProvider>,
+    ) -> Self {
+        self.attached = Some(provider);
+        self
+    }
+
     /// Installs an action provider.
     pub fn with_provider(
         mut self,
@@ -260,6 +277,18 @@ impl Runtime {
         if let Some(wiring) = &self.workflows {
             publisher = publisher.with_workflows(Arc::clone(&wiring.engine));
             sources.push(Arc::new(RunSessions::new(Arc::clone(&wiring.engine))));
+        }
+
+        // Nothing tells PushOS when a terminal window opens, so it asks, and
+        // the display follows the answer rather than asking for itself.
+        if let Some(provider) = &self.attached {
+            let (task, found) = crate::actors::AttachedTask::new(provider.watcher());
+            let task = task.every(self.config.current().session_poll);
+            publisher = publisher.with_attached(found, provider.watch());
+
+            let watching = shutdown.clone();
+            let publishing = publisher.clone();
+            shutdown.spawn(async move { task.run(watching, move || publishing.publish()).await });
         }
 
         if let Some(server) = self.control {

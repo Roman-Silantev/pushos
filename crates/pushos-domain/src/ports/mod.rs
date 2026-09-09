@@ -5,6 +5,7 @@
 
 mod action_provider;
 mod agent;
+mod attached;
 mod clock;
 mod memory;
 mod push;
@@ -19,6 +20,7 @@ pub use agent::{
     AgentBackend, AgentCapabilities, AgentError, AgentEvent, AgentObserver, ApprovalId,
     ApprovalOption, SessionHandle, SessionRequest, StopReason,
 };
+pub use attached::{AttachError, AttachedSessions};
 pub use clock::{Clock, SystemClock};
 pub use memory::{MemoryError, MemoryStore, NoteIndex, Source};
 pub use push::{

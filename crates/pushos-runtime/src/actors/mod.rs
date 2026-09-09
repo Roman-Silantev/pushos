@@ -1,6 +1,7 @@
 //! The components that own runtime state.
 
 mod agents;
+mod attached;
 mod input;
 pub(crate) mod leds;
 mod render;
@@ -12,6 +13,8 @@ mod workflows;
 
 pub(crate) use agents::lines_for as agent_lines;
 pub use agents::{AgentReporter, AgentTask};
+pub(crate) use attached::AttachedTask;
+pub(crate) use attached::lines_for as attached_lines;
 pub use input::{InputTask, SurfaceView};
 pub use render::RenderTask;
 pub(crate) use sessions::SessionPublisher;

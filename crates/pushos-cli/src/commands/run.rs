@@ -199,6 +199,14 @@ fn build_runtime(
         runtime = runtime.with_memory(Arc::clone(provider));
     }
 
+    // The terminals the operator already had open. PushOS did not start these
+    // and cannot own them, but it can show what they are doing and type into
+    // them, which is most of what a pad is for.
+    let sessions = host::attached(&current);
+    if let Some(provider) = &sessions {
+        runtime = runtime.with_attached(Arc::clone(provider));
+    }
+
     // Without a socket PushOS still runs; it simply cannot be configured from
     // Studio. That is worth saying rather than refusing to start over.
     if let Some(server) = control {
@@ -213,6 +221,7 @@ fn build_runtime(
         workflows.as_ref(),
         listening.as_ref(),
         notes.as_ref(),
+        sessions.as_ref(),
     ) {
         let name = provider.name();
         match runtime.with_provider(provider) {

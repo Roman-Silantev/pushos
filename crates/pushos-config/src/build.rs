@@ -16,6 +16,9 @@ use pushos_domain::page::Page;
 use pushos_domain::permissions::PermissionSet;
 
 use crate::error::{ConfigError, Problem};
+
+/// How often PushOS asks what terminals are open, unless told otherwise.
+const DEFAULT_SESSION_POLL: Duration = Duration::from_secs(3);
 use crate::model::{BindingEntry, ConfigFile};
 
 /// A validated configuration, ready to be swapped in.
@@ -45,6 +48,10 @@ pub struct RuntimeConfig {
     pub voice: Option<crate::voice::VoiceSettings>,
     /// Notes, when they are configured.
     pub memory: Option<crate::memory::MemorySettings>,
+    /// Whether to watch the terminals the operator already had open.
+    pub watch_sessions: bool,
+    /// How often to ask what is open.
+    pub session_poll: std::time::Duration,
     /// Where agents work when a role does not name a workspace.
     pub workspace_root: Option<std::path::PathBuf>,
     /// The program a terminal runs when a binding does not name one.
@@ -104,6 +111,11 @@ impl RuntimeConfig {
             workflows,
             voice,
             memory,
+            watch_sessions: file.sessions.watch,
+            session_poll: file
+                .sessions
+                .poll_ms
+                .map_or(DEFAULT_SESSION_POLL, Duration::from_millis),
             workspace_root: file
                 .runtime
                 .workspace_root
@@ -128,6 +140,8 @@ impl RuntimeConfig {
             workflows: Vec::new(),
             voice: None,
             memory: None,
+            watch_sessions: false,
+            session_poll: DEFAULT_SESSION_POLL,
             workspace_root: None,
             shell: None,
         }
