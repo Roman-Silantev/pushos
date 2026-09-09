@@ -27,6 +27,22 @@ const FLOOR: f32 = 0.45;
 /// How many animation steps one full sweep takes.
 const SWEEP_STEPS: u32 = 96;
 
+/// How many steps one hop and the pause after it take.
+///
+/// A whole number of hops to one sweep, so the animation has a single period
+/// and returns to exactly where it started. Two hops per sweep: often enough
+/// to be alive, seldom enough to read past.
+const HOP_STEPS: u32 = SWEEP_STEPS / 2;
+
+/// How much of that is spent in the air.
+///
+/// Well under half, because a mascot that never rested would be a distraction
+/// on a panel somebody is trying to read.
+const HOP_AIRBORNE: u32 = 18;
+
+/// How high it goes, in quadrants.
+const HOP_HEIGHT: f32 = 2.4;
+
 /// A quadrant of one character cell.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct Quadrant {
@@ -103,10 +119,30 @@ impl Mascot {
         (span(self.width), span(self.height))
     }
 
+    /// How far off the ground the mascot is, in quadrants.
+    ///
+    /// A hop and then a rest, rather than a constant bounce: something that
+    /// never stopped moving would be a distraction on a panel somebody is
+    /// trying to read past, and the point of the movement is that it is
+    /// noticed.
+    pub fn lift(phase: u32) -> f32 {
+        let step = phase % HOP_STEPS;
+        if step >= HOP_AIRBORNE {
+            return 0.0;
+        }
+
+        // A parabola: fastest leaving the ground, slowest at the top.
+        #[allow(clippy::cast_precision_loss)]
+        let through = step as f32 / HOP_AIRBORNE as f32;
+        HOP_HEIGHT * 4.0 * through * (1.0 - through)
+    }
+
     /// Draws the mascot with its top-left corner at `origin`.
     ///
     /// `phase` advances the animation. It is taken as a plain counter so the
     /// caller decides the frame rate and the mascot has no clock of its own.
+    /// A phase of zero is the mascot at rest, so a caller that does not want it
+    /// moving simply never advances it.
     pub fn draw(
         &self,
         canvas: &mut Canvas,
@@ -118,11 +154,15 @@ impl Mascot {
     ) {
         let (left, top) = origin;
         let step = quadrant + gap;
+        // The body hops; the flecks around it stay where they are, which is
+        // what makes the hop read as the mascot moving rather than the whole
+        // picture sliding.
+        let hop = Self::lift(phase) * step;
 
         for cell in &self.quadrants {
             let area = Area::new(
                 left + f32::from(cell.x) * step,
-                top + f32::from(cell.y) * step,
+                top + f32::from(cell.y) * step - if cell.sparkle { 0.0 } else { hop },
                 quadrant,
                 quadrant,
             );
@@ -303,5 +343,41 @@ mod tests {
     fn the_mascot_is_drawn_in_a_warm_orange() {
         const { assert!(MASCOT.r > MASCOT.g, "orange is red-dominant") };
         const { assert!(MASCOT.g > MASCOT.b, "and warmer than it is blue") };
+    }
+
+    #[test]
+    fn the_mascot_hops_and_then_rests() {
+        // Something that never stopped moving would be a distraction on a
+        // panel somebody is trying to read past.
+        assert!(grounded(Mascot::lift(0)), "it starts on the ground");
+        assert!(Mascot::lift(HOP_AIRBORNE / 2) > 1.0, "and gets well off it");
+        assert!(grounded(Mascot::lift(HOP_AIRBORNE)), "and lands");
+        assert!(
+            (HOP_AIRBORNE..HOP_STEPS).all(|step| grounded(Mascot::lift(step))),
+            "and then stays there for a while"
+        );
+    }
+
+    /// Whether the mascot is on the ground, without comparing floats exactly.
+    fn grounded(lift: f32) -> bool {
+        lift.abs() < f32::EPSILON
+    }
+
+    #[test]
+    fn the_hop_repeats_a_whole_number_of_times_per_sweep() {
+        // Otherwise the animation would have two periods and never return to
+        // exactly where it started, which is a drift nobody would ever notice
+        // and everybody would eventually see.
+        assert_eq!(SWEEP_STEPS % HOP_STEPS, 0);
+        for cycle in 0..4 {
+            assert!(grounded(Mascot::lift(cycle * HOP_STEPS)));
+            assert!(Mascot::lift(cycle * HOP_STEPS + HOP_AIRBORNE / 2) > 1.0);
+        }
+    }
+
+    #[test]
+    fn a_mascot_that_is_never_advanced_never_moves() {
+        // Which is what a caller showing it as a static mark relies on.
+        assert!(grounded(Mascot::lift(0)));
     }
 }

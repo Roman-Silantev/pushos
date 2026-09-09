@@ -2,7 +2,7 @@
 //! a Push 2 attached.
 //!
 //! ```text
-//! cargo run -p pushos-ui --example preview -- /tmp/pushos.ppm [page|sessions|overlay|notes|splash|offline]
+//! cargo run -p pushos-ui --example preview -- /tmp/pushos.ppm [page|sessions|focus|overlay|notes|splash|offline]
 //! ```
 
 use std::io::Write as _;
@@ -10,8 +10,8 @@ use std::io::Write as _;
 use pushos_domain::ports::{DISPLAY_HEIGHT, DISPLAY_WIDTH, DisplayFrame};
 use pushos_domain::voice::Listening;
 use pushos_ui::{
-    Notice, Overlay, PageView, PushRenderer, SessionLine, Slot, Splash, SurfacePresence, Tone,
-    UiSnapshot,
+    Focus, Notice, Overlay, PageView, PushRenderer, SessionLine, Slot, Splash, SurfacePresence,
+    Tone, UiSnapshot,
 };
 
 fn main() -> std::io::Result<()> {
@@ -24,6 +24,15 @@ fn main() -> std::io::Result<()> {
         "sessions" => sessions(),
         "overlay" => overlay(),
         "notes" => notes(),
+        "focus" => focus(),
+        "focus-mid" => UiSnapshot {
+            frame: 4,
+            ..focus()
+        },
+        "focus-rest" => UiSnapshot {
+            frame: 30,
+            ..focus()
+        },
         "splash" => splash(),
         "offline" => UiSnapshot::disconnected(),
         _ => page(),
@@ -86,10 +95,11 @@ fn page() -> UiSnapshot {
             Tone::Normal,
         )),
         overlay: None,
+        focus: None,
         splash: None,
         sessions: Vec::new(),
         listening: Listening::Recording,
-        frame: 0,
+        frame: 12,
     }
 }
 
@@ -119,6 +129,24 @@ fn sessions() -> UiSnapshot {
 fn splash() -> UiSnapshot {
     UiSnapshot {
         splash: Some(Splash::new("PushOS", 34).with_detail("waiting for Push 2")),
+        ..page()
+    }
+}
+
+/// One session, looked at closely.
+fn focus() -> UiSnapshot {
+    UiSnapshot {
+        focus: Some(
+            Focus::new("ttys005", "Sprint 2 setup")
+                .doing("working", Tone::Active)
+                .saying([
+                    "Read the migration and the two callers it has.".to_owned(),
+                    "The second one passes the old column name, so it would fail at run time."
+                        .to_owned(),
+                    "Renaming it now and running the tests.".to_owned(),
+                    "cargo test --workspace".to_owned(),
+                ]),
+        ),
         ..page()
     }
 }

@@ -287,6 +287,22 @@ pub enum DisplayIntent {
         /// The available answers, in display order.
         choices: Vec<String>,
     },
+    /// Show one thing across the whole panel, until the operator looks away.
+    ///
+    /// Distinct from a report in the one way that matters: it does not go away
+    /// on its own. Somebody who asked to look closely at one of eight things
+    /// is reading, and a panel that reverted underneath them would be one they
+    /// could not use.
+    Focus {
+        /// What it is, above the name.
+        kind: String,
+        /// What it is called.
+        title: String,
+        /// What it is doing, in a word.
+        state: String,
+        /// What it last said, most recent last.
+        lines: Vec<String>,
+    },
     /// Show a list of things the operator asked for.
     ///
     /// Distinct from a prompt: these are results to read, not answers to

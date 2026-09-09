@@ -29,6 +29,13 @@ pub struct UiSnapshot {
     pub notice: Option<Notice>,
     /// A panel that takes over the whole display.
     pub overlay: Option<Overlay>,
+    /// One thing, looked at closely, until the operator looks away.
+    ///
+    /// Different from an overlay in the one way that matters: it does not go
+    /// away on its own. An operator who taps a pad to read what a session is
+    /// doing is reading, and a panel that reverted underneath them after six
+    /// seconds would be a panel they could not use.
+    pub focus: Option<Focus>,
     /// The waiting screen, which takes over everything and animates.
     pub splash: Option<Splash>,
     /// The agent sessions worth showing, most recently active first.
@@ -226,6 +233,58 @@ impl Notice {
             text: text.into(),
             tone,
         }
+    }
+}
+
+/// One thing, shown across the whole panel until the operator looks away.
+///
+/// The full 960 by 160, because that is what it is for: an operator who has
+/// chosen one of eight things wants everything the panel can tell them about
+/// it, not a column's worth.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Focus {
+    /// What it is, above the name.
+    pub kind: String,
+    /// What it is called.
+    pub title: String,
+    /// What it is doing, in a word.
+    pub state: String,
+    /// How that state should read.
+    pub tone: Tone,
+    /// What it last said, most recent last.
+    pub lines: Vec<String>,
+}
+
+impl Focus {
+    /// Builds a focused view of something.
+    pub fn new(kind: impl Into<String>, title: impl Into<String>) -> Self {
+        Self {
+            kind: kind.into(),
+            title: title.into(),
+            state: String::new(),
+            tone: Tone::Normal,
+            lines: Vec::new(),
+        }
+    }
+
+    /// Says what it is doing.
+    #[must_use]
+    pub fn doing(mut self, state: impl Into<String>, tone: Tone) -> Self {
+        self.state = state.into();
+        self.tone = tone;
+        self
+    }
+
+    /// Shows what it last said.
+    #[must_use]
+    pub fn saying(mut self, lines: impl IntoIterator<Item = String>) -> Self {
+        self.lines = lines.into_iter().collect();
+        self
+    }
+
+    /// Whether anything about it is moving.
+    pub const fn is_animated(&self) -> bool {
+        matches!(self.tone, Tone::Active)
     }
 }
 

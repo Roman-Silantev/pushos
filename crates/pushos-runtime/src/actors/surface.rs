@@ -34,6 +34,13 @@ pub struct SurfaceState {
     surface: SurfacePresence,
     notice: Option<Timed<Notice>>,
     overlay: Option<Timed<Overlay>>,
+    /// One thing being looked at closely.
+    ///
+    /// Untimed, unlike everything else here: an operator reading what a
+    /// session is doing is reading, and a panel that reverted underneath them
+    /// would be one they could not use. It goes when they move, or when they
+    /// look at something else.
+    focus: Option<pushos_ui::Focus>,
     splash_until: Option<Instant>,
     /// What the sessions are doing, as the display should show it.
     ///
@@ -66,6 +73,7 @@ impl SurfaceState {
             surface: SurfacePresence::Absent,
             notice: None,
             overlay: None,
+            focus: None,
             splash_until: None,
             sessions: Vec::new(),
             listening: pushos_domain::voice::Listening::Idle,
@@ -157,7 +165,28 @@ impl SurfaceState {
     /// Returns the page moved to, when the instruction moved to one.
     pub fn apply(&mut self, intent: DisplayIntent, now: Instant) -> Option<PageId> {
         match intent {
-            DisplayIntent::Page(target) => self.go_to(&target),
+            DisplayIntent::Page(target) => {
+                // Moving is looking away. Whatever was being read closely was
+                // about where the operator was, not where they are going.
+                self.focus = None;
+                self.go_to(&target)
+            }
+            DisplayIntent::Focus {
+                kind,
+                title,
+                state,
+                lines,
+            } => {
+                self.focus = Some(
+                    pushos_ui::Focus::new(kind, title)
+                        .doing(state, Tone::Normal)
+                        .saying(lines),
+                );
+                // An overlay on top of something being read closely would hide
+                // the thing that was asked for.
+                self.overlay = None;
+                None
+            }
             DisplayIntent::Toast { title, detail } => {
                 self.overlay = Some(Timed {
                     value: {
@@ -257,6 +286,7 @@ impl SurfaceState {
             footer: page.and_then(|page| page.description.clone()),
             notice: self.notice.as_ref().map(|timed| timed.value.clone()),
             overlay: self.overlay.as_ref().map(|timed| timed.value.clone()),
+            focus: self.focus.clone(),
             // The frame is left at zero: the renderer owns the animation, so a
             // snapshot never has to be republished just because time passed.
             sessions: self.sessions.clone(),

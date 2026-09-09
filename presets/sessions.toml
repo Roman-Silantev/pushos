@@ -76,6 +76,17 @@ label = "Play/Pause"
 #
 # which matches any session whose title contains them, and keeps working when
 # the window moves to another device.
+#
+# A session opened this way stays on the screen until you look away. Tapping
+# another pad shows that one instead, and the button below returns you to the
+# eight.
+
+[[bindings]]
+control = "button.upper_8"
+gesture = "press"
+page = "sessions"
+action = "page.home"
+label = "All eight"
 
 [[bindings]]
 control = "pad.56"

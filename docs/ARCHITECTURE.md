@@ -504,10 +504,19 @@ down mid-thought gets the bar; one who looks gets the words. Thin rules between
 the columns, because the eight encoders above and eight buttons below have to
 line up with something and spacing alone leaves an operator counting across.
 
-Movement is information, not decoration. Exactly one thing on a still panel
-moves: the bar under whatever is working, sweeping and starting again. A
-surface where everything animated would tell an operator nothing about where to
-look, which is the only thing an animation on this panel is for.
+Movement is information, not decoration. On a still panel exactly one thing
+moves: the bar under whatever is working. A surface where everything animated
+would tell an operator nothing about where to look, which is the only thing an
+animation on this panel is for. The mascot follows the same rule. It hops and
+then rests, and it hops only while the thing being watched is working, so the
+movement means something rather than merely being movement.
+
+Looking closely at one thing is not the same as being told something. A notice
+and an overlay go away on their own, because they arrived unbidden and the
+operator was in the middle of something else. A focused view does not, because
+the operator asked for it and is reading; a panel that reverted underneath them
+after six seconds would be one they could not use. It goes when they look away,
+which means when they move.
 
 One colour is PushOS's own. The mark in the corner, the selection and the page
 name are the orange the mascot is drawn in; everything else on the panel

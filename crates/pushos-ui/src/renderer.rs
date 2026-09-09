@@ -12,7 +12,9 @@ use crate::mascot::Mascot;
 use crate::snapshot::UiSnapshot;
 use crate::text::{FontUnavailable, TextRenderer};
 use crate::theme::Theme;
-use crate::widgets::{Layout, draw_footer, draw_overlay, draw_slots, draw_splash, draw_status};
+use crate::widgets::{
+    Layout, draw_focus, draw_footer, draw_overlay, draw_slots, draw_splash, draw_status,
+};
 
 /// Draws the Push 2 display.
 #[derive(Debug)]
@@ -95,6 +97,20 @@ impl PushRenderer {
             return;
         }
 
+        // After the overlay, because something the operator is being asked
+        // right now outranks something they chose to look at a moment ago.
+        if let Some(focus) = &snapshot.focus {
+            draw_focus(
+                &mut self.canvas,
+                &mut self.text,
+                &self.theme,
+                &self.mascot,
+                focus,
+                snapshot.frame,
+            );
+            return;
+        }
+
         draw_status(
             &mut self.canvas,
             &mut self.text,
@@ -162,6 +178,7 @@ mod tests {
             footer: Some("ready".to_owned()),
             notice: None,
             overlay: None,
+            focus: None,
             splash: None,
             sessions: Vec::new(),
             listening: pushos_domain::voice::Listening::Idle,

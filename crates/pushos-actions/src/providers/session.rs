@@ -156,9 +156,14 @@ impl ActionProvider for SessionProvider {
                 Ok(ActionResult {
                     status: ActionStatus::Completed,
                     message: Some(session.label().to_owned()),
-                    display: Some(DisplayIntent::Report {
+                    // Focused rather than reported: an operator who tapped a
+                    // pad to read what a session is doing is reading, and a
+                    // panel that reverted under them after six seconds would
+                    // be one they could not use.
+                    display: Some(DisplayIntent::Focus {
                         kind: session.device().to_owned(),
                         title: session.label().to_owned(),
+                        state: session.activity.describe().to_owned(),
                         lines: last_lines(&seen, SHOWN_LINES),
                     }),
                 })
@@ -230,27 +235,56 @@ impl ActionProvider for SessionProvider {
 }
 
 /// How much of a session's screen to ask for.
-const READ_MOST: usize = 600;
+///
+/// More than a glance, because this is the view an operator opened on purpose
+/// and the whole panel is theirs for it.
+const READ_MOST: usize = 2_000;
 
-/// How many lines of it to show.
-const SHOWN_LINES: usize = 3;
+/// How many lines of it to keep.
+///
+/// The panel decides how many it can draw; this is only the ceiling on what is
+/// carried to it.
+const SHOWN_LINES: usize = 8;
 
 /// The last few lines that have anything on them.
 ///
-/// A terminal's screen is mostly blank and mostly rules. What an operator wants
-/// from a glance is the last few things that were actually said.
+/// A terminal's screen is mostly blank and mostly rules, and a coding agent
+/// draws a good deal of chrome besides. What an operator wants is the last few
+/// things that were actually said, so the rules, the empty rows and the status
+/// line at the foot are dropped and the words are kept.
 fn last_lines(screen: &str, most: usize) -> Vec<String> {
     let mut kept: Vec<String> = screen
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty() && line.chars().any(char::is_alphanumeric))
-        .map(ToOwned::to_owned)
+        .filter(|line| !is_chrome(line))
+        .map(|line| line.chars().take(WIDEST).collect())
         .collect();
 
     if kept.len() > most {
         kept.drain(..kept.len() - most);
     }
     kept
+}
+
+/// How many characters of a line the panel can hold.
+///
+/// Wider than it looks: the panel is 960 pixels and this type is small, so a
+/// line of prose fits whole and only a wrapped paste is cut.
+const WIDEST: usize = 150;
+
+/// Whether a line is the terminal's own furniture rather than something said.
+fn is_chrome(line: &str) -> bool {
+    let trimmed = line.trim();
+    // A row of rule characters, which every agent draws between sections.
+    let ruled = trimmed
+        .chars()
+        .all(|c| matches!(c, '─' | '━' | '═' | '-' | '_' | '·'));
+
+    ruled
+        || trimmed.contains("shift+tab to cycle")
+        || trimmed.starts_with("/clear to save")
+        || trimmed.contains("new task? /clear")
 }
 
 fn invalid(reason: &'static str) -> ActionError {
@@ -408,8 +442,8 @@ mod tests {
             .await
             .expect("it is open");
 
-        let Some(DisplayIntent::Report { lines, title, .. }) = result.display else {
-            panic!("a session should be shown as a report");
+        let Some(DisplayIntent::Focus { lines, title, .. }) = result.display else {
+            panic!("a session should take the whole panel and stay there");
         };
         assert_eq!(title, "Sprint 2 setup");
         assert_eq!(
@@ -422,6 +456,30 @@ mod tests {
             !lines.iter().any(|line| line.trim() == "────────────"),
             "rules are not what was said: {lines:?}"
         );
+    }
+
+    #[tokio::test]
+    async fn the_terminals_own_furniture_is_not_shown_as_something_said() {
+        // An agent draws a good deal of chrome. Filling the panel with its
+        // rules and its status line would leave no room for the answer.
+        let (provider, fake) = rig();
+        fake.showing(
+            "the actual answer\n\
+             ────────────────\n\
+             ❯ \n\
+             ────────────────\n\
+             new task? /clear to save 739k tokens\n\
+             ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents\n",
+        );
+
+        let result = provider
+            .execute(context("show", Some("sprint")))
+            .await
+            .expect("it is open");
+        let Some(DisplayIntent::Focus { lines, .. }) = result.display else {
+            panic!("focused");
+        };
+        assert_eq!(lines, ["the actual answer"], "{lines:?}");
     }
 
     #[tokio::test]
