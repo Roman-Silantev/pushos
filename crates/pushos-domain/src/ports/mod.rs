@@ -20,7 +20,7 @@ pub use agent::{
     AgentBackend, AgentCapabilities, AgentError, AgentEvent, AgentObserver, ApprovalId,
     ApprovalOption, SessionHandle, SessionRequest, StopReason,
 };
-pub use attached::{AttachError, AttachedSessions};
+pub use attached::{AttachError, AttachedSessions, Key, UnknownKey};
 pub use clock::{Clock, SystemClock};
 pub use memory::{MemoryError, MemoryStore, NoteIndex, Source};
 pub use push::{

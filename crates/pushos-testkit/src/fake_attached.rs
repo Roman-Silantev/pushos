@@ -6,10 +6,10 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use pushos_domain::attached::Attached;
+use pushos_domain::attached::{Activity, Attached};
 use pushos_domain::error::ErrorClass;
 use pushos_domain::ids::AttachedId;
-use pushos_domain::ports::{AttachError, AttachedSessions};
+use pushos_domain::ports::{AttachError, AttachedSessions, Key};
 
 /// What a fake was asked to do.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -20,6 +20,8 @@ pub enum SessionCall {
     Read(String),
     /// Something was typed into a session.
     Sent(String, String),
+    /// A key was pressed in a session.
+    Pressed(String, Key),
     /// A session's window was brought to the front.
     Focused(String),
 }
@@ -39,16 +41,28 @@ impl FakeAttached {
         Self::default()
     }
 
-    /// Builds a watcher over some sessions.
+    /// Builds a watcher over some sessions, each waiting for the operator.
     pub fn with_sessions(sessions: impl IntoIterator<Item = (&'static str, &'static str)>) -> Self {
+        Self::doing(
+            sessions
+                .into_iter()
+                .map(|(device, title)| (device, title, Activity::Ready)),
+        )
+    }
+
+    /// Builds a watcher over some sessions, each doing something.
+    pub fn doing(
+        sessions: impl IntoIterator<Item = (&'static str, &'static str, Activity)>,
+    ) -> Self {
         let fake = Self::new();
         if let Ok(mut open) = fake.open.lock() {
             *open = sessions
                 .into_iter()
-                .map(|(device, title)| Attached {
+                .map(|(device, title, activity)| Attached {
                     id: AttachedId::new(device),
                     title: title.to_owned(),
-                    busy: true,
+                    busy: activity == Activity::Working,
+                    activity,
                 })
                 .collect();
         }
@@ -133,6 +147,13 @@ impl AttachedSessions for FakeAttached {
         self.check()?;
         self.find(session)?;
         self.record(SessionCall::Sent(session.to_string(), text.to_owned()));
+        Ok(())
+    }
+
+    async fn press(&self, session: &AttachedId, key: Key) -> Result<(), AttachError> {
+        self.check()?;
+        self.find(session)?;
+        self.record(SessionCall::Pressed(session.to_string(), key));
         Ok(())
     }
 

@@ -14,7 +14,9 @@ use pushos_domain::attached::{Attached, AttachedTarget};
 use pushos_domain::error::{ActionError, ErrorClass};
 use pushos_domain::ids::{ActionVerb, AttachedId, ProviderName};
 use pushos_domain::permissions::Permission;
-use pushos_domain::ports::{ActionProvider, AttachError, AttachedSessions, ProviderCapabilities};
+use pushos_domain::ports::{
+    ActionProvider, AttachError, AttachedSessions, Key, ProviderCapabilities,
+};
 use tokio::sync::watch;
 use tracing::info;
 
@@ -117,12 +119,13 @@ impl ActionProvider for SessionProvider {
 
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities::new(
-            ["select", "show", "focus", "send", "interrupt"].map(ActionVerb::new),
+            ["select", "show", "focus", "send", "press", "interrupt"].map(ActionVerb::new),
         )
         // Typing into a session runs whatever it makes of the keystrokes, which
         // is the same thing a terminal action does and needs the same saying
         // yes to. Looking at one needs nothing.
         .verb_requiring(ActionVerb::new("send"), [Permission::ShellExecute])
+        .verb_requiring(ActionVerb::new("press"), [Permission::ShellExecute])
         .verb_requiring(ActionVerb::new("interrupt"), [Permission::ShellExecute])
     }
 
@@ -171,6 +174,26 @@ impl ActionProvider for SessionProvider {
                 Ok(ActionResult {
                     status: ActionStatus::Completed,
                     message: Some(format!("{} at the front", session.label())),
+                    display: None,
+                })
+            }
+
+            "press" => {
+                let key: Key = context.params().require_text("key")?.parse().map_err(
+                    |error: pushos_domain::ports::UnknownKey| {
+                        ActionError::backend(error.to_string(), ErrorClass::Validation, error)
+                    },
+                )?;
+
+                let session = self.resolve(&context).await?;
+                self.select(&session);
+                self.sessions
+                    .press(&session.id, key)
+                    .await
+                    .map_err(into_action_error)?;
+                Ok(ActionResult {
+                    status: ActionStatus::Completed,
+                    message: Some(format!("{key} in {}", session.label())),
                     display: None,
                 })
             }
@@ -415,13 +438,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_pad_can_press_a_key_rather_than_type_a_line() {
+        // Accepting a suggestion is Tab and nothing else. Typing a line would
+        // accept it and send it, which is a different instruction.
+        let (provider, fake) = rig();
+        let mut context = context("press", Some("sprint"));
+        context
+            .definition
+            .params
+            .set("key", ParamValue::Text("tab".into()));
+
+        provider.execute(context).await.expect("it is open");
+        assert!(
+            fake.calls()
+                .contains(&SessionCall::Pressed("/dev/ttys003".to_owned(), Key::Tab)),
+            "{:?}",
+            fake.calls()
+        );
+    }
+
+    #[tokio::test]
+    async fn a_key_pushos_cannot_press_is_refused_by_name() {
+        let (provider, _fake) = rig();
+        let mut context = context("press", Some("sprint"));
+        context
+            .definition
+            .params
+            .set("key", ParamValue::Text("f13".into()));
+
+        let error = provider
+            .execute(context)
+            .await
+            .expect_err("there is no such key");
+        assert!(error.to_string().contains("f13"), "{error}");
+        assert_eq!(error.class(), ErrorClass::Validation);
+    }
+
+    #[tokio::test]
     async fn only_typing_needs_saying_yes_to() {
         // Looking at a session changes nothing. Typing into one runs whatever
         // it makes of the keystrokes.
         let (provider, _fake) = rig();
         let capabilities = provider.capabilities();
 
-        for typing in ["send", "interrupt"] {
+        for typing in ["send", "press", "interrupt"] {
             assert_eq!(
                 capabilities.required_for(&ActionVerb::new(typing)),
                 [Permission::ShellExecute],

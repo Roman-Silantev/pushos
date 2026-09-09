@@ -27,7 +27,147 @@ pub struct Attached {
     /// than a device name.
     pub title: String,
     /// Whether something is running in it right now.
+    ///
+    /// True for every window with a program in it, which is every window worth
+    /// showing, so it separates nothing on its own.
     pub busy: bool,
+    /// What it appears to be doing.
+    pub activity: Activity,
+}
+
+/// What a session appears to be doing.
+///
+/// Read off the screen and the window title, because there is nothing else to
+/// read: PushOS did not start these and is told nothing about them. That makes
+/// every answer here a reading rather than a fact, which is why the one that
+/// matters most is also the most conservative.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Activity {
+    /// It is asking the operator to decide something.
+    ///
+    /// The only state worth interrupting someone for, and the reason any of
+    /// this is on a surface: eight windows and one of them is stuck on a
+    /// question.
+    NeedsDecision,
+    /// It is working.
+    Working,
+    /// Something has been typed at its prompt and not sent.
+    ///
+    /// Worth its own colour: a session left mid-sentence looks exactly like
+    /// one waiting for a first instruction, and is not.
+    Drafting,
+    /// It is waiting for the operator, with nothing typed.
+    Ready,
+    /// Nothing recognisable is running in it.
+    #[default]
+    Quiet,
+}
+
+impl Activity {
+    /// The light this state shows.
+    pub const fn status_color(self) -> crate::color::StatusColor {
+        use crate::color::StatusColor;
+        match self {
+            // Blinking amber, the same as anything else waiting on a person.
+            Self::NeedsDecision => StatusColor::Waiting,
+            Self::Working => StatusColor::Working,
+            Self::Drafting => StatusColor::Workflow,
+            Self::Ready => StatusColor::Complete,
+            Self::Quiet => StatusColor::Idle,
+        }
+    }
+
+    /// How it reads on the display.
+    pub const fn describe(self) -> &'static str {
+        match self {
+            Self::NeedsDecision => "asking",
+            Self::Working => "working",
+            Self::Drafting => "unsent",
+            Self::Ready => "ready",
+            Self::Quiet => "quiet",
+        }
+    }
+
+    /// Whether the operator is being waited for.
+    pub const fn wants_a_person(self) -> bool {
+        matches!(self, Self::NeedsDecision)
+    }
+}
+
+/// The spinner frames a coding agent puts in its window title while it works.
+const SPINNING: [char; 5] = ['◐', '◑', '◒', '◓', '✻'];
+
+/// The prompt a coding agent draws when it is waiting for an instruction.
+const PROMPT: char = '❯';
+
+/// Works out what a session appears to be doing.
+///
+/// Reads the window title first, because a spinner there is unambiguous, then
+/// the last of what is on screen. Everything here is a reading of somebody
+/// else's interface, so it is deliberately reluctant: it reports that a person
+/// is wanted only for something that is plainly a question, and falls back to
+/// saying nothing recognisable is happening rather than guessing.
+pub fn activity_of(title: &str, screen: &str) -> Activity {
+    if title.starts_with(SPINNING) {
+        return Activity::Working;
+    }
+
+    let lines: Vec<&str> = screen
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.trim().is_empty())
+        .collect();
+
+    if lines
+        .iter()
+        .rev()
+        .take(DEEP)
+        .any(|line| is_a_question(line))
+    {
+        return Activity::NeedsDecision;
+    }
+    if lines.iter().rev().take(DEEP).any(|line| is_working(line)) {
+        return Activity::Working;
+    }
+
+    match lines.iter().rev().find_map(|line| after_the_prompt(line)) {
+        Some(typed) if !typed.is_empty() => Activity::Drafting,
+        Some(_) => Activity::Ready,
+        None => Activity::Quiet,
+    }
+}
+
+/// How far back up the screen to look.
+///
+/// A terminal screen is tall and mostly history. What a session is doing now is
+/// at the bottom of it.
+const DEEP: usize = 12;
+
+/// Whether a line is one of a set of choices being offered.
+fn is_a_question(line: &str) -> bool {
+    let trimmed = line.trim_start_matches(PROMPT).trim();
+    // A numbered choice: `1. Yes`, `2. No, and tell me why`. One of these on
+    // its own is how every agent asks, and prose almost never begins this way.
+    let numbered = trimmed.split_once('.').is_some_and(|(head, rest)| {
+        head.len() <= 2
+            && !head.is_empty()
+            && head.chars().all(|c| c.is_ascii_digit())
+            && rest.starts_with(' ')
+    });
+
+    numbered || line.to_lowercase().contains("(y/n)")
+}
+
+/// Whether a line says something is still going.
+fn is_working(line: &str) -> bool {
+    let lower = line.to_lowercase();
+    lower.contains("esc to interrupt") || lower.contains("ctrl+c to stop")
+}
+
+/// What has been typed at the prompt, when a line is the prompt.
+fn after_the_prompt(line: &str) -> Option<String> {
+    let rest = line.trim_start().strip_prefix(PROMPT)?;
+    Some(rest.trim().to_owned())
 }
 
 impl Attached {
@@ -158,6 +298,131 @@ mod tests {
             id: AttachedId::new(id),
             title: title.to_owned(),
             busy: false,
+            activity: Activity::default(),
+        }
+    }
+
+    /// A screen as a coding agent draws it, with whatever is going on at the
+    /// bottom.
+    fn screen(bottom: &str) -> String {
+        format!(
+            "  an earlier answer that ran to several lines\n\n\
+             {}\n\
+             {bottom}\n\
+             {}\n  auto mode on (shift+tab to cycle)\n",
+            "─".repeat(40),
+            "─".repeat(40)
+        )
+    }
+
+    #[test]
+    fn a_spinner_in_the_title_means_it_is_working() {
+        for spinning in ["◐ Push OS system", "◑ Sprint 2", "✻ Anything"] {
+            assert_eq!(
+                activity_of(spinning, &screen("❯ ")),
+                Activity::Working,
+                "`{spinning}`"
+            );
+        }
+    }
+
+    #[test]
+    fn an_empty_prompt_means_it_is_waiting_for_you() {
+        assert_eq!(activity_of("✳ Sprint 2", &screen("❯ ")), Activity::Ready);
+    }
+
+    #[test]
+    fn something_typed_and_not_sent_is_not_the_same_as_waiting() {
+        // A session left mid-sentence looks exactly like one waiting for a
+        // first instruction, and is not.
+        assert_eq!(
+            activity_of("✳ Sprint 2", &screen("❯ yes lets clean the vm")),
+            Activity::Drafting
+        );
+    }
+
+    #[test]
+    fn a_numbered_choice_means_it_is_asking_you_something() {
+        // The one state worth interrupting someone for.
+        let asking = "Do you want to proceed?\n❯ 1. Yes\n  2. Yes, and do not ask again\n  3. No";
+        assert_eq!(activity_of("✳ Sprint 2", asking), Activity::NeedsDecision);
+        assert!(Activity::NeedsDecision.wants_a_person());
+    }
+
+    #[test]
+    fn a_yes_or_no_question_counts_too() {
+        assert_eq!(
+            activity_of("✳ Sprint 2", &screen("Overwrite the file? (y/n)")),
+            Activity::NeedsDecision
+        );
+    }
+
+    #[test]
+    fn prose_that_merely_looks_like_a_list_is_not_a_question() {
+        // Being wrong here would light a pad amber and send the operator to a
+        // window that wanted nothing.
+        for prose in [
+            "I found 3. of them in the logs",
+            "the version is 1.2. something",
+            "e.g. this is not a choice",
+        ] {
+            assert_ne!(
+                activity_of("✳ Sprint 2", &screen(prose)),
+                Activity::NeedsDecision,
+                "`{prose}`"
+            );
+        }
+    }
+
+    #[test]
+    fn a_line_saying_it_can_be_interrupted_means_it_is_working() {
+        assert_eq!(
+            activity_of("✳ Sprint 2", &screen("Thinking... (esc to interrupt)")),
+            Activity::Working
+        );
+    }
+
+    #[test]
+    fn a_window_with_nothing_recognisable_in_it_says_so() {
+        // A plain shell is not a coding session, and colouring it as one would
+        // be a guess dressed up as information.
+        assert_eq!(
+            activity_of("bash", "user@host ~ %\nls\nfile.txt\n"),
+            Activity::Quiet
+        );
+    }
+
+    #[test]
+    fn only_the_state_that_wants_a_person_says_it_does() {
+        for quiet in [
+            Activity::Working,
+            Activity::Drafting,
+            Activity::Ready,
+            Activity::Quiet,
+        ] {
+            assert!(!quiet.wants_a_person(), "`{quiet:?}`");
+        }
+    }
+
+    #[test]
+    fn every_state_looks_different_from_every_other() {
+        // The whole point: eight pads the same colour tell an operator nothing.
+        let all = [
+            Activity::NeedsDecision,
+            Activity::Working,
+            Activity::Drafting,
+            Activity::Ready,
+            Activity::Quiet,
+        ];
+        for (index, one) in all.iter().enumerate() {
+            for other in &all[index + 1..] {
+                assert_ne!(
+                    one.status_color(),
+                    other.status_color(),
+                    "`{one:?}` and `{other:?}` look the same"
+                );
+                assert_ne!(one.describe(), other.describe());
+            }
         }
     }
 

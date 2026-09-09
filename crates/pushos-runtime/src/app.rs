@@ -257,6 +257,8 @@ impl Runtime {
             }
         }
 
+        let mut watched_sessions = None;
+
         // Created once, for the life of the process. A surface publishes into
         // the view; with none attached it holds the waiting screen.
         let (view, watching) = watch::channel(SurfaceView::waiting());
@@ -284,7 +286,8 @@ impl Runtime {
         if let Some(provider) = &self.attached {
             let (task, found) = crate::actors::AttachedTask::new(provider.watcher());
             let task = task.every(self.config.current().session_poll);
-            publisher = publisher.with_attached(found, provider.watch());
+            publisher = publisher.with_attached(found.clone(), provider.watch());
+            watched_sessions = Some(found);
 
             let watching = shutdown.clone();
             let publishing = publisher.clone();
@@ -389,6 +392,7 @@ impl Runtime {
             view,
             watching,
             lines,
+            sessions: watched_sessions,
             listening: self.voice.map(|provider| provider.listener().watch()),
             bus: self.bus,
         }
@@ -424,6 +428,8 @@ pub struct RunningRuntime {
     lines: watch::Receiver<Vec<pushos_ui::SessionLine>>,
     /// Whether the microphone is on, when voice is configured.
     listening: Option<watch::Receiver<pushos_domain::voice::Listening>>,
+    /// The sessions PushOS did not start, when any are watched.
+    sessions: Option<watch::Receiver<Vec<pushos_domain::attached::Attached>>>,
     bus: EventBus,
 }
 
@@ -469,6 +475,13 @@ impl RunningRuntime {
         // rather than waiting for the operator to let go and press again.
         let pipeline = match &self.listening {
             Some(listening) => pipeline.hearing(listening.clone()),
+            None => pipeline,
+        };
+
+        // So the lights show what each session is doing, not merely that a pad
+        // is bound to one.
+        let pipeline = match &self.sessions {
+            Some(sessions) => pipeline.watching(sessions.clone()),
             None => pipeline,
         };
         let render = RenderTask::new(output, renderer, self.watching.clone());

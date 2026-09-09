@@ -207,8 +207,13 @@ label = "Show window"
 
 # --- Answering ---------------------------------------------------------------
 # Every one of these acts on whichever session you last selected, so one pad
-# serves all eight. `session.send` types exactly what it is given: a lone
-# newline answers a prompt, and `y` agrees to one.
+# serves all eight.
+#
+# There are two ways to reply, and they are not the same thing. `session.send`
+# types a line and submits it, which is how you answer a question. `session.press`
+# presses a single key and submits nothing, which is how you accept what is
+# being suggested: Tab takes the suggestion and leaves it there for you to look
+# at, and Enter afterwards sends it.
 
 [[bindings]]
 control = "pad.0"
@@ -241,6 +246,49 @@ page = "answer"
 action = "session.send"
 label = "Continue"
 params = { text = "continue\n" }
+
+# Accepting a suggested follow-up. Tab takes it, and the pad beside it sends
+# it, so you can read what you are about to say before you say it.
+[[bindings]]
+control = "pad.4"
+gesture = "tap"
+page = "answer"
+action = "session.press"
+label = "Accept"
+params = { key = "tab" }
+
+[[bindings]]
+control = "pad.5"
+gesture = "tap"
+page = "answer"
+action = "session.press"
+label = "Send it"
+params = { key = "enter" }
+
+# Moving through a list of choices, for when a session is offering several.
+[[bindings]]
+control = "pad.9"
+gesture = "tap"
+page = "answer"
+action = "session.press"
+label = "Up"
+params = { key = "up" }
+
+[[bindings]]
+control = "pad.10"
+gesture = "tap"
+page = "answer"
+action = "session.press"
+label = "Down"
+params = { key = "down" }
+
+[[bindings]]
+control = "pad.11"
+gesture = "tap"
+page = "answer"
+action = "session.press"
+label = "Dismiss"
+params = { key = "escape" }
 
 # Interrupting sends the control character, not the word, so a session waiting
 # at a prompt is stopped rather than told about stopping. On a hold, because

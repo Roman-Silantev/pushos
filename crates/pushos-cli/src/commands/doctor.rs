@@ -8,8 +8,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use pushos_config::RuntimeConfig;
-use pushos_domain::ports::ProcessRunner;
 use pushos_domain::ports::AttachedSessions as _;
+use pushos_domain::ports::ProcessRunner;
 use pushos_macos::SystemProcessRunner;
 use pushos_push2::{PortRole, Push2Device};
 use pushos_storage::StorageWriter;
@@ -164,7 +164,11 @@ async fn check_attached(root: &Path) -> Vec<Finding> {
                 config.session_poll
             ),
         )],
-        Err(error) => vec![Finding::new(Verdict::Blocking, "sessions", error.to_string())],
+        Err(error) => vec![Finding::new(
+            Verdict::Blocking,
+            "sessions",
+            error.to_string(),
+        )],
     }
 }
 

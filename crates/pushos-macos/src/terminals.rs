@@ -13,10 +13,10 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use pushos_domain::attached::Attached;
+use pushos_domain::attached::{Attached, activity_of};
 use pushos_domain::error::{ActionError, ErrorClass};
 use pushos_domain::ids::AttachedId;
-use pushos_domain::ports::{AttachError, AttachedSessions, ProcessRunner};
+use pushos_domain::ports::{AttachError, AttachedSessions, Key, ProcessRunner};
 use tracing::debug;
 
 use crate::script::ScriptRunner;
@@ -33,20 +33,40 @@ const FIELD: char = '\u{1f}';
 /// Separates one tab from the next.
 const RECORD: char = '\u{1e}';
 
-/// Lists every tab, with its device, whether it is busy and what it is called.
+/// Lists every tab, with what it is called and the last of what is on it.
+///
+/// One script for all of them rather than one per tab: asking costs a
+/// subprocess and this runs every few seconds, so eight windows must not mean
+/// nine processes.
 const DISCOVER: &str = r#"on run argv
+  set most to (item 1 of argv) as integer
   set out to ""
   tell application "Terminal"
     repeat with w in windows
       repeat with t in tabs of w
         try
-          set out to out & ((tty of t) as text) & (ASCII character 31) & ((busy of t) as text) & (ASCII character 31) & ((custom title of t) as text) & (ASCII character 30)
+          set seen to ""
+          try
+            set h to history of t
+            if (count of h) > most then
+              set seen to text -most thru -1 of h
+            else
+              set seen to h
+            end if
+          end try
+          set out to out & ((tty of t) as text) & (ASCII character 31) & ((busy of t) as text) & (ASCII character 31) & ((custom title of t) as text) & (ASCII character 31) & seen & (ASCII character 30)
         end try
       end repeat
     end repeat
   end tell
   return out
 end run"#;
+
+/// How much of each screen to read while looking at what is open.
+///
+/// Enough to hold the prompt and a question above it, and no more: this is
+/// read for every window every few seconds.
+const GLANCE: usize = 900;
 
 /// Returns the tail of what one tab has on screen.
 const READ: &str = r#"on run argv
@@ -76,6 +96,30 @@ const SEND: &str = r#"on run argv
         if ((tty of t) as text) is wanted then
           do script what in t
           return "sent"
+        end if
+      end repeat
+    end repeat
+  end tell
+  return ""
+end run"#;
+
+/// Presses one key in a tab, after bringing its window to the front.
+///
+/// A key press goes to whatever is in front, so the window is brought forward
+/// first. That is visible and deliberate: the operator sees which session they
+/// are pressing a key in.
+const PRESS: &str = r#"on run argv
+  set wanted to item 1 of argv
+  set code to (item 2 of argv) as integer
+  tell application "Terminal"
+    repeat with w in windows
+      repeat with t in tabs of w
+        if ((tty of t) as text) is wanted then
+          set selected tab of w to t
+          set index of w to 1
+          activate
+          tell application "System Events" to key code code
+          return "pressed"
         end if
       end repeat
     end repeat
@@ -127,7 +171,7 @@ impl TerminalAppSessions {
 #[async_trait]
 impl AttachedSessions for TerminalAppSessions {
     async fn discover(&self) -> Result<Vec<Attached>, AttachError> {
-        let reply = self.ask(DISCOVER, &[]).await?;
+        let reply = self.ask(DISCOVER, &[GLANCE.to_string()]).await?;
         let found: Vec<Attached> = reply.split(RECORD).filter_map(parse).collect();
         debug!(sessions = found.len(), "found terminals already open");
         Ok(found)
@@ -148,6 +192,18 @@ impl AttachedSessions for TerminalAppSessions {
     async fn send(&self, session: &AttachedId, text: &str) -> Result<(), AttachError> {
         let reply = self
             .ask(SEND, &[session.to_string(), text.to_owned()])
+            .await?;
+        if reply.is_empty() {
+            return Err(AttachError::Gone {
+                session: session.clone(),
+            });
+        }
+        Ok(())
+    }
+
+    async fn press(&self, session: &AttachedId, key: Key) -> Result<(), AttachError> {
+        let reply = self
+            .ask(PRESS, &[session.to_string(), key_code(key).to_string()])
             .await?;
         if reply.is_empty() {
             return Err(AttachError::Gone {
@@ -185,12 +241,31 @@ fn parse(record: &str) -> Option<Attached> {
 
     let busy = fields.next().unwrap_or("false").trim();
     let title = fields.next().unwrap_or_default().trim();
+    // The rest of the record is the screen, which may contain anything at all
+    // including the field separator if a program drew one, so it is whatever
+    // is left rather than the next field.
+    let seen: String = fields.collect::<Vec<_>>().join(&FIELD.to_string());
 
     Some(Attached {
         id: AttachedId::new(device),
+        activity: activity_of(title, &seen),
         title: title.to_owned(),
         busy: busy.eq_ignore_ascii_case("true"),
     })
+}
+
+/// The virtual key code macOS uses for a key.
+///
+/// Fixed numbers rather than characters, because `key code` is what presses a
+/// key rather than typing one, and Tab typed as a character is not Tab.
+const fn key_code(key: Key) -> u8 {
+    match key {
+        Key::Tab => 48,
+        Key::Enter => 36,
+        Key::Escape => 53,
+        Key::Up => 126,
+        Key::Down => 125,
+    }
 }
 
 /// Turns a script failure into something an operator can act on.
@@ -215,7 +290,11 @@ mod tests {
     }
 
     fn record(device: &str, busy: &str, title: &str) -> String {
-        format!("{device}{FIELD}{busy}{FIELD}{title}{RECORD}")
+        with_screen(device, busy, title, "❯ ")
+    }
+
+    fn with_screen(device: &str, busy: &str, title: &str, screen: &str) -> String {
+        format!("{device}{FIELD}{busy}{FIELD}{title}{FIELD}{screen}{RECORD}")
     }
 
     #[test]
@@ -232,6 +311,44 @@ mod tests {
         assert!(found[0].busy);
         assert_eq!(found[0].label(), "Sprint 2 setup");
         assert!(!found[1].busy);
+    }
+
+    #[test]
+    fn what_a_session_is_doing_is_read_while_looking_at_what_is_open() {
+        // One script for all of them. Eight windows must not mean nine
+        // processes every three seconds.
+        let reply = format!(
+            "{}{}",
+            with_screen("/dev/ttys003", "true", "◐ Working now", "❯ "),
+            with_screen(
+                "/dev/ttys004",
+                "true",
+                "✳ Asking",
+                "Proceed?\n❯ 1. Yes\n  2. No"
+            )
+        );
+        let found: Vec<Attached> = reply.split(RECORD).filter_map(parse).collect();
+
+        assert_eq!(
+            found[0].activity,
+            pushos_domain::attached::Activity::Working
+        );
+        assert_eq!(
+            found[1].activity,
+            pushos_domain::attached::Activity::NeedsDecision
+        );
+    }
+
+    #[test]
+    fn a_screen_containing_the_separator_does_not_become_another_session() {
+        // A program may draw anything, including the character used to split
+        // the fields. The screen is whatever is left, not the next field.
+        let odd = format!("some output{FIELD}more output");
+        let reply = with_screen("/dev/ttys003", "true", "✳ Odd", &odd);
+        let found: Vec<Attached> = reply.split(RECORD).filter_map(parse).collect();
+
+        assert_eq!(found.len(), 1);
+        assert_eq!(found[0].id.as_str(), "/dev/ttys003");
     }
 
     #[test]
@@ -267,7 +384,11 @@ mod tests {
         let spawned = processes.spawned();
         assert_eq!(spawned.len(), 1);
         assert_eq!(spawned[0].program, "/usr/bin/osascript");
-        assert_eq!(spawned[0].args.len(), 2, "the script and nothing else");
+        assert_eq!(
+            spawned[0].args.len(),
+            3,
+            "the script, and how much of each screen to read"
+        );
     }
 
     #[tokio::test]
@@ -287,6 +408,31 @@ mod tests {
             "the script must be fixed text: {script}"
         );
         assert_eq!(spawned[0].args[3], "\" & (do shell script \"id\") & \"");
+    }
+
+    #[tokio::test]
+    async fn a_key_is_pressed_by_its_code_not_typed_as_a_character() {
+        // Tab typed as a character is not Tab, and a suggestion would never be
+        // accepted.
+        let processes = FakeProcesses::new();
+        let _ = watcher(&processes)
+            .press(&AttachedId::new("/dev/ttys003"), Key::Tab)
+            .await;
+
+        let spawned = processes.spawned();
+        assert!(
+            spawned[0].args[1].contains("key code"),
+            "a key must be pressed rather than typed"
+        );
+        assert_eq!(spawned[0].args[3], "48", "the code for tab");
+    }
+
+    #[test]
+    fn every_key_a_pad_can_press_has_a_code_of_its_own() {
+        let mut seen: Vec<u8> = Key::ALL.into_iter().map(key_code).collect();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), Key::ALL.len(), "two keys share a code");
     }
 
     #[tokio::test]

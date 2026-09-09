@@ -4,8 +4,14 @@
 //! the whole contract, and it is derived from the same binding table the
 //! resolver uses, so the surface can never advertise a binding that is not
 //! there.
+//!
+//! A pad that stands for something with a state of its own shows that state
+//! instead. Eight pads for eight coding sessions, all the same colour, tell an
+//! operator nothing they did not already know; the one that is stuck on a
+//! question needs to be the one that looks different.
 
 use pushos_config::RuntimeConfig;
+use pushos_domain::attached::{Activity, Attached, AttachedTarget};
 use pushos_domain::binding::BindingKey;
 use pushos_domain::color::{LedState, StatusColor};
 use pushos_domain::context::SurfaceContext;
@@ -26,22 +32,71 @@ const ADVERTISED: [Gesture; 5] = [
 ];
 
 /// Builds the light plan for the current surface.
-pub(crate) fn plan_for(config: &RuntimeConfig, context: &SurfaceContext) -> LedPlan {
+pub(crate) fn plan_for(
+    config: &RuntimeConfig,
+    context: &SurfaceContext,
+    sessions: &[Attached],
+) -> LedPlan {
     let mut plan = LedPlan::new();
 
     for pad in PadIndex::all() {
         let control = ControlId::Pad(pad);
-        plan.set(control, light_for(config, context, control));
+        plan.set(control, light_for(config, context, control, sessions));
     }
 
     for control in ControlId::all().filter(|control| matches!(control, ControlId::Button(_))) {
-        plan.set(control, light_for(config, context, control));
+        plan.set(control, light_for(config, context, control, sessions));
     }
 
     plan
 }
 
-fn light_for(config: &RuntimeConfig, context: &SurfaceContext, control: ControlId) -> LedState {
+/// The namespace whose bindings stand for a session rather than an instruction.
+const SESSIONS: &str = "session";
+
+/// What a control stands for, when it stands for a session.
+///
+/// Read from the binding itself rather than configured twice: a pad bound to
+/// `session.show` with a target already says which session it is, and asking
+/// the operator to say so again would be a second place to get it wrong.
+fn session_on(
+    config: &RuntimeConfig,
+    context: &SurfaceContext,
+    control: ControlId,
+    sessions: &[Attached],
+) -> Option<Activity> {
+    let target: AttachedTarget = ADVERTISED
+        .iter()
+        .flat_map(|gesture| {
+            config
+                .bindings
+                .candidates(BindingKey::new(control, *gesture))
+        })
+        .find(|binding| {
+            binding.scope.applies_to(context)
+                && binding.action.selector.provider.as_str() == SESSIONS
+        })
+        .and_then(|binding| binding.action.params.text("target"))
+        .and_then(|written| written.parse().ok())?;
+
+    sessions
+        .iter()
+        .find(|session| target.matches(session))
+        .map(|session| session.activity)
+}
+
+fn light_for(
+    config: &RuntimeConfig,
+    context: &SurfaceContext,
+    control: ControlId,
+    sessions: &[Attached],
+) -> LedState {
+    // What a session is doing outranks the fact that a pad is bound: the pad
+    // being bound is what the operator already knows.
+    if let Some(activity) = session_on(config, context, control, sessions) {
+        return LedState::from_status(activity.status_color());
+    }
+
     let bound = ADVERTISED.iter().any(|gesture| {
         config
             .bindings
@@ -94,7 +149,7 @@ mod tests {
             "#
         ));
 
-        let plan = plan_for(&config, &SurfaceContext::empty());
+        let plan = plan_for(&config, &SurfaceContext::empty(), &[]);
         let lit: Vec<_> = plan
             .states()
             .iter()
@@ -117,8 +172,8 @@ mod tests {
             "#
         ));
 
-        let on_home = plan_for(&config, &SurfaceContext::empty().on_page("home"));
-        let on_music = plan_for(&config, &SurfaceContext::empty().on_page("music"));
+        let on_home = plan_for(&config, &SurfaceContext::empty().on_page("home"), &[]);
+        let on_music = plan_for(&config, &SurfaceContext::empty().on_page("music"), &[]);
 
         assert_eq!(
             on_home
@@ -149,7 +204,7 @@ mod tests {
             "#
         ));
 
-        let plan = plan_for(&config, &SurfaceContext::empty());
+        let plan = plan_for(&config, &SurfaceContext::empty(), &[]);
         assert!(
             plan.states()
                 .iter()
@@ -159,7 +214,7 @@ mod tests {
 
     #[test]
     fn a_plan_covers_every_pad_and_button_and_nothing_else() {
-        let plan = plan_for(&config(PAGES), &SurfaceContext::empty());
+        let plan = plan_for(&config(PAGES), &SurfaceContext::empty(), &[]);
         assert!(
             plan.states()
                 .iter()
@@ -188,8 +243,8 @@ mod tests {
             "#
         ));
 
-        let on_home = plan_for(&config, &SurfaceContext::empty().on_page("home"));
-        let on_music = plan_for(&config, &SurfaceContext::empty().on_page("music"));
+        let on_home = plan_for(&config, &SurfaceContext::empty().on_page("home"), &[]);
+        let on_music = plan_for(&config, &SurfaceContext::empty().on_page("music"), &[]);
 
         let changes = on_music.changes_from(&on_home);
         assert_eq!(changes.len(), 1, "only pad 1 differs between the two pages");

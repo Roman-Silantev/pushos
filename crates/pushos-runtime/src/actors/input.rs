@@ -77,6 +77,12 @@ pub struct InputTask {
     /// Followed here rather than asked for when drawing, because the answer has
     /// to reach the display within the press that changed it.
     listening: Option<watch::Receiver<pushos_domain::voice::Listening>>,
+    /// The sessions PushOS did not start, as last seen.
+    ///
+    /// Followed so the lights can show what each one is doing. A pad standing
+    /// for a session that is stuck on a question has to look different from
+    /// seven that are not.
+    attached: Option<watch::Receiver<Vec<pushos_domain::attached::Attached>>>,
     /// What the sessions are doing, published by whoever is watching them.
     ///
     /// The latest list is the only one that matters, and a pipeline built for
@@ -126,6 +132,7 @@ impl InputTask {
             reloads: config.subscribe(),
             projects: None,
             listening: None,
+            attached: None,
             config,
             bus,
             view,
@@ -148,6 +155,16 @@ impl InputTask {
     #[must_use]
     pub fn hearing(mut self, listening: watch::Receiver<pushos_domain::voice::Listening>) -> Self {
         self.listening = Some(listening);
+        self
+    }
+
+    /// Follows the sessions PushOS did not start.
+    #[must_use]
+    pub fn watching(
+        mut self,
+        attached: watch::Receiver<Vec<pushos_domain::attached::Attached>>,
+    ) -> Self {
+        self.attached = Some(attached);
         self
     }
 
@@ -216,6 +233,12 @@ impl InputTask {
                 heard = wait_for_listening(self.listening.as_mut()) => {
                     if heard {
                         self.follow_listening();
+                    }
+                }
+
+                moved = wait_for_attached(self.attached.as_mut()) => {
+                    if moved {
+                        self.publish();
                     }
                 }
             }
@@ -408,15 +431,23 @@ impl InputTask {
     }
 
     fn publish(&self) {
+        let sessions = self
+            .attached
+            .as_ref()
+            .map(|held| held.borrow().clone())
+            .unwrap_or_default();
         // A dropped receiver means the renderer is gone, which shutdown handles.
-        let _ = self.view.send(build_view(&self.surface));
+        let _ = self.view.send(build_view(&self.surface, &sessions));
     }
 }
 
-fn build_view(surface: &SurfaceState) -> SurfaceView {
+fn build_view(
+    surface: &SurfaceState,
+    sessions: &[pushos_domain::attached::Attached],
+) -> SurfaceView {
     let context = surface.context(false);
     SurfaceView {
-        leds: Arc::new(leds::plan_for(surface.config(), &context)),
+        leds: Arc::new(leds::plan_for(surface.config(), &context, sessions)),
         snapshot: Arc::new(surface.snapshot()),
         context,
     }
@@ -441,6 +472,16 @@ async fn wait_for_project(
 async fn wait_for_sessions(sessions: &mut watch::Receiver<Vec<pushos_ui::SessionLine>>) {
     if sessions.changed().await.is_err() {
         std::future::pending::<()>().await;
+    }
+}
+
+/// Waits for the open sessions to change, or forever when none are watched.
+async fn wait_for_attached(
+    attached: Option<&mut watch::Receiver<Vec<pushos_domain::attached::Attached>>>,
+) -> bool {
+    match attached {
+        Some(attached) => attached.changed().await.is_ok(),
+        None => std::future::pending().await,
     }
 }
 

@@ -7,7 +7,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use pushos_domain::attached::Attached;
+use pushos_domain::attached::{Activity, Attached};
 use pushos_domain::ids::AttachedId;
 use pushos_domain::ports::AttachedSessions;
 use pushos_ui::{SessionLine, Tone};
@@ -103,16 +103,8 @@ pub(crate) fn lines_for(sessions: &[Attached], selected: Option<&AttachedId>) ->
         .map(|session| {
             let mut line = SessionLine::new(
                 session.label().to_owned(),
-                if session.busy { "working" } else { "waiting" },
-                // Never Attention: PushOS cannot tell whether one of these
-                // wants something, and a surface that cried for attention
-                // about eight windows at once would be worse than one that
-                // said nothing.
-                if session.busy {
-                    Tone::Active
-                } else {
-                    Tone::Normal
-                },
+                session.activity.describe(),
+                tone_for(session.activity),
             )
             .with_detail(session.device().to_owned());
 
@@ -124,6 +116,20 @@ pub(crate) fn lines_for(sessions: &[Attached], selected: Option<&AttachedId>) ->
         .collect()
 }
 
+/// How a session's state should read on the display.
+///
+/// Attention is reserved for the one state that genuinely wants a person. A
+/// surface crying out about eight windows at once would be worse than a quiet
+/// one, and the operator would stop believing it.
+const fn tone_for(activity: Activity) -> Tone {
+    match activity {
+        Activity::NeedsDecision => Tone::Attention,
+        Activity::Working => Tone::Active,
+        Activity::Drafting | Activity::Ready => Tone::Normal,
+        Activity::Quiet => Tone::Muted,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -133,6 +139,11 @@ mod tests {
             id: AttachedId::new(device),
             title: title.to_owned(),
             busy,
+            activity: if busy {
+                pushos_domain::attached::Activity::Working
+            } else {
+                pushos_domain::attached::Activity::Ready
+            },
         }
     }
 
@@ -159,15 +170,21 @@ mod tests {
     }
 
     #[test]
-    fn nothing_here_ever_asks_for_attention() {
-        // PushOS cannot tell whether one of these wants something. A surface
-        // crying out about eight windows at once is worse than a quiet one.
+    fn only_the_one_that_wants_a_person_asks_for_attention() {
+        // A surface crying out about eight windows at once would be worse than
+        // a quiet one, and the operator would stop believing it.
+        let mut asking = session("/dev/ttys005", "Stuck", false);
+        asking.activity = Activity::NeedsDecision;
+
         let sessions = [
             session("/dev/ttys003", "Sprint", true),
             session("/dev/ttys004", "Review", false),
+            asking,
         ];
-        for line in lines_for(&sessions, None) {
-            assert_ne!(line.tone, Tone::Attention);
-        }
+        let lines = lines_for(&sessions, None);
+
+        assert_eq!(lines[0].tone, Tone::Active, "working");
+        assert_eq!(lines[1].tone, Tone::Normal, "ready");
+        assert_eq!(lines[2].tone, Tone::Attention, "asking");
     }
 }
