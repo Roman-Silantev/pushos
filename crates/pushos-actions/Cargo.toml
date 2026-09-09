@@ -16,6 +16,9 @@ pushos-voice = { workspace = true }
 pushos-workflows = { workspace = true }
 pushos-workspaces = { workspace = true }
 async-trait = { workspace = true }
+# Only for `join_all`, which is what "run these all at once" means. `alloc` is
+# what that one function needs; nothing here wants the rest of the crate.
+futures-util = { workspace = true, features = ["alloc"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["process", "time", "io-util", "rt", "macros"] }
 tracing = { workspace = true }

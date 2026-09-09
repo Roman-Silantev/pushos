@@ -41,6 +41,9 @@ pub struct ConfigFile {
     /// The workflows that exist.
     #[serde(default)]
     pub workflows: Vec<WorkflowEntry>,
+    /// The named runs of several actions.
+    #[serde(default)]
+    pub sequences: Vec<SequenceEntry>,
     /// Push to talk.
     #[serde(default)]
     pub voice: VoiceSection,
@@ -69,6 +72,7 @@ impl ConfigFile {
         self.providers.extend(other.providers);
         self.workspaces.extend(other.workspaces);
         self.workflows.extend(other.workflows);
+        self.sequences.extend(other.sequences);
         self.voice.merge(other.voice);
         self.memory.merge(other.memory);
         self.sessions.merge(&other.sessions);
@@ -334,6 +338,46 @@ pub struct WorkflowEntry {
     /// The steps.
     #[serde(default)]
     pub nodes: Vec<NodeEntry>,
+}
+
+/// Several actions behind one name.
+///
+/// The shape a file uses to say "pressing this does all of these". Steps are
+/// written the way a binding writes its action, because they are the same
+/// thing: a provider, a verb and whatever it needs.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SequenceEntry {
+    /// Stable identity, referenced by bindings and by other sequences.
+    pub id: String,
+    /// What the operator calls it.
+    pub name: String,
+    /// What it is for, when a name is not enough.
+    #[serde(default)]
+    pub description: Option<String>,
+    /// `sequential` or `parallel`. Sequential when left out.
+    #[serde(default)]
+    pub mode: Option<String>,
+    /// The steps.
+    #[serde(default)]
+    pub steps: Vec<StepEntry>,
+}
+
+/// One action within a sequence.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct StepEntry {
+    /// The action, written as `provider.verb`.
+    pub action: String,
+    /// Shorthand for the `target` parameter, which most actions take.
+    #[serde(default)]
+    pub target: Option<String>,
+    /// Everything else the action needs.
+    #[serde(default)]
+    pub params: BTreeMap<String, ParamValue>,
+    /// Whether the rest should carry on if this one fails.
+    #[serde(default)]
+    pub optional: bool,
 }
 
 /// One step of a workflow.

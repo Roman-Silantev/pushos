@@ -347,6 +347,47 @@ page = "automation"
 action = "page.back"
 label = "Back"
 
+# --- One press, several things ------------------------------------------------
+# A sequence is several actions behind one gesture. Starting work is one
+# intention and three actions, and you should press one pad rather than three.
+#
+# Every step goes through the same dispatcher a pad press does, so a step is
+# allowed exactly what you granted above and nothing more. Steps run in order
+# and a failure stops the rest, unless the step says `optional = true`: the
+# playlist that did not start is no reason to abandon an editor that opened.
+#
+# Use `mode = "parallel"` for steps that have nothing to do with each other.
+
+[[sequences]]
+id = "start_work"
+name = "Start work"
+description = "Everything that has to happen before the first line of code"
+
+[[sequences.steps]]
+action = "app.launch"
+target = "Cursor"
+
+[[sequences.steps]]
+action = "terminal.open"
+params = { name = "shell" }
+
+[[sequences.steps]]
+action = "terminal.run"
+target = "name:shell"
+params = { text = "git status --short" }
+
+[[sequences.steps]]
+action = "media.play_pause"
+optional = true
+
+[[bindings]]
+control = "pad.16"
+gesture = "tap"
+page = "development"
+action = "sequence.run"
+label = "Start work"
+params = { id = "start_work" }
+
 # --- What is running on this machine -----------------------------------------
 # The coding sessions you already have open, without configuring anything.
 # PushOS reads what each terminal window is working on and puts it on the pads:

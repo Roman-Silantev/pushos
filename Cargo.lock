@@ -2559,6 +2559,7 @@ name = "pushos-actions"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "futures-util",
  "pushos-agents",
  "pushos-domain",
  "pushos-memory",

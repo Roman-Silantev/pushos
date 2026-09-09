@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use pushos_acp::{AcpBackend, AgentCommand};
 use pushos_actions::providers::{
-    agent, application, media, memory, page, session, shell, shortcut, terminal, voice, workflow,
-    workspace,
+    agent, application, media, memory, page, sequence, session, shell, shortcut, terminal, voice,
+    workflow, workspace,
 };
 use pushos_agents::{AgentRoster, AgentSupervisor};
 use pushos_config::RuntimeConfig;
@@ -231,6 +231,23 @@ pub(crate) fn attached(config: &RuntimeConfig) -> Option<Arc<session::SessionPro
     Some(Arc::new(session::SessionProvider::new(watcher)))
 }
 
+/// Builds the named runs of several actions from configuration.
+///
+/// Returns `None` when none are declared, because a surface with nothing named
+/// should not carry a namespace that refuses every binding. What is built here
+/// has already been proved to terminate: a sequence that could reach itself was
+/// refused when the file was read.
+pub(crate) fn sequences(config: &RuntimeConfig) -> Option<Arc<sequence::SequenceProvider>> {
+    if config.sequences.is_empty() {
+        return None;
+    }
+
+    info!(sequences = config.sequences.len(), "sequences available");
+    Some(Arc::new(sequence::SequenceProvider::new(
+        config.sequences.clone(),
+    )))
+}
+
 /// Builds push to talk from configuration.
 ///
 /// Returns `None` when voice is not configured, because a surface that cannot
@@ -299,6 +316,7 @@ pub(crate) fn providers(
     listening: Option<&Arc<voice::VoiceProvider>>,
     notes: Option<&Arc<memory::MemoryProvider>>,
     sessions: Option<&Arc<session::SessionProvider>>,
+    runs: Option<&Arc<sequence::SequenceProvider>>,
 ) -> Vec<Arc<dyn ActionProvider>> {
     let processes: Arc<dyn ProcessRunner> = Arc::new(SystemProcessRunner::new());
     let launcher: Arc<dyn pushos_domain::ports::ApplicationLauncher> =
@@ -346,6 +364,12 @@ pub(crate) fn providers(
 
     // The same again for the terminals PushOS did not open.
     if let Some(provider) = sessions {
+        providers.push(Arc::clone(provider) as Arc<dyn ActionProvider>);
+    }
+
+    // And for sequences, which are only worth a namespace once something has
+    // been named.
+    if let Some(provider) = runs {
         providers.push(Arc::clone(provider) as Arc<dyn ActionProvider>);
     }
 
@@ -398,6 +422,7 @@ pub(crate) fn shipped_providers(config: &RuntimeConfig) -> Vec<Arc<dyn ActionPro
         voice(config).as_ref(),
         memory(config, None).as_ref(),
         attached(config).as_ref(),
+        sequences(config).as_ref(),
     )
 }
 
@@ -509,6 +534,7 @@ mod tests {
             voice(&settings).as_ref(),
             memory(&settings, None).as_ref(),
             attached(&settings).as_ref(),
+            sequences(&settings).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -534,6 +560,7 @@ mod tests {
             voice(&settings).as_ref(),
             memory(&settings, None).as_ref(),
             attached(&settings).as_ref(),
+            sequences(&settings).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -558,6 +585,7 @@ mod tests {
             voice(&settings).as_ref(),
             memory(&settings, None).as_ref(),
             attached(&settings).as_ref(),
+            sequences(&settings).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -678,6 +706,7 @@ mod tests {
             voice(&settings).as_ref(),
             memory(&settings, None).as_ref(),
             attached(&settings).as_ref(),
+            sequences(&settings).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())
@@ -696,6 +725,43 @@ mod tests {
     }
 
     #[test]
+    fn a_surface_with_nothing_named_carries_no_sequence_namespace() {
+        // The same reasoning as agents: "no provider" says more than a
+        // namespace that refuses every binding it is given.
+        let settings = config("");
+        assert!(sequences(&settings).is_none());
+    }
+
+    #[test]
+    fn declaring_a_sequence_claims_the_namespace() {
+        let settings = config(
+            r#"
+            [[sequences]]
+            id = "start_work"
+            name = "Start work"
+
+            [[sequences.steps]]
+            action = "media.play_pause"
+        "#,
+        );
+        let namespaces: Vec<_> = providers(
+            &settings,
+            None,
+            &idle_terminals(&settings),
+            &manager(&settings),
+            engine(&settings, &idle_terminals(&settings)).as_ref(),
+            voice(&settings).as_ref(),
+            memory(&settings, None).as_ref(),
+            attached(&settings).as_ref(),
+            sequences(&settings).as_ref(),
+        )
+        .iter()
+        .map(|provider| provider.name().to_string())
+        .collect();
+        assert!(namespaces.contains(&"sequence".to_owned()));
+    }
+
+    #[test]
     fn an_unusable_media_player_leaves_the_namespace_unclaimed() {
         let unusable = config("[runtime]\nmedia_player = \"Music\\\" to quit\"\n");
         let namespaces: Vec<_> = providers(
@@ -707,6 +773,7 @@ mod tests {
             voice(&unusable).as_ref(),
             memory(&unusable, None).as_ref(),
             attached(&unusable).as_ref(),
+            sequences(&unusable).as_ref(),
         )
         .iter()
         .map(|provider| provider.name().to_string())

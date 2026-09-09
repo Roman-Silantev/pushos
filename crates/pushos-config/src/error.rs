@@ -225,6 +225,61 @@ pub enum Problem {
     #[error(transparent)]
     Workflow(#[from] pushos_domain::workflow::WorkflowProblem),
 
+    /// Two sequences share an identity.
+    #[error("sequence `{id}` is declared more than once")]
+    DuplicateSequence {
+        /// The contested identity.
+        id: String,
+    },
+
+    /// A sequence has nothing to do.
+    #[error("sequence `{id}` has no steps")]
+    EmptySequence {
+        /// The sequence.
+        id: String,
+    },
+
+    /// A sequence step's action is not written as `provider.verb`.
+    #[error("sequence `{id}`: step {step}: {source}")]
+    SequenceAction {
+        /// The sequence.
+        id: String,
+        /// Which step, counting from one.
+        step: usize,
+        /// What the selector parser reported.
+        #[source]
+        source: pushos_domain::action::MalformedSelector,
+    },
+
+    /// A sequence runs one that is not declared.
+    #[error("sequence `{id}`: step {step} runs `{missing}`, which is not declared")]
+    UnknownSequence {
+        /// The sequence doing the running.
+        id: String,
+        /// Which step, counting from one.
+        step: usize,
+        /// The sequence it asked for.
+        missing: String,
+    },
+
+    /// A sequence can reach itself, so one press would never end.
+    #[error("sequence `{id}` runs itself, directly or through `{through}`")]
+    RecursiveSequence {
+        /// The sequence that comes back round to itself.
+        id: String,
+        /// The one it reaches on the way, which is itself when it is direct.
+        through: String,
+    },
+
+    /// A sequence names a mode that is not one.
+    #[error("sequence `{id}`: `{mode}` is not `sequential` or `parallel`")]
+    UnknownSequenceMode {
+        /// The sequence.
+        id: String,
+        /// What it said.
+        mode: String,
+    },
+
     /// The `[voice]` section named an engine PushOS does not have.
     #[error(transparent)]
     VoiceEngine {

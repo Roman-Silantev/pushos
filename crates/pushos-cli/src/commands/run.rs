@@ -207,6 +207,14 @@ fn build_runtime(
         runtime = runtime.with_attached(Arc::clone(provider));
     }
 
+    // Several actions behind one gesture. Built here rather than among the
+    // rest, because every step goes back through the dispatcher and the
+    // runtime is what hands it over once the dispatcher exists.
+    let runs = host::sequences(&current);
+    if let Some(provider) = &runs {
+        runtime = runtime.with_sequences(Arc::clone(provider));
+    }
+
     // Without a socket PushOS still runs; it simply cannot be configured from
     // Studio. That is worth saying rather than refusing to start over.
     if let Some(server) = control {
@@ -222,6 +230,7 @@ fn build_runtime(
         listening.as_ref(),
         notes.as_ref(),
         sessions.as_ref(),
+        runs.as_ref(),
     ) {
         let name = provider.name();
         match runtime.with_provider(provider) {

@@ -83,6 +83,10 @@ string_id!(
     NodeId
 );
 string_id!(
+    /// Identifies a named run of several actions.
+    SequenceId
+);
+string_id!(
     /// Identifies a session running somewhere PushOS did not start it.
     ///
     /// The terminal device it is attached to, which is stable for as long as

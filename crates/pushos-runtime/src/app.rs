@@ -35,6 +35,7 @@ pub struct Runtime {
     workflows: Option<WorkflowWiring>,
     voice: Option<Arc<pushos_actions::providers::voice::VoiceProvider>>,
     memory: Option<Arc<pushos_actions::providers::memory::MemoryProvider>>,
+    sequences: Option<Arc<pushos_actions::providers::sequence::SequenceProvider>>,
     attached: Option<Arc<pushos_actions::providers::session::SessionProvider>>,
     bus: EventBus,
 }
@@ -86,6 +87,7 @@ impl Runtime {
             workflows: None,
             voice: None,
             memory: None,
+            sequences: None,
             attached: None,
             bus: EventBus::new(),
         }
@@ -181,6 +183,21 @@ impl Runtime {
         self
     }
 
+    /// Runs several actions behind one gesture.
+    ///
+    /// Optional: PushOS runs without any, it simply has nothing named. Takes
+    /// the provider rather than the sequences, because every step is carried
+    /// out through the same dispatcher a finger uses and the provider is what
+    /// needs to be given it.
+    #[must_use]
+    pub fn with_sequences(
+        mut self,
+        provider: Arc<pushos_actions::providers::sequence::SequenceProvider>,
+    ) -> Self {
+        self.sequences = Some(provider);
+        self
+    }
+
     /// Watches the terminals the operator already had open.
     ///
     /// Optional: PushOS runs without this, it simply cannot see anything it did
@@ -244,7 +261,11 @@ impl Runtime {
 
         // Given after construction, because the dispatcher this points at
         // contains the provider that points back at the engine.
-        if self.workflows.is_some() || self.voice.is_some() || self.memory.is_some() {
+        if self.workflows.is_some()
+            || self.voice.is_some()
+            || self.memory.is_some()
+            || self.sequences.is_some()
+        {
             let runner: Arc<dyn pushos_domain::ports::ActionRunner> = Arc::clone(&dispatcher) as _;
             if let Some(wiring) = &self.workflows {
                 wiring.engine.use_actions(&runner).await;
@@ -253,6 +274,9 @@ impl Runtime {
                 provider.use_actions(&runner).await;
             }
             if let Some(provider) = &self.memory {
+                provider.use_actions(&runner).await;
+            }
+            if let Some(provider) = &self.sequences {
                 provider.use_actions(&runner).await;
             }
         }

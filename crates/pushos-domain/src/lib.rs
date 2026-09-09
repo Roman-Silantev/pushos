@@ -36,6 +36,7 @@ pub mod page;
 pub mod permissions;
 pub mod ports;
 pub mod run;
+pub mod sequence;
 pub mod terminal;
 pub mod voice;
 pub mod workflow;

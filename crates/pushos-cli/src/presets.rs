@@ -254,16 +254,19 @@ mod tests {
             let (parsed, config) = build(preset);
             let required = crate::host::shipped_permissions(&config);
 
-            for binding in &parsed.bindings {
-                let Some(needs) = required.get(&binding.action) else {
+            // Every place an action can be named, not only bindings. A step
+            // of a sequence is dispatched exactly like a press and is refused
+            // exactly like one, so a preset that granted only what its pads
+            // need would have a pad that gets halfway and stops.
+            for action in actions_in(&parsed) {
+                let Some(needs) = required.get(&action) else {
                     continue;
                 };
                 for permission in needs {
                     assert!(
                         config.permissions.allows(*permission),
-                        "`{}`: `{}` needs `{permission}`, which the preset does not grant",
-                        preset.name,
-                        binding.action
+                        "`{}`: `{action}` needs `{permission}`, which the preset does not grant",
+                        preset.name
                     );
                 }
             }
@@ -370,6 +373,13 @@ mod tests {
                     .iter()
                     .flat_map(|workflow| workflow.nodes.iter())
                     .filter_map(|node| node.action.clone()),
+            )
+            .chain(
+                parsed
+                    .sequences
+                    .iter()
+                    .flat_map(|run| run.steps.iter())
+                    .map(|step| step.action.clone()),
             )
             .collect()
     }

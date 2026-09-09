@@ -928,3 +928,344 @@ fn a_workflow_with_no_limits_of_its_own_gets_the_ones_that_ship() {
     let limits = config.workflows[0].limits;
     assert_eq!(limits, pushos_domain::workflow::Limits::DEFAULT);
 }
+
+// --- Sequences ---------------------------------------------------------------
+// Several actions behind one name. What matters most is that a press ends: a
+// sequence that reaches itself would run forever, and the file is the only
+// place that can be found out safely.
+
+const START_WORK: &str = r#"
+[[sequences]]
+id = "start_work"
+name = "Start work"
+description = "Everything that has to happen before the first line of code"
+
+[[sequences.steps]]
+action = "shortcut.run"
+params = { name = "Focus Mode" }
+
+[[sequences.steps]]
+action = "app.open"
+params = { name = "Cursor" }
+
+[[sequences.steps]]
+action = "media.play_pause"
+optional = true
+"#;
+
+#[test]
+fn a_sequence_keeps_its_steps_in_the_order_they_were_written() {
+    let config = build(START_WORK);
+    let run = &config.sequences[0];
+
+    assert_eq!(run.id.as_str(), "start_work");
+    assert_eq!(run.name, "Start work");
+    assert_eq!(
+        run.steps
+            .iter()
+            .map(|step| step.action.selector.to_string())
+            .collect::<Vec<_>>(),
+        ["shortcut.run", "app.open", "media.play_pause"]
+    );
+}
+
+#[test]
+fn a_sequence_runs_its_steps_in_order_unless_it_says_otherwise() {
+    use pushos_domain::sequence::SequenceMode;
+
+    assert_eq!(
+        build(START_WORK).sequences[0].mode,
+        SequenceMode::Sequential
+    );
+
+    let parallel = build(
+        r#"
+        [[sequences]]
+        id = "warm_up"
+        name = "Warm up"
+        mode = "parallel"
+
+        [[sequences.steps]]
+        action = "app.open"
+        params = { name = "Cursor" }
+
+        [[sequences.steps]]
+        action = "app.open"
+        params = { name = "Terminal" }
+    "#,
+    );
+    assert_eq!(parallel.sequences[0].mode, SequenceMode::Parallel);
+}
+
+#[test]
+fn only_the_steps_marked_optional_are_ones_the_rest_can_carry_on_past() {
+    let run = build(START_WORK).sequences.remove(0);
+    assert_eq!(run.required(), 2, "the playlist is a nicety");
+    assert!(run.steps[2].optional);
+    assert!(!run.steps[0].optional);
+}
+
+#[test]
+fn a_step_carries_its_target_the_way_a_binding_does() {
+    let run = build(
+        r#"
+        [[sequences]]
+        id = "brief"
+        name = "Brief"
+
+        [[sequences.steps]]
+        action = "agent.prompt"
+        target = "builder"
+        params = { text = "start the sprint" }
+    "#,
+    )
+    .sequences
+    .remove(0);
+
+    let params = &run.steps[0].action.params;
+    assert_eq!(params.text("target"), Some("builder"));
+    assert_eq!(params.text("text"), Some("start the sprint"));
+}
+
+#[test]
+fn a_sequence_that_runs_itself_is_refused() {
+    let found = problems(
+        r#"
+        [[sequences]]
+        id = "loop"
+        name = "Loop"
+
+        [[sequences.steps]]
+        action = "sequence.run"
+        params = { id = "loop" }
+    "#,
+    );
+    assert!(
+        found.iter().any(
+            |problem| matches!(problem, Problem::RecursiveSequence { id, .. } if id == "loop")
+        ),
+        "a press that never ends must not be reachable: {found:?}"
+    );
+}
+
+#[test]
+fn a_sequence_that_reaches_itself_through_another_is_refused() {
+    let found = problems(
+        r#"
+        [[sequences]]
+        id = "one"
+        name = "One"
+
+        [[sequences.steps]]
+        action = "sequence.run"
+        params = { id = "two" }
+
+        [[sequences]]
+        id = "two"
+        name = "Two"
+
+        [[sequences.steps]]
+        action = "sequence.run"
+        params = { id = "three" }
+
+        [[sequences]]
+        id = "three"
+        name = "Three"
+
+        [[sequences.steps]]
+        action = "sequence.run"
+        params = { id = "one" }
+    "#,
+    );
+    assert_eq!(
+        found
+            .iter()
+            .filter(|problem| matches!(problem, Problem::RecursiveSequence { .. }))
+            .count(),
+        3,
+        "every sequence on the ring is unusable, and each is named: {found:?}"
+    );
+}
+
+#[test]
+fn one_sequence_running_another_is_allowed_when_it_ends() {
+    let config = build(
+        r#"
+        [[sequences]]
+        id = "start_work"
+        name = "Start work"
+
+        [[sequences.steps]]
+        action = "sequence.run"
+        params = { id = "focus" }
+
+        [[sequences.steps]]
+        action = "app.open"
+        params = { name = "Cursor" }
+
+        [[sequences]]
+        id = "focus"
+        name = "Focus"
+
+        [[sequences.steps]]
+        action = "shortcut.run"
+        params = { name = "Focus Mode" }
+    "#,
+    );
+    assert_eq!(config.sequences.len(), 2);
+}
+
+#[test]
+fn two_sequences_reaching_the_same_third_one_is_not_a_loop() {
+    // A walk that marked anything twice-visited as a loop would refuse this,
+    // and a diamond is an ordinary thing to write.
+    let config = build(
+        r#"
+        [[sequences]]
+        id = "top"
+        name = "Top"
+
+        [[sequences.steps]]
+        action = "sequence.run"
+        params = { id = "left" }
+
+        [[sequences.steps]]
+        action = "sequence.run"
+        params = { id = "right" }
+
+        [[sequences]]
+        id = "left"
+        name = "Left"
+
+        [[sequences.steps]]
+        action = "sequence.run"
+        params = { id = "shared" }
+
+        [[sequences]]
+        id = "right"
+        name = "Right"
+
+        [[sequences.steps]]
+        action = "sequence.run"
+        params = { id = "shared" }
+
+        [[sequences]]
+        id = "shared"
+        name = "Shared"
+
+        [[sequences.steps]]
+        action = "media.play_pause"
+    "#,
+    );
+    assert_eq!(config.sequences.len(), 4);
+}
+
+#[test]
+fn a_sequence_running_one_that_is_not_declared_is_refused() {
+    let found = problems(
+        r#"
+        [[sequences]]
+        id = "start_work"
+        name = "Start work"
+
+        [[sequences.steps]]
+        action = "sequence.run"
+        params = { id = "nowhere" }
+    "#,
+    );
+    assert!(
+        found.iter().any(|problem| matches!(
+            problem,
+            Problem::UnknownSequence { missing, .. } if missing == "nowhere"
+        )),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_sequence_with_nothing_in_it_is_refused() {
+    let found = problems(
+        r#"
+        [[sequences]]
+        id = "empty"
+        name = "Empty"
+    "#,
+    );
+    assert!(
+        found
+            .iter()
+            .any(|problem| matches!(problem, Problem::EmptySequence { id } if id == "empty")),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_repeated_sequence_identity_is_refused() {
+    let found = problems(
+        r#"
+        [[sequences]]
+        id = "start_work"
+        name = "One"
+
+        [[sequences.steps]]
+        action = "media.play_pause"
+
+        [[sequences]]
+        id = "start_work"
+        name = "Another"
+
+        [[sequences.steps]]
+        action = "media.next_track"
+    "#,
+    );
+    assert!(
+        found.iter().any(
+            |problem| matches!(problem, Problem::DuplicateSequence { id } if id == "start_work")
+        ),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_malformed_step_action_is_refused_with_its_position() {
+    let found = problems(
+        r#"
+        [[sequences]]
+        id = "start_work"
+        name = "Start work"
+
+        [[sequences.steps]]
+        action = "media.play_pause"
+
+        [[sequences.steps]]
+        action = "not a selector"
+    "#,
+    );
+    assert!(
+        found
+            .iter()
+            .any(|problem| matches!(problem, Problem::SequenceAction { step, .. } if *step == 2)),
+        "the operator has to be told which line: {found:?}"
+    );
+}
+
+#[test]
+fn a_mode_that_is_not_a_mode_is_refused() {
+    let found = problems(
+        r#"
+        [[sequences]]
+        id = "start_work"
+        name = "Start work"
+        mode = "eventually"
+
+        [[sequences.steps]]
+        action = "media.play_pause"
+    "#,
+    );
+    assert!(
+        found
+            .iter()
+            .any(|problem| matches!(problem, Problem::UnknownSequenceMode { mode, .. } if mode == "eventually")),
+        "{found:?}"
+    );
+}

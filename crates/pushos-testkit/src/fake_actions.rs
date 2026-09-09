@@ -18,6 +18,14 @@ use pushos_domain::ports::ActionRunner;
 pub struct FakeActions {
     ran: Arc<Mutex<Vec<ActionDefinition>>>,
     refuse: Arc<Mutex<bool>>,
+    /// Selectors to refuse outright, as an error.
+    refused: Arc<Mutex<Vec<String>>>,
+    /// Selectors to accept and then report as failed.
+    ///
+    /// A different thing from refusing, and worth being able to tell apart: an
+    /// action that ran and did not work reports it in its result, and anything
+    /// built on top has to notice that as well as an outright error.
+    failing: Arc<Mutex<Vec<String>>>,
 }
 
 impl FakeActions {
@@ -45,6 +53,25 @@ impl FakeActions {
             *refuse = true;
         }
     }
+
+    /// Makes one action fail with an error, leaving the rest working.
+    pub fn refuse(&self, selector: &str) {
+        if let Ok(mut refused) = self.refused.lock() {
+            refused.push(selector.to_owned());
+        }
+    }
+
+    /// Makes one action run and then report that it did not work.
+    pub fn report_failure(&self, selector: &str) {
+        if let Ok(mut failing) = self.failing.lock() {
+            failing.push(selector.to_owned());
+        }
+    }
+
+    fn listed(held: &Mutex<Vec<String>>, selector: &str) -> bool {
+        held.lock()
+            .is_ok_and(|names| names.iter().any(|name| name == selector))
+    }
 }
 
 #[async_trait]
@@ -54,7 +81,9 @@ impl ActionRunner for FakeActions {
         definition: ActionDefinition,
         _surface: SurfaceContext,
     ) -> Result<ActionResult, ActionError> {
-        if self.refuse.lock().is_ok_and(|refuse| *refuse) {
+        let message = definition.selector.to_string();
+
+        if self.refuse.lock().is_ok_and(|refuse| *refuse) || Self::listed(&self.refused, &message) {
             return Err(ActionError::backend(
                 "the fake was told to refuse",
                 ErrorClass::Permission,
@@ -62,12 +91,16 @@ impl ActionRunner for FakeActions {
             ));
         }
 
-        let message = definition.selector.to_string();
+        let failed = Self::listed(&self.failing, &message);
         if let Ok(mut ran) = self.ran.lock() {
             ran.push(definition);
         }
         Ok(ActionResult {
-            status: ActionStatus::Completed,
+            status: if failed {
+                ActionStatus::Failed
+            } else {
+                ActionStatus::Completed
+            },
             message: Some(message),
             display: None,
         })

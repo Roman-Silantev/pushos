@@ -51,6 +51,26 @@ action = "test.two"
 control = "button.play"
 gesture = "press"
 action = "page.next"
+
+[[bindings]]
+control = "pad.2"
+gesture = "tap"
+action = "sequence.run"
+label = "Start work"
+params = { id = "start_work" }
+
+[[sequences]]
+id = "start_work"
+name = "Start work"
+
+[[sequences.steps]]
+action = "test.one"
+
+[[sequences.steps]]
+action = "test.two"
+
+[[sequences.steps]]
+action = "test.one"
 "#;
 
 /// A configuration directory a test can rewrite while PushOS is running.
@@ -114,13 +134,23 @@ impl Harness {
         let provider = RecordingProvider::new("test", ["one", "two"]);
         let shutdown = Shutdown::new();
 
-        let runtime = Runtime::new(store(text))
+        let held = store(text);
+        // Built the way the real host builds it: from what the configuration
+        // declared, and given the dispatcher afterwards by the runtime.
+        let sequences = Arc::new(pushos_actions::providers::sequence::SequenceProvider::new(
+            held.current().sequences.clone(),
+        ));
+
+        let runtime = Runtime::new(Arc::clone(&held))
             .with_provider(Arc::new(provider.clone()))
             .expect("the namespace is free")
             .with_provider(Arc::new(
                 pushos_actions::providers::page::PageProvider::new(),
             ))
-            .expect("the namespace is free");
+            .expect("the namespace is free")
+            .with_provider(Arc::clone(&sequences) as Arc<dyn pushos_domain::ports::ActionProvider>)
+            .expect("the namespace is free")
+            .with_sequences(sequences);
         let events = runtime.bus().subscribe();
 
         let output: Arc<dyn PushOutput> = Arc::new(surface.clone());
@@ -208,6 +238,48 @@ async fn tapping_a_bound_pad_runs_its_action() {
 }
 
 #[tokio::test]
+async fn one_tap_carries_out_several_actions_in_order() {
+    // The claim compound actions make: a gesture becomes a binding, the
+    // binding becomes one action, and that action becomes several, each
+    // carried out through the same dispatcher and in the order written.
+    let harness = Harness::start(CONFIG);
+    harness.tap(2).await;
+    harness.wait_for_calls(3).await;
+
+    assert_eq!(
+        harness
+            .provider
+            .calls()
+            .iter()
+            .map(|definition| definition.selector.to_string())
+            .collect::<Vec<_>>(),
+        ["test.one", "test.two", "test.one"]
+    );
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn a_sequence_step_that_fails_stops_the_ones_after_it() {
+    let harness = Harness::start(CONFIG);
+    harness.provider.will(ScriptedOutcome::Fail(
+        pushos_domain::error::ErrorClass::Retryable,
+    ));
+
+    harness.tap(2).await;
+    settle(|| harness.provider.call_count() >= 1).await;
+
+    // Given a moment in which the second and third would have run had
+    // anything been going to run them.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(
+        harness.provider.call_count(),
+        1,
+        "the rest were written on the assumption the first one happened"
+    );
+    harness.stop().await;
+}
+
+#[tokio::test]
 async fn tapping_an_unbound_pad_runs_nothing() {
     let mut harness = Harness::start(CONFIG);
 
@@ -278,8 +350,8 @@ async fn every_bound_pad_is_lit_and_the_rest_are_dark() {
         tokio::time::sleep(Duration::from_millis(10)).await;
     };
 
-    // Two controls are bound on the home page: pad 0 and the play button.
-    assert_eq!(lit, 2);
+    // Three controls are bound on the home page: pads 0 and 2, and play.
+    assert_eq!(lit, 3);
 
     let state = harness.surface.state().await;
     assert_eq!(state.led(ControlId::Pad(pad(40))), Some(LedState::OFF));

@@ -15,6 +15,13 @@ pub(crate) fn execute(requested: Option<&Path>) -> Result<(), String> {
     println!("{}", root.display());
     println!("  {} pages", config.pages.len());
     println!("  {} bindings", config.bindings.len());
+    // Only when there are any. A line saying nothing is configured is noise on
+    // every surface that never wanted one.
+    match config.sequences.len() {
+        0 => {}
+        1 => println!("  1 sequence"),
+        many => println!("  {many} sequences"),
+    }
 
     let granted: Vec<_> = config
         .permissions
