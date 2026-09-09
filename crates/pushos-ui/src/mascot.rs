@@ -33,12 +33,17 @@ const TALLNESS: f32 = 2.0;
 /// `#` is the body, which sweeps. `+` is a foot, which twinkles. Both hop:
 /// they are the same creature, and feet that stayed on the ground while he
 /// jumped would read as him coming apart.
+///
+/// The feet are spaced as two pairs standing under him rather than where the
+/// character cells happened to put them. A terminal has no choice about that
+/// and PushOS does, and a creature whose legs were all bunched under one end
+/// looks like it is falling over.
 const ART: &[&str] = &[
     ".############...",
     ".##.######.##...",
     "###############.",
     ".############...",
-    "+.+....+.+......",
+    "..+.+.....+.+...",
 ];
 
 /// The star, one character per quadrant.
@@ -395,27 +400,42 @@ mod tests {
     }
 
     #[test]
-    fn clawd_has_his_feet_under_him() {
+    fn clawd_has_his_feet_under_him_and_stands_square() {
         // They were once on the same line as his body, trailing off to the
-        // right, which made him a strip with debris beside it.
-        let feet: Vec<u16> = Mascot::new()
+        // right, which made him a strip with debris beside it. Bunched under
+        // one end they made him look like he was falling over.
+        let mascot = Mascot::new();
+        let feet: Vec<&Quadrant> = mascot
             .quadrants
             .iter()
             .filter(|cell| cell.sparkle)
-            .map(|cell| cell.y)
             .collect();
-        let lowest_body = Mascot::new()
+        let body: Vec<&Quadrant> = mascot
             .quadrants
             .iter()
             .filter(|cell| !cell.sparkle)
-            .map(|cell| cell.y)
-            .max()
-            .expect("he has a body");
+            .collect();
 
         assert!(!feet.is_empty(), "he has feet");
+        let lowest_body = body.iter().map(|cell| cell.y).max().expect("a body");
         assert!(
-            feet.iter().any(|y| *y > lowest_body),
-            "and they are under him"
+            feet.iter().all(|cell| cell.y > lowest_body),
+            "and every one of them is under him"
+        );
+
+        // Balanced about his middle, within a quadrant.
+        let span = |cells: &[&Quadrant]| {
+            let (least, most) = (
+                cells.iter().map(|c| c.x).min().unwrap_or(0),
+                cells.iter().map(|c| c.x).max().unwrap_or(0),
+            );
+            f32::from(least + most) / 2.0
+        };
+        assert!(
+            (span(&feet) - span(&body)).abs() <= 1.0,
+            "he is standing off to one side: feet at {}, body at {}",
+            span(&feet),
+            span(&body)
         );
     }
 
