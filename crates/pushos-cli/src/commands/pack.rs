@@ -18,10 +18,26 @@ use super::paths;
 
 /// Lists what is installed.
 pub(crate) fn list(requested: Option<&Path>) -> Result<(), String> {
-    let library = Library::at(paths::config_root(requested)?);
-    let installed = library.installed();
+    let root = paths::config_root(requested)?;
+    let installed = Library::at(&root).installed();
 
-    if installed.is_empty() {
+    // What is sitting in `available/` and has not been decided about. Shown
+    // here as well as over the socket, so the terminal and Studio never
+    // disagree about what is on this machine.
+    let waiting: Vec<(String, String, String)> = pushos_config::paths::available_packs(&root)
+        .into_iter()
+        .filter_map(|source| pushos_packs::read(&source).ok())
+        .filter(|pack| !installed.iter().any(|held| held.pack.id == pack.id))
+        .map(|pack| {
+            (
+                pack.id.to_string(),
+                pack.version.clone(),
+                pack.adds.to_string(),
+            )
+        })
+        .collect();
+
+    if installed.is_empty() && waiting.is_empty() {
         println!("no packs are installed");
         println!("install one with `pushos pack install <directory>`");
         return Ok(());
@@ -30,18 +46,22 @@ pub(crate) fn list(requested: Option<&Path>) -> Result<(), String> {
     let widest = installed
         .iter()
         .map(|held| held.pack.id.as_str().len())
+        .chain(waiting.iter().map(|(id, _, _)| id.len()))
         .max()
         .unwrap_or(0);
 
     for held in installed {
         println!(
-            "{:<widest$}  {:<8}  {}  ({})",
+            "{:<widest$}  {:<9}  {}  ({})",
             held.pack.id.as_str(),
             held.state.describe(),
             held.pack.version,
             held.pack.adds,
             widest = widest
         );
+    }
+    for (id, version, adds) in waiting {
+        println!("{id:<widest$}  {:<9}  {version}  ({adds})", "available");
     }
     Ok(())
 }
@@ -103,8 +123,83 @@ pub(crate) fn install(
             if missing.len() == 1 { "is" } else { "are" }
         );
     }
+    say_how_to_reach(&root, path);
     println!("run `pushos check` to see the surface it made");
     Ok(())
+}
+
+/// Buttons to offer as a way into a new page, in the order they are offered.
+///
+/// Chosen because none of them mean anything to PushOS on their own, so taking
+/// one costs the operator nothing they were using. The first that is free is
+/// the one suggested.
+const SPARE_BUTTONS: [&str; 6] = [
+    "button.device",
+    "button.browse",
+    "button.mix",
+    "button.clip",
+    "button.add_track",
+    "button.user",
+];
+
+/// Says how to reach a page the pack added, when nothing does.
+///
+/// A pack may not bind a control outside its own pages: installing something
+/// should not change what a surface the operator already built does. The
+/// consequence is that a pack cannot open its own page, and an operator who is
+/// not told that has a page they cannot get to. This is where they are told,
+/// with the line to paste and a button that is actually free.
+fn say_how_to_reach(root: &Path, pack: &Path) {
+    let (Ok(added), Ok(installed)) = (pushos_config::load_pack(pack), pushos_config::load(root))
+    else {
+        return;
+    };
+
+    // A page nothing names directly. Page stepping might eventually reach it,
+    // but a page worth installing is worth a button of its own.
+    let unreachable: Vec<&str> = added
+        .pages
+        .iter()
+        .map(|page| page.id.as_str())
+        .filter(|id| {
+            !installed.bindings.iter().any(|binding| {
+                binding.action == "page.show" && binding.target.as_deref() == Some(id)
+            })
+        })
+        .collect();
+
+    if unreachable.is_empty() {
+        return;
+    }
+
+    let taken: Vec<&str> = installed
+        .bindings
+        .iter()
+        .filter(|binding| binding.page.is_none() && binding.gesture == "press")
+        .map(|binding| binding.control.as_str())
+        .collect();
+
+    for (at, page) in unreachable.iter().enumerate() {
+        // A different button for each, so installing a pack of several pages
+        // does not suggest the same one twice.
+        let button = SPARE_BUTTONS
+            .iter()
+            .filter(|spare| !taken.contains(spare))
+            .nth(at);
+
+        println!("\nnothing opens `{page}` yet.");
+        match button {
+            Some(button) => println!(
+                "add this to your own configuration to reach it:\n\n  \
+                 [[bindings]]\n  control = \"{button}\"\n  gesture = \"press\"\n  \
+                 action = \"page.show\"\n  target = \"{page}\"\n"
+            ),
+            None => println!(
+                "every button PushOS would suggest is already bound; \
+                 bind one of your own to `page.show` with `target = \"{page}\"`"
+            ),
+        }
+    }
 }
 
 /// Removes an installed pack.
@@ -258,7 +353,7 @@ fn agreed(review: &Review, yes: bool) -> Result<bool, String> {
 
 #[cfg(test)]
 mod tests {
-    use pushos_config::{ConfigFile, RuntimeConfig};
+    use pushos_config::RuntimeConfig;
     use pushos_domain::ids::ExecutionId;
     use pushos_domain::pack::{Contents, Pack};
     use pushos_domain::permissions::Permission;
@@ -335,6 +430,13 @@ mod tests {
             .expect("writable");
             Self(path)
         }
+
+        /// Adds to the main file, for a test that needs more than a bare page.
+        fn write_main(&self, more: &str) {
+            let path = self.0.join(pushos_config::paths::MAIN_FILE);
+            let held = std::fs::read_to_string(&path).expect("readable");
+            std::fs::write(path, format!("{held}\n{more}")).expect("writable");
+        }
     }
 
     impl Drop for Scratch {
@@ -390,6 +492,13 @@ mod tests {
             let scratch = Scratch::new();
             let pack = read(&path).expect("a shipped pack");
 
+            // Installed onto a surface that has an agent provider, because that
+            // is what an operator installing an agent pack has. Without one the
+            // agent namespace is never built, every `agent.*` binding requires
+            // nothing, and a pack of roles could not justify the permission its
+            // roles plainly need.
+            scratch.write_main("[[providers]]\nid = \"claude\"\nprogram = \"claude\"\n");
+
             Library::at(&scratch.0)
                 .install(&path, &pack.requires.permissions, false)
                 .expect("installs");
@@ -425,16 +534,83 @@ mod tests {
     }
 
     #[test]
+    fn every_shipped_pack_can_be_opened_by_a_button_that_is_free() {
+        // A pack cannot bind its own way in, so PushOS has to offer one that
+        // is actually free. A suggestion naming a button the operator already
+        // uses would be a suggestion that does not build.
+        for path in shipped() {
+            let pack = read(&path).expect("a shipped pack");
+            let added = pushos_config::load_pack(&path).expect("readable");
+
+            for page in &added.pages {
+                let scratch = Scratch::new();
+                Library::at(&scratch.0)
+                    .install(&path, &pack.requires.permissions, false)
+                    .expect("installs");
+
+                let installed = pushos_config::load(&scratch.0).expect("readable");
+                let taken: Vec<&str> = installed
+                    .bindings
+                    .iter()
+                    .filter(|binding| binding.page.is_none() && binding.gesture == "press")
+                    .map(|binding| binding.control.as_str())
+                    .collect();
+                let offered = SPARE_BUTTONS
+                    .iter()
+                    .find(|spare| !taken.contains(spare))
+                    .unwrap_or_else(|| {
+                        panic!("`{}`: nothing is left to open `{}`", pack.id, page.id)
+                    });
+
+                scratch.write_main(&format!(
+                    "[[bindings]]\ncontrol = \"{offered}\"\ngesture = \"press\"\n\
+                     action = \"page.show\"\ntarget = \"{}\"\n",
+                    page.id
+                ));
+
+                RuntimeConfig::build(&pushos_config::load(&scratch.0).expect("readable"))
+                    .unwrap_or_else(|error| {
+                        let problems: Vec<String> =
+                            error.problems().iter().map(ToString::to_string).collect();
+                        panic!(
+                            "`{}`: the suggested way in does not build: {problems:?}",
+                            pack.id
+                        )
+                    });
+            }
+        }
+    }
+
+    #[test]
+    fn every_shipped_pack_says_how_to_leave_each_page_it_adds() {
+        // A page an operator cannot get off is one they have to unplug the
+        // Push to escape. Every page a pack adds has to bind something that
+        // moves, on that page.
+        for path in shipped() {
+            let pack = read(&path).expect("a shipped pack");
+            let added = pushos_config::load_pack(&path).expect("readable");
+
+            for page in &added.pages {
+                assert!(
+                    added.bindings.iter().any(|binding| {
+                        binding.page.as_deref() == Some(page.id.as_str())
+                            && binding.action.starts_with("page.")
+                    }),
+                    "`{}`: nothing leaves `{}`",
+                    pack.id,
+                    page.id
+                );
+            }
+        }
+    }
+
+    #[test]
     fn every_shipped_pack_stays_on_its_own_pages() {
         // A pack binding a control globally would change what a surface the
         // operator already set up does, which is not what installing means.
         for path in shipped() {
             let pack = read(&path).expect("a shipped pack");
-            let mut merged = ConfigFile::default();
-            for file in pushos_config::paths::files_in_pack(&path) {
-                let text = std::fs::read_to_string(&file).expect("readable");
-                merged.merge(toml::from_str(&text).expect("valid TOML"));
-            }
+            let merged = pushos_config::load_pack(&path).expect("readable");
 
             let pages: Vec<&str> = merged.pages.iter().map(|page| page.id.as_str()).collect();
             for binding in &merged.bindings {

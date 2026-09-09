@@ -1,0 +1,29 @@
+id = "operator"
+name = "Operator Pack"
+version = "1.0.0"
+
+description = """
+Fifty-six roles across seven rows of the pad grid: building, clients, growth,
+money, markets, writing and your own time. The bottom row is left for whatever
+is already running on this machine.
+"""
+
+author = "PushOS"
+license = "Apache-2.0"
+minimum_pushos_version = "0.1.0"
+
+[requires]
+# What the pack cannot work without. Every pad here starts or selects an agent,
+# a role is filled by a coding agent, and a coding agent runs commands. PushOS shows this before installing and writes the
+# grant itself once you have agreed; the pack cannot grant itself anything.
+permissions = ["shell.execute"]
+
+# What it would use and works without. Most of these roles read far more than
+# they write, and several never leave the machine at all. `financial.read` is
+# here for the markets row and `financial.write` deliberately is not: nothing in
+# this pack places an order, and there is nothing in PushOS that could.
+optional_permissions = ["filesystem.read", "network", "financial.read"]
+
+# Agent providers it expects to be able to start. A role names no provider, so
+# whichever of these you have fills it.
+providers = ["claude", "codex"]

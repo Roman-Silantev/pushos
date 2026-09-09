@@ -33,6 +33,30 @@ pub fn load(root: &Path) -> Result<ConfigFile, ConfigError> {
     Ok(merged)
 }
 
+/// Reads and merges the configuration inside one pack directory.
+///
+/// The same reading as [`load`], over the files a pack contributes rather than
+/// the ones an operator wrote. Used to say what a pack would add before it is
+/// installed, and what it did add afterwards.
+pub fn load_pack(pack: &Path) -> Result<ConfigFile, ConfigError> {
+    let mut merged = ConfigFile::default();
+
+    for path in paths::files_in_pack(pack) {
+        let text = std::fs::read_to_string(&path).map_err(|source| ConfigError::Unreadable {
+            path: path.clone(),
+            source,
+        })?;
+        let parsed: ConfigFile =
+            toml::from_str(&text).map_err(|source| ConfigError::Malformed {
+                path: path.clone(),
+                source,
+            })?;
+        merged.merge(parsed);
+    }
+
+    Ok(merged)
+}
+
 #[cfg(test)]
 mod tests {
     use pushos_domain::ids::ExecutionId;

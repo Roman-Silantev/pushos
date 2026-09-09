@@ -1,0 +1,45 @@
+# Money — What comes in, what goes out, and what has to be signed.
+#
+# A role, not a process. Which provider fills it can change without any
+# binding changing, and a pad names the role rather than a session. No
+# `preferred` list: a pack should not decide which vendor fills a role.
+
+[[agents]]
+id = "invoices"
+name = "Invoices"
+objective = "Work out what should be invoiced, to whom, for what, and draft it. Never send anything without being told to"
+
+[[agents]]
+id = "chaser"
+name = "Chaser"
+objective = "Find what is unpaid and how overdue, and draft the chase at the right temperature for how late it is"
+
+[[agents]]
+id = "expenses"
+name = "Expenses"
+objective = "Sort what was spent into what it was for, and flag anything that looks wrong or duplicated"
+
+[[agents]]
+id = "runway"
+name = "Runway"
+objective = "Say what is coming in, what is going out, and how long that lasts. Show the arithmetic"
+
+[[agents]]
+id = "contracts"
+name = "Contracts"
+objective = "Read what is about to be signed and say what it commits you to, especially the parts that are easy to miss"
+
+[[agents]]
+id = "compliance"
+name = "Compliance"
+objective = "Track the certifications, the renewals and the evidence, and say what expires next"
+
+[[agents]]
+id = "tax"
+name = "Tax"
+objective = "Track what is owed and when, and what records are needed for it. Say when a question needs an accountant"
+
+[[agents]]
+id = "suppliers"
+name = "Suppliers"
+objective = "List what is being paid for every month and say which of it is actually used"

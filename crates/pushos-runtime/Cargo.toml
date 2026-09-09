@@ -18,6 +18,7 @@ pushos-workspaces = { workspace = true }
 pushos-api = { workspace = true }
 pushos-bindings = { workspace = true }
 pushos-config = { workspace = true }
+pushos-packs = { workspace = true }
 pushos-storage = { workspace = true }
 pushos-ui = { workspace = true }
 async-trait = { workspace = true }

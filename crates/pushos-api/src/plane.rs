@@ -6,8 +6,8 @@
 use async_trait::async_trait;
 
 use crate::protocol::{
-    BindingList, EditReport, Failure, SessionList, StatusReport, TestReport, Vocabulary,
-    WorkspaceList,
+    BindingList, EditReport, Failure, FailureKind, PackList, PackReview, SessionList, StatusReport,
+    TestReport, Vocabulary, WorkspaceList,
 };
 use pushos_config::{BindingAddress, BindingSpec, PageSpec};
 
@@ -56,6 +56,39 @@ pub trait ControlPlane: Send + Sync + std::fmt::Debug {
 
     /// Re-reads the configuration from disk.
     async fn reload(&self) -> Result<StatusReport, Failure>;
+
+    /// Every pack on offer, and which of them are installed.
+    ///
+    /// Defaulted to nothing: a PushOS with nowhere to read packs from has none
+    /// to offer, and that is not a failure.
+    async fn packs(&self) -> Result<PackList, Failure> {
+        Ok(PackList::default())
+    }
+
+    /// What installing one would add, and what it would ask for.
+    async fn review_pack(&self, pack: &str) -> Result<PackReview, Failure> {
+        Err(Failure::new(
+            FailureKind::NotFound,
+            format!("no pack called `{pack}` is on offer"),
+        ))
+    }
+
+    /// Installs a pack, granting exactly what its review asked for.
+    ///
+    /// `granting` is what the operator agreed to, and must match what
+    /// [`Self::review_pack`] named. A client cannot agree on their behalf to
+    /// something it never showed them, and a list that has drifted since the
+    /// review is a list they did not read.
+    async fn install_pack(
+        &self,
+        pack: &str,
+        _granting: &[pushos_domain::permissions::Permission],
+    ) -> Result<EditReport, Failure> {
+        Err(Failure::new(
+            FailureKind::NotFound,
+            format!("no pack called `{pack}` is on offer"),
+        ))
+    }
 }
 
 /// Somewhere the live sessions can be read from.

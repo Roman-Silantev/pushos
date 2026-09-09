@@ -2730,6 +2730,7 @@ dependencies = [
  "pushos-config",
  "pushos-domain",
  "pushos-memory",
+ "pushos-packs",
  "pushos-storage",
  "pushos-terminal",
  "pushos-testkit",

@@ -137,6 +137,25 @@ pub fn pack_files(root: &Path) -> Vec<PathBuf> {
 ///
 /// Everything ending in `.toml` at any depth, except the manifest, which
 /// describes the pack rather than contributing to the surface.
+/// Where a pack waits before it is installed.
+///
+/// Beside the configuration rather than inside it, because nothing here is
+/// loaded: it is what somebody unpacked and has not decided about yet.
+pub const AVAILABLE_DIRECTORY: &str = "available";
+
+/// Pack directories sitting in `available/`, waiting to be decided about.
+pub fn available_packs(root: &Path) -> Vec<PathBuf> {
+    let mut found: Vec<PathBuf> = std::fs::read_dir(root.join(AVAILABLE_DIRECTORY))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.join(PACK_MANIFEST).is_file())
+        .collect();
+    found.sort();
+    found
+}
+
 pub fn files_in_pack(pack: &Path) -> Vec<PathBuf> {
     let manifest = pack.join(PACK_MANIFEST);
     let mut found = Vec::new();

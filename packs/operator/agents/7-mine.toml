@@ -1,0 +1,45 @@
+# Mine — Your own time, and everything that is not work.
+#
+# A role, not a process. Which provider fills it can change without any
+# binding changing, and a pad names the role rather than a session. No
+# `preferred` list: a pack should not decide which vendor fills a role.
+
+[[agents]]
+id = "day"
+name = "Day"
+objective = "Say what is on today, in the order it should be done, and what to drop if the day runs short"
+
+[[agents]]
+id = "week"
+name = "Week"
+objective = "Say what is due this week, what slipped from last week, and what will slip if nothing changes"
+
+[[agents]]
+id = "learning"
+name = "Learning"
+objective = "Teach what was asked for, from the beginning, checking understanding rather than assuming it"
+
+[[agents]]
+id = "reading"
+name = "Reading"
+objective = "Read what was saved and say what is in it and whether it was worth the time"
+
+[[agents]]
+id = "health"
+name = "Health"
+objective = "Keep the record of what was tracked and report what changed. Never diagnose and never advise on treatment"
+
+[[agents]]
+id = "home"
+name = "Home"
+objective = "Keep the errands, the renewals and the household jobs, and say what is due"
+
+[[agents]]
+id = "travel"
+name = "Travel"
+objective = "Work out the itinerary and what has to be booked, and say what is not booked yet"
+
+[[agents]]
+id = "journal"
+name = "Journal"
+objective = "Keep the record of what actually happened, so a question about last month has an answer"

@@ -11,8 +11,8 @@ use async_trait::async_trait;
 use pushos_actions::{ActionDispatcher, ProviderRegistry};
 use pushos_api::protocol::{
     BindingList, ControlInfo, EditReport, Failure, FailureKind, GridPosition, PROTOCOL_VERSION,
-    PageInfo, ProviderInfo, SessionList, StatusReport, SurfaceReport, TestReport, Vocabulary,
-    WorkspaceInfo, WorkspaceList,
+    PackAvailability, PackEntry, PackList, PackReview, PageInfo, ProviderInfo, SessionList,
+    StatusReport, SurfaceReport, TestReport, Vocabulary, WorkspaceInfo, WorkspaceList,
 };
 use pushos_api::{ControlPlane, SessionSource};
 use pushos_config::{
@@ -99,6 +99,61 @@ impl RuntimeControl {
         ConfigDocuments::load(self.config.root()).map_err(|error| rejected(&error))
     }
 
+    /// Every pack on offer here, installed ones first.
+    ///
+    /// "On offer" is what is installed plus what is sitting beside the
+    /// configuration waiting to be. There is no registry and no remote: a pack
+    /// is a directory, and PushOS can only see the ones on this machine.
+    fn on_offer(&self) -> Vec<PackEntry> {
+        let root = self.config.root();
+        let mut found: Vec<PackEntry> = pushos_packs::installed(root)
+            .into_iter()
+            .map(|held| {
+                let state = match held.state {
+                    pushos_domain::pack::PackState::Enabled => PackAvailability::Installed,
+                    pushos_domain::pack::PackState::Disabled => PackAvailability::Disabled,
+                };
+                entry(&held.pack, state, &held.root)
+            })
+            .collect();
+
+        for source in pushos_config::paths::available_packs(root) {
+            let Ok(pack) = pushos_packs::read(&source) else {
+                continue;
+            };
+            if found.iter().any(|held| held.id == pack.id.as_str()) {
+                continue;
+            }
+            found.push(entry(&pack, PackAvailability::Available, &source));
+        }
+
+        found.sort_by(|left, right| left.id.cmp(&right.id));
+        found
+    }
+
+    /// Finds a pack by identity or by path.
+    ///
+    /// A path so Studio can offer something the operator just downloaded, an
+    /// identity so it can offer one already here. Anything else is not found
+    /// rather than guessed at.
+    fn locate(&self, pack: &str) -> Result<(std::path::PathBuf, PackAvailability), Failure> {
+        let direct = std::path::Path::new(pack);
+        if direct.join(pushos_config::paths::PACK_MANIFEST).is_file() {
+            return Ok((direct.to_path_buf(), PackAvailability::Available));
+        }
+
+        self.on_offer()
+            .into_iter()
+            .find(|held| held.id == pack)
+            .map(|held| (std::path::PathBuf::from(held.source), held.state))
+            .ok_or_else(|| {
+                Failure::new(
+                    FailureKind::NotFound,
+                    format!("no pack called `{pack}` is on offer"),
+                )
+            })
+    }
+
     /// Saves an edit and makes it take effect.
     ///
     /// The reload is what puts the change on the surface; without it Studio
@@ -111,6 +166,23 @@ impl RuntimeControl {
             bindings: config.bindings.len(),
             pages: config.pages.len(),
         })
+    }
+}
+
+/// Describes one pack for a listing.
+fn entry(
+    pack: &pushos_domain::pack::Pack,
+    state: PackAvailability,
+    source: &std::path::Path,
+) -> PackEntry {
+    PackEntry {
+        id: pack.id.to_string(),
+        name: pack.name.clone(),
+        version: pack.version.clone(),
+        summary: pack.summary(),
+        author: pack.author.clone(),
+        state,
+        source: source.display().to_string(),
     }
 }
 
@@ -307,6 +379,81 @@ impl ControlPlane for RuntimeControl {
             .collect();
 
         Ok(WorkspaceList { workspaces })
+    }
+
+    async fn packs(&self) -> Result<PackList, Failure> {
+        Ok(PackList {
+            packs: self.on_offer(),
+        })
+    }
+
+    async fn review_pack(&self, pack: &str) -> Result<PackReview, Failure> {
+        let (source, state) = self.locate(pack)?;
+        let read = pushos_packs::read(&source)
+            .map_err(|error| Failure::new(FailureKind::NotFound, error.to_string()))?;
+
+        let current = self.config.current();
+        let providers: Vec<String> = current
+            .providers
+            .iter()
+            .map(|provider| provider.id.clone())
+            .collect();
+        let review = pushos_packs::Review::of(read, &current.permissions, &providers);
+
+        // Reported alongside the rest rather than only on install, so nothing
+        // is agreed to that was never going to work.
+        let problems = pushos_packs::check(&source, self.config.root(), &review.granting)
+            .err()
+            .unwrap_or_default();
+
+        Ok(PackReview {
+            pack: entry(&review.pack, state, &source),
+            adds: review.pack.adds.to_string(),
+            granting: review.granting,
+            already: review.already,
+            missing_providers: review.missing_providers,
+            problems,
+        })
+    }
+
+    async fn install_pack(
+        &self,
+        pack: &str,
+        granting: &[pushos_domain::permissions::Permission],
+    ) -> Result<EditReport, Failure> {
+        let review = self.review_pack(pack).await?;
+        if !review.problems.is_empty() {
+            return Err(Failure::new(
+                FailureKind::Rejected,
+                format!("`{pack}` would not install here"),
+            )
+            .with_problems(review.problems));
+        }
+
+        // The list is the thing the operator read. A client that agreed to a
+        // different one agreed on their behalf to something it never showed
+        // them, and reconciling the difference here would hide that.
+        if granting != review.granting.as_slice() {
+            return Err(Failure::new(
+                FailureKind::Denied,
+                "the capabilities agreed to are not the ones the review asked for; review it again",
+            ));
+        }
+
+        let source = std::path::PathBuf::from(&review.pack.source);
+        let installed = pushos_packs::install(&source, self.config.root(), granting, false)
+            .map_err(|error| Failure::new(FailureKind::Rejected, error.to_string()))?;
+
+        let config = self.config.reload().map_err(|error| rejected(&error))?;
+        info!(pack = %installed.id, version = %installed.version, "pack installed from the socket");
+
+        Ok(EditReport {
+            file: source.display().to_string(),
+            replaced: false,
+            binding_count: config.bindings.len(),
+            page_count: config.pages.len(),
+            bindings_removed: 0,
+        })
     }
 
     async fn reload(&self) -> Result<StatusReport, Failure> {

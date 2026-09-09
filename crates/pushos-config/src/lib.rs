@@ -22,7 +22,7 @@ mod watcher;
 pub use build::RuntimeConfig;
 pub use editor::{BindingEdit, ConfigDocuments, PageRemoval};
 pub use error::{ConfigError, Problem};
-pub use loader::load;
+pub use loader::{load, load_pack};
 pub use memory::MemorySettings;
 pub use model::{
     BindingEntry, ConfigFile, MemorySection, MemorySourceEntry, PageEntry, SessionSection,

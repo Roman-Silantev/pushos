@@ -1,0 +1,11 @@
+# One page, sixty-four pads, and every one of them is somebody.
+#
+# The grid is read the way the hardware is laid out: eight rows of eight, one
+# theme to a row, so a hand learns where a role lives rather than reading for
+# it. The bottom row is deliberately empty of roles: it belongs to whatever is
+# already running on this machine, which the `sessions` preset puts there.
+
+[[pages]]
+id = "operator"
+name = "Operator"
+description = "Every role you can put to work, and everything already working"

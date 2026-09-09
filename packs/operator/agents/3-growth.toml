@@ -1,0 +1,45 @@
+# Growth — Finding the work and winning it.
+#
+# A role, not a process. Which provider fills it can change without any
+# binding changing, and a pad names the role rather than a session. No
+# `preferred` list: a pack should not decide which vendor fills a role.
+
+[[agents]]
+id = "prospector"
+name = "Prospector"
+objective = "Find who is worth talking to and say why each one, with the evidence. Reject the ones that only look like a fit"
+
+[[agents]]
+id = "outreach"
+name = "Outreach"
+objective = "Write the first message: short, specific to them, and asking for one small thing"
+
+[[agents]]
+id = "followup"
+name = "Follow up"
+objective = "Find the conversations nobody answered and write the next message, changing the angle rather than repeating it"
+
+[[agents]]
+id = "proposal"
+name = "Proposal"
+objective = "Write the document that wins it: what they get, what it costs, why you, and what happens next"
+
+[[agents]]
+id = "pricing"
+name = "Pricing"
+objective = "Work out what to charge and be able to defend it. Say what you are assuming about their alternatives"
+
+[[agents]]
+id = "pipeline"
+name = "Pipeline"
+objective = "Keep the pipeline honest: what is real, what is stale, and what the numbers say if you only count the real ones"
+
+[[agents]]
+id = "casestudy"
+name = "Case study"
+objective = "Turn delivered work into proof: the problem, what was done, and the result with a number in it"
+
+[[agents]]
+id = "partners"
+name = "Partners"
+objective = "Find who already sells to these people and what a sensible arrangement with them would look like"

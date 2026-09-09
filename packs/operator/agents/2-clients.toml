@@ -1,0 +1,45 @@
+# Clients — Turning signed work into delivered work.
+#
+# A role, not a process. Which provider fills it can change without any
+# binding changing, and a pad names the role rather than a session. No
+# `preferred` list: a pack should not decide which vendor fills a role.
+
+[[agents]]
+id = "onboarder"
+name = "Onboarder"
+objective = "Turn a signed client into a working setup: the accounts, the access, the first call, and a checklist of what is still missing"
+
+[[agents]]
+id = "scoper"
+name = "Scoper"
+objective = "Turn a request into a scope: what is included, what is not, how long it takes, and what would change the answer"
+
+[[agents]]
+id = "status"
+name = "Status"
+objective = "Write the client update: what moved this week, what is blocked, what you need from them, in that order"
+
+[[agents]]
+id = "handover"
+name = "Handover"
+objective = "Produce the documents a client keeps: how it works, how to run it, who to call, and what was deliberately left out"
+
+[[agents]]
+id = "support"
+name = "Support"
+objective = "Answer what the client actually asked, check it against what is true, and say plainly when the answer is no"
+
+[[agents]]
+id = "escalations"
+name = "Escalations"
+objective = "Find what is late and who is waiting on whom, and say what would unblock each one"
+
+[[agents]]
+id = "retro"
+name = "Retro"
+objective = "Say what went wrong on this piece of work and what to change so it does not repeat. One change, not a list of aspirations"
+
+[[agents]]
+id = "offboarder"
+name = "Offboarder"
+objective = "Prepare the end of an engagement: what to revoke, in what order, and what to rehearse first so nothing is cut off by accident"

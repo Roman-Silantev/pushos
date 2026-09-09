@@ -205,6 +205,20 @@ async fn answer(request: Request, plane: &dyn ControlPlane) -> Response {
             Ok(workspaces) => Response::Workspaces(workspaces),
             Err(failure) => Response::Failed(failure),
         },
+        Request::Packs => match plane.packs().await {
+            Ok(packs) => Response::Packs(packs),
+            Err(failure) => Response::Failed(failure),
+        },
+        Request::ReviewPack { pack } => match plane.review_pack(&pack).await {
+            Ok(review) => Response::PackReview(Box::new(review)),
+            Err(failure) => Response::Failed(failure),
+        },
+        Request::InstallPack { pack, granting } => {
+            match plane.install_pack(&pack, &granting).await {
+                Ok(report) => Response::Edited(report),
+                Err(failure) => Response::Failed(failure),
+            }
+        }
         Request::Reload => match plane.reload().await {
             Ok(status) => Response::Status(status),
             Err(failure) => Response::Failed(failure),

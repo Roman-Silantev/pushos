@@ -95,6 +95,27 @@ pub enum Request {
     Workspaces,
     /// Re-read the configuration from disk.
     Reload,
+    /// Every pack on offer, and which of them are installed.
+    Packs,
+    /// What installing one would add, and what it would ask for.
+    ///
+    /// Always asked before [`Request::InstallPack`], because that request has
+    /// to echo back what this one said. A client cannot agree on the operator's
+    /// behalf to something it never showed them.
+    ReviewPack {
+        /// Which pack, by identity or by path.
+        pack: String,
+    },
+    /// Install a pack, granting exactly what its review asked for.
+    InstallPack {
+        /// Which pack, by identity or by path.
+        pack: String,
+        /// The capabilities the operator agreed to, from the review.
+        ///
+        /// Must match what the review named. A mismatch is refused rather than
+        /// reconciled: the list is the thing the operator read.
+        granting: Vec<pushos_domain::permissions::Permission>,
+    },
 }
 
 /// What the runtime answers.
@@ -123,8 +144,75 @@ pub enum Response {
     Sessions(SessionList),
     /// The configured projects.
     Workspaces(WorkspaceList),
+    /// The packs on offer.
+    Packs(PackList),
+    /// What installing a pack would mean.
+    PackReview(Box<PackReview>),
     /// The request could not be carried out.
     Failed(Failure),
+}
+
+/// The packs PushOS can offer, and which are installed.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct PackList {
+    /// Every pack, in identity order.
+    pub packs: Vec<PackEntry>,
+}
+
+/// One pack in a listing.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PackEntry {
+    /// What it is called on the command line.
+    pub id: String,
+    /// What it is called in a listing.
+    pub name: String,
+    /// Which version this is.
+    pub version: String,
+    /// One line saying what it is for.
+    pub summary: String,
+    /// Who made it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub author: Option<String>,
+    /// Whether it is installed here, and whether it is switched on.
+    pub state: PackAvailability,
+    /// Where it was read from, which is what to pass back to install it.
+    pub source: String,
+}
+
+/// Whether a pack is installed on this machine.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PackAvailability {
+    /// On offer, and not installed here.
+    Available,
+    /// Installed and loading.
+    Installed,
+    /// Installed and switched off.
+    Disabled,
+}
+
+/// What installing a pack would add, and what it would ask for.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PackReview {
+    /// The pack itself.
+    pub pack: PackEntry,
+    /// What it would contribute to the surface, in words.
+    pub adds: String,
+    /// Capabilities it needs that are not already granted.
+    ///
+    /// The list that matters, and the one that has to be shown to a person and
+    /// echoed back to install. Anything already granted is not news.
+    pub granting: Vec<pushos_domain::permissions::Permission>,
+    /// Capabilities it needs that are already granted.
+    pub already: Vec<pushos_domain::permissions::Permission>,
+    /// Agent providers it expects that are not configured.
+    pub missing_providers: Vec<String>,
+    /// Why it would not install here, when it would not.
+    ///
+    /// Empty means it would. Reported before the question rather than after
+    /// the answer: nobody should agree to something that was never going to
+    /// work.
+    pub problems: Vec<String>,
 }
 
 /// The bindings currently configured.
@@ -428,6 +516,14 @@ mod tests {
             Request::Describe,
             Request::Bindings,
             Request::Reload,
+            Request::Packs,
+            Request::ReviewPack {
+                pack: "operator".to_owned(),
+            },
+            Request::InstallPack {
+                pack: "operator".to_owned(),
+                granting: vec![pushos_domain::permissions::Permission::ShellExecute],
+            },
             Request::Unbind {
                 address: BindingAddress::new("pad.0", "tap"),
             },

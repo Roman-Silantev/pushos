@@ -524,3 +524,189 @@ async fn a_stale_socket_from_a_previous_run_does_not_stop_pushos_starting() {
     drop(server);
     std::fs::remove_file(&socket).ok();
 }
+
+// --- The store ---------------------------------------------------------------
+// Studio browses what is on offer, reads what installing one would change, and
+// installs it. Every step is the same one the command line takes, so a pack
+// cannot mean one thing in a terminal and another in a window.
+
+fn copy_tree(from: &std::path::Path, to: &std::path::Path) {
+    std::fs::create_dir_all(to).expect("writable");
+    for entry in std::fs::read_dir(from).expect("readable").flatten() {
+        let into = to.join(entry.file_name());
+        if entry.path().is_dir() {
+            copy_tree(&entry.path(), &into);
+        } else {
+            std::fs::copy(entry.path(), into).expect("writable");
+        }
+    }
+}
+
+/// Copies a shipped pack somewhere PushOS would offer it from.
+fn offer(directory: &std::path::Path, pack: &str) -> PathBuf {
+    let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../packs")
+        .join(pack);
+    let target = directory.join("available").join(pack);
+    copy_tree(&source, &target);
+    target
+}
+
+#[tokio::test]
+async fn what_is_on_offer_can_be_listed() {
+    let mut harness = Harness::start().await;
+    offer(&harness.directory, "review");
+
+    let Response::Packs(listing) = harness
+        .client
+        .send(&Request::Packs)
+        .await
+        .expect("answered")
+    else {
+        panic!("expected a listing");
+    };
+
+    let review = listing
+        .packs
+        .iter()
+        .find(|pack| pack.id == "review")
+        .expect("the pack that was offered");
+    assert_eq!(
+        review.state,
+        pushos_api::protocol::PackAvailability::Available
+    );
+    assert!(
+        !review.summary.is_empty(),
+        "a listing has to say what it is"
+    );
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn a_pack_says_what_it_would_change_before_anything_is_written() {
+    let mut harness = Harness::start().await;
+    offer(&harness.directory, "review");
+
+    let Response::PackReview(review) = harness
+        .client
+        .send(&Request::ReviewPack {
+            pack: "review".to_owned(),
+        })
+        .await
+        .expect("answered")
+    else {
+        panic!("expected a review");
+    };
+
+    assert!(
+        review
+            .granting
+            .contains(&pushos_domain::permissions::Permission::ShellExecute),
+        "the operator has to be told what it is asking for"
+    );
+    assert!(review.problems.is_empty(), "{:?}", review.problems);
+    assert!(!review.adds.is_empty());
+
+    // Nothing was written by looking.
+    let Response::Bindings(before) = harness.client.send(&Request::Bindings).await.expect("ok")
+    else {
+        panic!("expected bindings");
+    };
+    assert_eq!(before.bindings.len(), 1);
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn installing_over_the_socket_puts_it_on_the_surface() {
+    let mut harness = Harness::start().await;
+    offer(&harness.directory, "review");
+
+    let Response::PackReview(review) = harness
+        .client
+        .send(&Request::ReviewPack {
+            pack: "review".to_owned(),
+        })
+        .await
+        .expect("answered")
+    else {
+        panic!("expected a review");
+    };
+
+    let Response::Edited(report) = harness
+        .client
+        .send(&Request::InstallPack {
+            pack: "review".to_owned(),
+            granting: review.granting.clone(),
+        })
+        .await
+        .expect("answered")
+    else {
+        panic!("expected an edit");
+    };
+
+    assert!(
+        report.binding_count > 1,
+        "the pack's bindings should be in force now"
+    );
+    assert!(report.page_count > 2, "and its page");
+
+    // And it is installed rather than merely on offer.
+    let Response::Packs(listing) = harness.client.send(&Request::Packs).await.expect("ok") else {
+        panic!("expected a listing");
+    };
+    assert_eq!(
+        listing
+            .packs
+            .iter()
+            .find(|pack| pack.id == "review")
+            .expect("installed")
+            .state,
+        pushos_api::protocol::PackAvailability::Installed
+    );
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn agreeing_to_something_other_than_what_was_asked_for_installs_nothing() {
+    // The list is the thing the operator read. A client that sent a different
+    // one agreed on their behalf to something it never showed them.
+    let mut harness = Harness::start().await;
+    offer(&harness.directory, "review");
+
+    let Response::Failed(failure) = harness
+        .client
+        .send(&Request::InstallPack {
+            pack: "review".to_owned(),
+            granting: Vec::new(),
+        })
+        .await
+        .expect("answered")
+    else {
+        panic!("expected a refusal");
+    };
+    assert_eq!(failure.kind, FailureKind::Denied);
+
+    let Response::Bindings(after) = harness.client.send(&Request::Bindings).await.expect("ok")
+    else {
+        panic!("expected bindings");
+    };
+    assert_eq!(after.bindings.len(), 1, "nothing was written");
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn a_pack_that_is_not_there_is_not_found_rather_than_guessed_at() {
+    let mut harness = Harness::start().await;
+    let Response::Failed(failure) = harness
+        .client
+        .send(&Request::ReviewPack {
+            pack: "nowhere".to_owned(),
+        })
+        .await
+        .expect("answered")
+    else {
+        panic!("expected a refusal");
+    };
+    assert_eq!(failure.kind, FailureKind::NotFound);
+    harness.stop().await;
+}

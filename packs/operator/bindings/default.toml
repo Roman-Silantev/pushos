@@ -1,0 +1,933 @@
+# Sixty-four pads. Tap starts the role, hold selects it without starting it.
+#
+# Scoped to the pack's own page, so installing this cannot change what a control
+# means anywhere you had already set up.
+#
+# The bottom row, pads 56 to 63, is left alone on purpose. That is where the
+# terminals you already have open belong, and the `sessions` preset binds them.
+
+# --- Build ---------------------------------------------------------------------
+
+[[bindings]]
+control = "pad.0"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "architect"
+label = "Architect"
+
+[[bindings]]
+control = "pad.0"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "architect"
+label = "Select architect"
+
+[[bindings]]
+control = "pad.1"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "implementer"
+label = "Implementer"
+
+[[bindings]]
+control = "pad.1"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "implementer"
+label = "Select implementer"
+
+[[bindings]]
+control = "pad.2"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "reviewer"
+label = "Reviewer"
+
+[[bindings]]
+control = "pad.2"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "reviewer"
+label = "Select reviewer"
+
+[[bindings]]
+control = "pad.3"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "tester"
+label = "Tester"
+
+[[bindings]]
+control = "pad.3"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "tester"
+label = "Select tester"
+
+[[bindings]]
+control = "pad.4"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "debugger"
+label = "Debugger"
+
+[[bindings]]
+control = "pad.4"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "debugger"
+label = "Select debugger"
+
+[[bindings]]
+control = "pad.5"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "refactorer"
+label = "Refactorer"
+
+[[bindings]]
+control = "pad.5"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "refactorer"
+label = "Select refactorer"
+
+[[bindings]]
+control = "pad.6"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "documenter"
+label = "Documenter"
+
+[[bindings]]
+control = "pad.6"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "documenter"
+label = "Select documenter"
+
+[[bindings]]
+control = "pad.7"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "releaser"
+label = "Releaser"
+
+[[bindings]]
+control = "pad.7"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "releaser"
+label = "Select releaser"
+
+# --- Clients -------------------------------------------------------------------
+
+[[bindings]]
+control = "pad.8"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "onboarder"
+label = "Onboarder"
+
+[[bindings]]
+control = "pad.8"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "onboarder"
+label = "Select onboarder"
+
+[[bindings]]
+control = "pad.9"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "scoper"
+label = "Scoper"
+
+[[bindings]]
+control = "pad.9"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "scoper"
+label = "Select scoper"
+
+[[bindings]]
+control = "pad.10"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "status"
+label = "Status"
+
+[[bindings]]
+control = "pad.10"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "status"
+label = "Select status"
+
+[[bindings]]
+control = "pad.11"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "handover"
+label = "Handover"
+
+[[bindings]]
+control = "pad.11"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "handover"
+label = "Select handover"
+
+[[bindings]]
+control = "pad.12"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "support"
+label = "Support"
+
+[[bindings]]
+control = "pad.12"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "support"
+label = "Select support"
+
+[[bindings]]
+control = "pad.13"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "escalations"
+label = "Escalations"
+
+[[bindings]]
+control = "pad.13"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "escalations"
+label = "Select escalations"
+
+[[bindings]]
+control = "pad.14"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "retro"
+label = "Retro"
+
+[[bindings]]
+control = "pad.14"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "retro"
+label = "Select retro"
+
+[[bindings]]
+control = "pad.15"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "offboarder"
+label = "Offboarder"
+
+[[bindings]]
+control = "pad.15"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "offboarder"
+label = "Select offboarder"
+
+# --- Growth --------------------------------------------------------------------
+
+[[bindings]]
+control = "pad.16"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "prospector"
+label = "Prospector"
+
+[[bindings]]
+control = "pad.16"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "prospector"
+label = "Select prospector"
+
+[[bindings]]
+control = "pad.17"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "outreach"
+label = "Outreach"
+
+[[bindings]]
+control = "pad.17"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "outreach"
+label = "Select outreach"
+
+[[bindings]]
+control = "pad.18"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "followup"
+label = "Follow up"
+
+[[bindings]]
+control = "pad.18"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "followup"
+label = "Select follow up"
+
+[[bindings]]
+control = "pad.19"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "proposal"
+label = "Proposal"
+
+[[bindings]]
+control = "pad.19"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "proposal"
+label = "Select proposal"
+
+[[bindings]]
+control = "pad.20"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "pricing"
+label = "Pricing"
+
+[[bindings]]
+control = "pad.20"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "pricing"
+label = "Select pricing"
+
+[[bindings]]
+control = "pad.21"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "pipeline"
+label = "Pipeline"
+
+[[bindings]]
+control = "pad.21"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "pipeline"
+label = "Select pipeline"
+
+[[bindings]]
+control = "pad.22"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "casestudy"
+label = "Case study"
+
+[[bindings]]
+control = "pad.22"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "casestudy"
+label = "Select case study"
+
+[[bindings]]
+control = "pad.23"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "partners"
+label = "Partners"
+
+[[bindings]]
+control = "pad.23"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "partners"
+label = "Select partners"
+
+# --- Money ---------------------------------------------------------------------
+
+[[bindings]]
+control = "pad.24"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "invoices"
+label = "Invoices"
+
+[[bindings]]
+control = "pad.24"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "invoices"
+label = "Select invoices"
+
+[[bindings]]
+control = "pad.25"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "chaser"
+label = "Chaser"
+
+[[bindings]]
+control = "pad.25"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "chaser"
+label = "Select chaser"
+
+[[bindings]]
+control = "pad.26"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "expenses"
+label = "Expenses"
+
+[[bindings]]
+control = "pad.26"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "expenses"
+label = "Select expenses"
+
+[[bindings]]
+control = "pad.27"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "runway"
+label = "Runway"
+
+[[bindings]]
+control = "pad.27"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "runway"
+label = "Select runway"
+
+[[bindings]]
+control = "pad.28"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "contracts"
+label = "Contracts"
+
+[[bindings]]
+control = "pad.28"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "contracts"
+label = "Select contracts"
+
+[[bindings]]
+control = "pad.29"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "compliance"
+label = "Compliance"
+
+[[bindings]]
+control = "pad.29"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "compliance"
+label = "Select compliance"
+
+[[bindings]]
+control = "pad.30"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "tax"
+label = "Tax"
+
+[[bindings]]
+control = "pad.30"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "tax"
+label = "Select tax"
+
+[[bindings]]
+control = "pad.31"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "suppliers"
+label = "Suppliers"
+
+[[bindings]]
+control = "pad.31"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "suppliers"
+label = "Select suppliers"
+
+# --- Markets -------------------------------------------------------------------
+
+[[bindings]]
+control = "pad.32"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "markets"
+label = "Markets"
+
+[[bindings]]
+control = "pad.32"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "markets"
+label = "Select markets"
+
+[[bindings]]
+control = "pad.33"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "portfolio"
+label = "Portfolio"
+
+[[bindings]]
+control = "pad.33"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "portfolio"
+label = "Select portfolio"
+
+[[bindings]]
+control = "pad.34"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "earnings"
+label = "Earnings"
+
+[[bindings]]
+control = "pad.34"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "earnings"
+label = "Select earnings"
+
+[[bindings]]
+control = "pad.35"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "macro"
+label = "Macro"
+
+[[bindings]]
+control = "pad.35"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "macro"
+label = "Select macro"
+
+[[bindings]]
+control = "pad.36"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "competitors"
+label = "Competitors"
+
+[[bindings]]
+control = "pad.36"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "competitors"
+label = "Select competitors"
+
+[[bindings]]
+control = "pad.37"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "industry"
+label = "Industry"
+
+[[bindings]]
+control = "pad.37"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "industry"
+label = "Select industry"
+
+[[bindings]]
+control = "pad.38"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "diligence"
+label = "Diligence"
+
+[[bindings]]
+control = "pad.38"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "diligence"
+label = "Select diligence"
+
+[[bindings]]
+control = "pad.39"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "analyst"
+label = "Analyst"
+
+[[bindings]]
+control = "pad.39"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "analyst"
+label = "Select analyst"
+
+# --- Comms ---------------------------------------------------------------------
+
+[[bindings]]
+control = "pad.40"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "inbox"
+label = "Inbox"
+
+[[bindings]]
+control = "pad.40"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "inbox"
+label = "Select inbox"
+
+[[bindings]]
+control = "pad.41"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "replies"
+label = "Replies"
+
+[[bindings]]
+control = "pad.41"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "replies"
+label = "Select replies"
+
+[[bindings]]
+control = "pad.42"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "meetings"
+label = "Meetings"
+
+[[bindings]]
+control = "pad.42"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "meetings"
+label = "Select meetings"
+
+[[bindings]]
+control = "pad.43"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "notes"
+label = "Notes"
+
+[[bindings]]
+control = "pad.43"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "notes"
+label = "Select notes"
+
+[[bindings]]
+control = "pad.44"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "newsletter"
+label = "Newsletter"
+
+[[bindings]]
+control = "pad.44"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "newsletter"
+label = "Select newsletter"
+
+[[bindings]]
+control = "pad.45"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "social"
+label = "Social"
+
+[[bindings]]
+control = "pad.45"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "social"
+label = "Select social"
+
+[[bindings]]
+control = "pad.46"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "editor"
+label = "Editor"
+
+[[bindings]]
+control = "pad.46"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "editor"
+label = "Select editor"
+
+[[bindings]]
+control = "pad.47"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "translator"
+label = "Translator"
+
+[[bindings]]
+control = "pad.47"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "translator"
+label = "Select translator"
+
+# --- Mine ----------------------------------------------------------------------
+
+[[bindings]]
+control = "pad.48"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "day"
+label = "Day"
+
+[[bindings]]
+control = "pad.48"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "day"
+label = "Select day"
+
+[[bindings]]
+control = "pad.49"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "week"
+label = "Week"
+
+[[bindings]]
+control = "pad.49"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "week"
+label = "Select week"
+
+[[bindings]]
+control = "pad.50"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "learning"
+label = "Learning"
+
+[[bindings]]
+control = "pad.50"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "learning"
+label = "Select learning"
+
+[[bindings]]
+control = "pad.51"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "reading"
+label = "Reading"
+
+[[bindings]]
+control = "pad.51"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "reading"
+label = "Select reading"
+
+[[bindings]]
+control = "pad.52"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "health"
+label = "Health"
+
+[[bindings]]
+control = "pad.52"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "health"
+label = "Select health"
+
+[[bindings]]
+control = "pad.53"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "home"
+label = "Home"
+
+[[bindings]]
+control = "pad.53"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "home"
+label = "Select home"
+
+[[bindings]]
+control = "pad.54"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "travel"
+label = "Travel"
+
+[[bindings]]
+control = "pad.54"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "travel"
+label = "Select travel"
+
+[[bindings]]
+control = "pad.55"
+gesture = "tap"
+page = "operator"
+action = "agent.start"
+target = "journal"
+label = "Journal"
+
+[[bindings]]
+control = "pad.55"
+gesture = "hold"
+page = "operator"
+action = "agent.select"
+target = "journal"
+label = "Select journal"
+
+# --- Getting back ------------------------------------------------------------
+# A page that fills every pad has to say how to leave it, because no pad on it
+# can.
+#
+# Getting *there* is deliberately not here. A pack binding a control outside its
+# own pages would change what a surface you already set up does, which is not
+# what installing something should mean. `pushos pack install` tells you the one
+# line to add, and Device is the button it suggests.
+
+[[bindings]]
+control = "button.device"
+gesture = "press"
+page = "operator"
+action = "page.back"
+label = "Back"
