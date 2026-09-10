@@ -19,10 +19,10 @@
 # Each row has one job. The pads choose which session, the row above the screen
 # takes you to it, and the row below says something to it.
 #
+#   The eight knobs          one per column: touch one to read that session,
+#                            turn it to move through what it said
 #   Tempo encoder            move the eight in view, for more than eight
-#   Swing encoder            move a screenful back through what one has said
-#   Encoder 1                walk through the sessions, opening each
-#   Encoder 2                move a line back through what one has said
+#   Swing encoder            move a screenful back through the one you are reading
 #   Master encoder           volume
 #
 #   Up / Down                step through the sessions one at a time
@@ -100,11 +100,205 @@ action = "session.bank"
 label = "Previous eight"
 params = { by = -1 }
 
-# --- Browsing without looking at the pads ------------------------------------
-# The leftmost encoder moves the eight the pads stand for, so more than eight
-# sessions are reachable without leaving the hand that is already on the knobs.
-# The same job as the arrows beside the display, given to the control nearest
-# the screen it changes.
+# --- The eight knobs above the screen ----------------------------------------
+# Each one belongs to the column beneath it. That is what the display was laid
+# out for and what Ableton's own screens do: the knob above a thing changes that
+# thing, and you never have to work out which one you are holding.
+#
+# Resting a finger on a knob puts that session on the panel. Turning it moves
+# back and forward through what that session said, a line at a time. So reading
+# any of the eight is one hand and no pads.
+
+[[bindings]]
+control = "encoder.0"
+gesture = "touch"
+action = "session.show"
+target = "slot:1"
+label = "Session 1"
+
+[[bindings]]
+control = "encoder.0"
+gesture = "turn_left"
+action = "session.scroll"
+target = "slot:1"
+label = "Session 1 back"
+params = { by = 1 }
+
+[[bindings]]
+control = "encoder.0"
+gesture = "turn_right"
+action = "session.scroll"
+target = "slot:1"
+label = "Session 1 forward"
+params = { by = -1 }
+
+[[bindings]]
+control = "encoder.1"
+gesture = "touch"
+action = "session.show"
+target = "slot:2"
+label = "Session 2"
+
+[[bindings]]
+control = "encoder.1"
+gesture = "turn_left"
+action = "session.scroll"
+target = "slot:2"
+label = "Session 2 back"
+params = { by = 1 }
+
+[[bindings]]
+control = "encoder.1"
+gesture = "turn_right"
+action = "session.scroll"
+target = "slot:2"
+label = "Session 2 forward"
+params = { by = -1 }
+
+[[bindings]]
+control = "encoder.2"
+gesture = "touch"
+action = "session.show"
+target = "slot:3"
+label = "Session 3"
+
+[[bindings]]
+control = "encoder.2"
+gesture = "turn_left"
+action = "session.scroll"
+target = "slot:3"
+label = "Session 3 back"
+params = { by = 1 }
+
+[[bindings]]
+control = "encoder.2"
+gesture = "turn_right"
+action = "session.scroll"
+target = "slot:3"
+label = "Session 3 forward"
+params = { by = -1 }
+
+[[bindings]]
+control = "encoder.3"
+gesture = "touch"
+action = "session.show"
+target = "slot:4"
+label = "Session 4"
+
+[[bindings]]
+control = "encoder.3"
+gesture = "turn_left"
+action = "session.scroll"
+target = "slot:4"
+label = "Session 4 back"
+params = { by = 1 }
+
+[[bindings]]
+control = "encoder.3"
+gesture = "turn_right"
+action = "session.scroll"
+target = "slot:4"
+label = "Session 4 forward"
+params = { by = -1 }
+
+[[bindings]]
+control = "encoder.4"
+gesture = "touch"
+action = "session.show"
+target = "slot:5"
+label = "Session 5"
+
+[[bindings]]
+control = "encoder.4"
+gesture = "turn_left"
+action = "session.scroll"
+target = "slot:5"
+label = "Session 5 back"
+params = { by = 1 }
+
+[[bindings]]
+control = "encoder.4"
+gesture = "turn_right"
+action = "session.scroll"
+target = "slot:5"
+label = "Session 5 forward"
+params = { by = -1 }
+
+[[bindings]]
+control = "encoder.5"
+gesture = "touch"
+action = "session.show"
+target = "slot:6"
+label = "Session 6"
+
+[[bindings]]
+control = "encoder.5"
+gesture = "turn_left"
+action = "session.scroll"
+target = "slot:6"
+label = "Session 6 back"
+params = { by = 1 }
+
+[[bindings]]
+control = "encoder.5"
+gesture = "turn_right"
+action = "session.scroll"
+target = "slot:6"
+label = "Session 6 forward"
+params = { by = -1 }
+
+[[bindings]]
+control = "encoder.6"
+gesture = "touch"
+action = "session.show"
+target = "slot:7"
+label = "Session 7"
+
+[[bindings]]
+control = "encoder.6"
+gesture = "turn_left"
+action = "session.scroll"
+target = "slot:7"
+label = "Session 7 back"
+params = { by = 1 }
+
+[[bindings]]
+control = "encoder.6"
+gesture = "turn_right"
+action = "session.scroll"
+target = "slot:7"
+label = "Session 7 forward"
+params = { by = -1 }
+
+[[bindings]]
+control = "encoder.7"
+gesture = "touch"
+action = "session.show"
+target = "slot:8"
+label = "Session 8"
+
+[[bindings]]
+control = "encoder.7"
+gesture = "turn_left"
+action = "session.scroll"
+target = "slot:8"
+label = "Session 8 back"
+params = { by = 1 }
+
+[[bindings]]
+control = "encoder.7"
+gesture = "turn_right"
+action = "session.scroll"
+target = "slot:8"
+label = "Session 8 forward"
+params = { by = -1 }
+
+# --- Moving through them without looking -------------------------------------
+# The leftmost encoder moves the eight the pads and the knobs stand for, so more
+# than eight sessions are reachable without leaving the hand that is already on
+# the knobs. The knob beside it moves a screenful through whichever session you
+# are reading, which is what crossing a few hundred lines by hand wants. The
+# arrows step one session at a time.
 
 [[bindings]]
 control = "encoder.tempo"
@@ -120,54 +314,6 @@ action = "session.bank"
 label = "Previous eight"
 params = { by = -1 }
 
-# The first encoder walks through every open session, not just the eight in
-# view, and opens each one as it arrives. The arrows do the same for a hand
-# already on the buttons.
-
-[[bindings]]
-control = "encoder.1"
-gesture = "turn_right"
-action = "session.next"
-label = "Next session"
-
-[[bindings]]
-control = "encoder.1"
-gesture = "turn_left"
-action = "session.previous"
-label = "Previous session"
-
-[[bindings]]
-control = "button.down"
-gesture = "press"
-action = "session.next"
-label = "Next session"
-
-[[bindings]]
-control = "button.up"
-gesture = "press"
-action = "session.previous"
-label = "Previous session"
-
-# The second encoder moves back and forward through what the session you are
-# reading has said, a line at a time. A session says far more than the panel
-# holds, so the knob beside it does the same in screenfuls: coarse and fine,
-# the way a long list wants to be crossed. The bar beside the words says how
-# far back you are.
-
-[[bindings]]
-control = "encoder.2"
-gesture = "turn_left"
-action = "session.scroll"
-label = "Back"
-params = { by = 1 }
-
-[[bindings]]
-control = "encoder.2"
-gesture = "turn_right"
-action = "session.scroll"
-label = "Forward"
-params = { by = -1 }
-
 [[bindings]]
 control = "encoder.swing"
 gesture = "turn_left"
@@ -181,6 +327,18 @@ gesture = "turn_right"
 action = "session.scroll"
 label = "A screen forward"
 params = { by = -8 }
+
+[[bindings]]
+control = "button.down"
+gesture = "press"
+action = "session.next"
+label = "Next session"
+
+[[bindings]]
+control = "button.up"
+gesture = "press"
+action = "session.previous"
+label = "Previous session"
 
 [[bindings]]
 control = "encoder.master"

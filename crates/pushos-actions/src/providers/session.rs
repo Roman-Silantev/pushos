@@ -423,6 +423,12 @@ impl ActionProvider for SessionProvider {
                     .unwrap_or(-1);
 
                 let session = self.resolve(&context).await?;
+                // Reading something is looking at it. Without this a knob
+                // aimed at one session would move a position belonging to
+                // another, because a scroll position belongs to the thing it
+                // was scrolling and there is one of them. Selecting the one
+                // already selected changes nothing.
+                self.select(&session);
                 let said = self.history(&session).await?;
                 self.scroll(by, Depth::deepest(said.len(), SHOWN_LINES));
                 Ok(self.view(&session, &said))
@@ -949,6 +955,36 @@ mod tests {
                 total: 108
             }),
             "so the panel can draw where in it the operator is"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_knob_aimed_at_one_session_does_not_move_another() {
+        // Eight knobs sit above eight columns, and each one moves the column
+        // beneath it. A scroll position belongs to the thing it was scrolling
+        // and there is one of them, so aiming a scroll has to move what it is
+        // aimed at.
+        let (provider, fake) = rig();
+        fake.showing(&said(12));
+        provider
+            .execute(context("select", Some("sprint")))
+            .await
+            .expect("open");
+        moved(&provider, "scroll", "by", 4).await;
+
+        let mut aimed = context("scroll", Some("review"));
+        aimed.definition.params.set("by", ParamValue::Integer(1));
+        let result = provider.execute(aimed).await.expect("open");
+
+        assert_eq!(
+            window(&result),
+            [4, 5, 6, 7, 8, 9, 10, 11],
+            "one line back into the one the knob names, not five into it"
+        );
+        assert_eq!(
+            provider.selected().map(|id| id.to_string()),
+            Some("/dev/ttys004".to_owned()),
+            "and the panel is now showing the one being read"
         );
     }
 
