@@ -284,15 +284,22 @@ fn check_voice(root: &Path) -> Vec<Finding> {
 }
 
 /// Whether macOS will let PushOS hear anything.
+///
+/// Two questions, not one. Whether there is a microphone to open, and whether
+/// this process is allowed to open it. Reporting only the first says everything
+/// is fine right up until a control is held and nothing happens.
 fn check_microphone() -> Finding {
-    match pushos_voice::microphone() {
-        Ok(_) => Finding::new(
-            Verdict::Good,
-            "microphone",
-            "available; macOS asks the first time a voice control is held",
-        ),
-        Err(error) => Finding::new(Verdict::Blocking, "microphone", error.to_string()),
+    if let Err(error) = pushos_voice::microphone() {
+        return Finding::new(Verdict::Blocking, "microphone", error.to_string());
     }
+
+    let permission = pushos_voice::RecordPermission::current();
+    let verdict = if permission.is_usable() {
+        Verdict::Good
+    } else {
+        Verdict::Blocking
+    };
+    Finding::new(verdict, "microphone", permission.describe())
 }
 
 /// Whether the chosen engine can actually work out what was said.

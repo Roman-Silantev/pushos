@@ -280,10 +280,10 @@ pub(crate) fn voice(config: &RuntimeConfig) -> Option<Arc<voice::VoiceProvider>>
         transcriber,
         VoiceRouter::new(settings.commands.clone()),
     ));
-    Some(Arc::new(voice::VoiceProvider::new(
-        listener,
-        settings.request.clone(),
-    )))
+    Some(Arc::new(
+        voice::VoiceProvider::new(listener, settings.request.clone())
+            .confirming_requests(settings.confirm_requests),
+    ))
 }
 
 /// The command that starts a configured provider.

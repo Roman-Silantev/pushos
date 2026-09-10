@@ -68,6 +68,65 @@ pub fn microphone() -> Result<Arc<dyn pushos_domain::ports::Microphone>, VoiceEr
     }
 }
 
+/// Whether macOS will let this process hear anything.
+///
+/// Asked of the system rather than inferred from finding a device. Those are
+/// different questions and the difference is the one that bites: a machine with
+/// a microphone in it reports a microphone, and the process still cannot open
+/// it. Which process is being asked about matters too. macOS grants this to
+/// whatever was responsible for starting PushOS, so one started from a terminal
+/// window is granted alongside that terminal, and one started from somewhere
+/// the operator cannot see is a permission they can never give.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RecordPermission {
+    /// Nobody has been asked yet. macOS will ask the first time it is needed.
+    Unasked,
+    /// This process may record.
+    Granted,
+    /// It may not, and asking again will not help.
+    Denied,
+    /// The system did not say, which is not a state macOS documents.
+    Unknown,
+}
+
+impl RecordPermission {
+    /// What the system says about this process right now.
+    ///
+    /// Asked in `apple`, which is the one module allowed to speak
+    /// Objective-C, because there is no other way to ask macOS this.
+    #[cfg(target_os = "macos")]
+    pub fn current() -> Self {
+        crate::apple::record_permission()
+    }
+
+    /// What the system says about this process right now.
+    #[cfg(not(target_os = "macos"))]
+    pub const fn current() -> Self {
+        Self::Denied
+    }
+
+    /// What to tell an operator about it.
+    pub const fn describe(self) -> &'static str {
+        match self {
+            Self::Granted => "allowed",
+            Self::Unasked => {
+                "not asked for yet; macOS asks the first time a voice control is held, \
+                 and asks whichever application started PushOS"
+            }
+            Self::Denied => {
+                "refused; allow the application that starts PushOS under System Settings, \
+                 Privacy and Security, Microphone"
+            }
+            Self::Unknown => "unknown; macOS did not say",
+        }
+    }
+
+    /// Whether listening would work.
+    pub const fn is_usable(self) -> bool {
+        matches!(self, Self::Granted | Self::Unasked)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

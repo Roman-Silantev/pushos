@@ -16,7 +16,10 @@ use async_trait::async_trait;
 use block2::RcBlock;
 use objc2::AnyThread as _;
 use objc2::rc::Retained;
-use objc2_avf_audio::{AVAudioCommonFormat, AVAudioFormat, AVAudioPCMBuffer};
+use objc2_avf_audio::{
+    AVAudioApplication, AVAudioApplicationRecordPermission, AVAudioCommonFormat, AVAudioFormat,
+    AVAudioPCMBuffer,
+};
 use objc2_foundation::{NSError, NSOperationQueue};
 use objc2_speech::{
     SFSpeechAudioBufferRecognitionRequest, SFSpeechRecognitionResult, SFSpeechRecognizer,
@@ -308,6 +311,26 @@ fn classify(why: &str) -> VoiceError {
             ErrorClass::ComponentFailure,
             std::io::Error::other(why.to_owned()),
         )
+    }
+}
+
+/// What macOS says about this process's permission to record.
+///
+/// Asked of the system rather than inferred from finding a device. Those are
+/// different questions, and the difference is the one that bites: a machine
+/// with a microphone in it reports a microphone, and the process still cannot
+/// open it.
+pub(crate) fn record_permission() -> crate::engines::RecordPermission {
+    use crate::engines::RecordPermission;
+
+    // Both are reads of process-wide state, which Apple documents as safe from
+    // any thread, and neither hands anything back but a tagged integer.
+    let held = unsafe { AVAudioApplication::sharedInstance() };
+    match unsafe { held.recordPermission() } {
+        AVAudioApplicationRecordPermission::Granted => RecordPermission::Granted,
+        AVAudioApplicationRecordPermission::Denied => RecordPermission::Denied,
+        AVAudioApplicationRecordPermission::Undetermined => RecordPermission::Unasked,
+        _ => RecordPermission::Unknown,
     }
 }
 

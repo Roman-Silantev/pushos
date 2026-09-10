@@ -42,7 +42,9 @@ impl FakeAttached {
     }
 
     /// Builds a watcher over some sessions, each waiting for the operator.
-    pub fn with_sessions(sessions: impl IntoIterator<Item = (&'static str, &'static str)>) -> Self {
+    pub fn with_sessions<D: Into<String>, T: Into<String>>(
+        sessions: impl IntoIterator<Item = (D, T)>,
+    ) -> Self {
         Self::doing(
             sessions
                 .into_iter()
@@ -51,16 +53,16 @@ impl FakeAttached {
     }
 
     /// Builds a watcher over some sessions, each doing something.
-    pub fn doing(
-        sessions: impl IntoIterator<Item = (&'static str, &'static str, Activity)>,
+    pub fn doing<D: Into<String>, T: Into<String>>(
+        sessions: impl IntoIterator<Item = (D, T, Activity)>,
     ) -> Self {
         let fake = Self::new();
         if let Ok(mut open) = fake.open.lock() {
             *open = sessions
                 .into_iter()
                 .map(|(device, title, activity)| Attached {
-                    id: AttachedId::new(device),
-                    title: title.to_owned(),
+                    id: AttachedId::new(device.into()),
+                    title: title.into(),
                     busy: activity == Activity::Working,
                     activity,
                 })

@@ -29,6 +29,11 @@
 #   Left / Right             move the eight in view, for more than eight
 #   Page left / Page right   move between pages
 #
+#   1/32t .. 1/4             jump straight to a bank of eight, 1 to 8
+#
+#   Record                   hold to dictate; let go and read it back
+#   Select                   send what you dictated
+#   Delete                   throw it away
 #   Play                     play or pause music
 #   Stop                     interrupt whichever session you are reading
 #   New                      press Enter in it
@@ -47,7 +52,19 @@ home_page = "sessions"
 [permissions]
 # Typing into a live session runs whatever it makes of the keystrokes, which is
 # the same thing a terminal action does and needs the same saying yes to.
-granted = ["shell.execute", "media.control"]
+# Listening is its own capability, and only the verb that turns the microphone
+# on needs it: stopping and discarding never do.
+granted = ["shell.execute", "media.control", "microphone.listen"]
+
+[voice]
+# What a phrase that matches no command does with the words. `session.send`
+# types them into whichever session you are reading, which is the point.
+request = "session.send"
+
+# And it waits for a press first. Typing into a live session is the one
+# destination where hearing wrong costs something, so what it heard goes on the
+# panel and Select sends it.
+confirm_requests = true
 
 [sessions]
 # Nothing tells PushOS when a window opens, so it asks. Three seconds is faster
@@ -351,6 +368,100 @@ control = "encoder.master"
 gesture = "turn_left"
 action = "media.volume_down"
 label = "Volume down"
+
+# --- The column down the right edge ------------------------------------------
+# Eight buttons, eight banks, sixty-four sessions. The arrows and the leftmost
+# knob walk; these name the one you want. Walking to the fifth bank is four
+# presses and naming it is one.
+
+[[bindings]]
+control = "button.div_1_32t"
+gesture = "press"
+action = "session.bank"
+label = "Sessions 1-8"
+params = { to = 1 }
+
+[[bindings]]
+control = "button.div_1_32"
+gesture = "press"
+action = "session.bank"
+label = "Sessions 9-16"
+params = { to = 2 }
+
+[[bindings]]
+control = "button.div_1_16t"
+gesture = "press"
+action = "session.bank"
+label = "Sessions 17-24"
+params = { to = 3 }
+
+[[bindings]]
+control = "button.div_1_16"
+gesture = "press"
+action = "session.bank"
+label = "Sessions 25-32"
+params = { to = 4 }
+
+[[bindings]]
+control = "button.div_1_8t"
+gesture = "press"
+action = "session.bank"
+label = "Sessions 33-40"
+params = { to = 5 }
+
+[[bindings]]
+control = "button.div_1_8"
+gesture = "press"
+action = "session.bank"
+label = "Sessions 41-48"
+params = { to = 6 }
+
+[[bindings]]
+control = "button.div_1_4t"
+gesture = "press"
+action = "session.bank"
+label = "Sessions 49-56"
+params = { to = 7 }
+
+[[bindings]]
+control = "button.div_1_4"
+gesture = "press"
+action = "session.bank"
+label = "Sessions 57-64"
+params = { to = 8 }
+
+# --- Saying it instead of typing it -------------------------------------------
+# Hold Record and talk. Let go and what it heard is on the panel, with the
+# session it is aimed at still under it. Select sends it, Delete throws it away,
+# and holding Record again replaces it: saying it twice is how you correct
+# yourself.
+#
+# Nothing is typed into a live session by a transcription. The thing that
+# finally types is a press, which is the same rule a spoken command follows.
+
+[[bindings]]
+control = "button.record"
+gesture = "press"
+action = "voice.listen"
+label = "Hold to talk"
+
+[[bindings]]
+control = "button.record"
+gesture = "release"
+action = "voice.transcribe"
+label = "Let go"
+
+[[bindings]]
+control = "button.select"
+gesture = "press"
+action = "voice.confirm"
+label = "Send it"
+
+[[bindings]]
+control = "button.delete"
+gesture = "press"
+action = "voice.cancel"
+label = "Throw it away"
 
 [[bindings]]
 control = "button.play"

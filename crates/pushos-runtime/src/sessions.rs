@@ -97,6 +97,57 @@ impl SessionSource for TerminalSessions {
     }
 }
 
+/// The terminals PushOS did not start, described for a control client.
+///
+/// The display shows these and Studio did not, which meant the panel and the
+/// window disagreed about what was running on the machine. They are the same
+/// runtime and should answer the same question the same way.
+#[derive(Debug)]
+pub struct AttachedSessions {
+    provider: Arc<pushos_actions::providers::session::SessionProvider>,
+}
+
+impl AttachedSessions {
+    /// Describes the terminals a provider can see.
+    pub const fn new(provider: Arc<pushos_actions::providers::session::SessionProvider>) -> Self {
+        Self { provider }
+    }
+}
+
+#[async_trait]
+impl SessionSource for AttachedSessions {
+    async fn sessions(&self) -> Vec<SessionInfo> {
+        let selected = self.provider.selected();
+        // Asked rather than remembered, and quiet about a failure: the panel
+        // reports a lost permission where an operator will see it, and a
+        // listing that turned into an error would be a worse way to find out.
+        let Ok(open) = self.provider.discover().await else {
+            return Vec::new();
+        };
+
+        open.into_iter()
+            .map(|session| SessionInfo {
+                id: session.id.to_string(),
+                kind: SessionKind::Attached,
+                name: session.label().to_owned(),
+                status: session.activity.describe().to_owned(),
+                // Always: PushOS did not start it and cannot tell when it ends,
+                // so anything it can still see is something it can still type
+                // into.
+                live: true,
+                selected: selected.as_ref() == Some(&session.id),
+                target: format!("device:{}", session.id),
+                // The title moves as the work does, so there is no durable
+                // name. A pad names a position instead, which is what the
+                // preset binds.
+                standing_target: None,
+                detail: Some(session.device().to_owned()),
+                workspace: None,
+            })
+            .collect()
+    }
+}
+
 /// The workflow runs, described for a control client.
 #[derive(Debug)]
 pub struct RunSessions {

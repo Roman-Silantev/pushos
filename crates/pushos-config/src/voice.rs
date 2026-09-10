@@ -28,6 +28,8 @@ pub struct VoiceSettings {
     pub request: Option<ActionSelector>,
     /// The phrases that mean exactly one thing, already normalised.
     pub commands: Vec<SpokenCommand>,
+    /// Whether dictated words wait for a press before they are sent.
+    pub confirm_requests: bool,
 }
 
 impl VoiceSettings {
@@ -83,6 +85,7 @@ pub(crate) fn build(file: &ConfigFile, problems: &mut Vec<Problem>) -> Option<Vo
     let commands = build_commands(&section.commands, problems);
 
     Some(VoiceSettings {
+        confirm_requests: section.confirm_requests.unwrap_or(false),
         engine,
         model,
         request,

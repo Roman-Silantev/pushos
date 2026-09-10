@@ -173,6 +173,14 @@ impl VoiceListener {
         self.forget().await;
     }
 
+    /// Holds something for a press, replacing whatever was waiting.
+    ///
+    /// Replacing rather than refusing: saying it again is how an operator
+    /// corrects themselves, and the newer words are the ones they meant.
+    pub async fn hold(&self, pending: Pending) {
+        *self.pending.lock().await = Some(pending);
+    }
+
     /// What is waiting for a press, if anything is.
     pub async fn pending(&self) -> Option<Pending> {
         self.pending.lock().await.clone()

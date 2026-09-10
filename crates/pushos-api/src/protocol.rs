@@ -252,6 +252,12 @@ pub enum SessionKind {
     Terminal,
     /// A workflow run.
     Workflow,
+    /// A terminal PushOS did not start and does not own.
+    ///
+    /// Distinct from [`Self::Terminal`] because what can be done with one is
+    /// narrower: PushOS can watch it and type into it, and will never find out
+    /// what it exited with.
+    Attached,
 }
 
 impl SessionKind {
@@ -261,6 +267,7 @@ impl SessionKind {
             Self::Agent => "agent",
             Self::Terminal => "terminal",
             Self::Workflow => "workflow",
+            Self::Attached => "session",
         }
     }
 }

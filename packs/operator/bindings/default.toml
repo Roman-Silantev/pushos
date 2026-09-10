@@ -916,6 +916,18 @@ action = "agent.select"
 target = "journal"
 label = "Select journal"
 
+# --- Stopping one ------------------------------------------------------------
+# Stop interrupts a terminal, which is Ctrl-C and leaves it sitting there. Mute
+# ends a role PushOS started, which is a different thing and deserves its own
+# button. On this page, because this is where the roles are.
+
+[[bindings]]
+control = "button.mute"
+gesture = "press"
+page = "operator"
+action = "agent.stop"
+label = "Stop the role"
+
 # --- Getting back ------------------------------------------------------------
 # A page that fills every pad has to say how to leave it, because no pad on it
 # can.

@@ -30,7 +30,7 @@ mod apple;
 #[cfg(target_os = "macos")]
 mod recorder;
 
-pub use engines::{microphone, transcriber};
+pub use engines::{RecordPermission, microphone, transcriber};
 pub use listener::{Heard, Pending, VoiceListener};
 pub use router::VoiceRouter;
 #[cfg(feature = "whisper")]

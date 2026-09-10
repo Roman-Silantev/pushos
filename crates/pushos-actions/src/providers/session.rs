@@ -105,6 +105,21 @@ impl SessionProvider {
         self.bank.subscribe()
     }
 
+    /// Shows one bank of eight outright, counted from one.
+    ///
+    /// Clamped rather than refused: eight buttons stand for eight banks
+    /// whether or not there are enough sessions to fill them, and a button
+    /// that did nothing on a quiet day would be one nobody trusts.
+    fn show_bank(&self, bank: i64, open: usize) -> usize {
+        let ordinal = usize::try_from(bank.max(1)).unwrap_or(1);
+        let start = ordinal.saturating_sub(1).saturating_mul(BANK);
+        let last = open.saturating_sub(1) / BANK * BANK;
+
+        let moved = start.min(last);
+        self.bank.send_replace(moved);
+        moved
+    }
+
     /// Where the bank starts, counted in sessions.
     pub fn showing_from(&self) -> usize {
         *self.bank.borrow()
@@ -395,14 +410,26 @@ impl ActionProvider for SessionProvider {
             // Moving the eight the surface is showing, so any number of
             // sessions is reachable from eight pads.
             "bank" => {
-                let by = context
-                    .params()
-                    .get("by")
-                    .and_then(pushos_domain::action::ParamValue::as_integer)
-                    .unwrap_or(1);
-
                 let open = self.open().await?;
-                let from = self.move_bank(by, open.len());
+
+                // `to` is a bank counted from one, for a control that jumps
+                // straight to it. `by` is a step, for one that walks. A control
+                // that named both would be two controls.
+                let named = context
+                    .params()
+                    .get("to")
+                    .and_then(pushos_domain::action::ParamValue::as_integer);
+
+                let from = if let Some(bank) = named {
+                    self.show_bank(bank, open.len())
+                } else {
+                    let by = context
+                        .params()
+                        .get("by")
+                        .and_then(pushos_domain::action::ParamValue::as_integer)
+                        .unwrap_or(1);
+                    self.move_bank(by, open.len())
+                };
                 let last = (from + BANK).min(open.len());
 
                 Ok(ActionResult {
@@ -986,6 +1013,37 @@ mod tests {
             Some("/dev/ttys004".to_owned()),
             "and the panel is now showing the one being read"
         );
+    }
+
+    #[tokio::test]
+    async fn a_button_can_jump_straight_to_one_bank() {
+        // Eight buttons down the right edge stand for eight banks. Walking to
+        // the fifth from the first is four presses; naming it is one.
+        let fake = FakeAttached::with_sessions(
+            (0..20).map(|at| (format!("/dev/ttys{at:03}"), format!("session {at}"))),
+        );
+        let provider = SessionProvider::new(Arc::new(fake));
+
+        let mut third = context("bank", None);
+        third.definition.params.set("to", ParamValue::Integer(3));
+        provider.execute(third).await.expect("open");
+        assert_eq!(provider.showing_from(), 16);
+
+        // Past the end lands on the last bank that has anything in it, rather
+        // than on eight empty pads.
+        let mut far = context("bank", None);
+        far.definition.params.set("to", ParamValue::Integer(8));
+        provider.execute(far).await.expect("open");
+        assert_eq!(
+            provider.showing_from(),
+            16,
+            "twenty sessions is three banks"
+        );
+
+        let mut first = context("bank", None);
+        first.definition.params.set("to", ParamValue::Integer(1));
+        provider.execute(first).await.expect("open");
+        assert_eq!(provider.showing_from(), 0);
     }
 
     #[tokio::test]

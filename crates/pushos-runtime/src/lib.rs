@@ -20,6 +20,6 @@ pub use actors::{
 pub use app::{RunningRuntime, Runtime};
 pub use bus::{EventBus, EventSubscription};
 pub use control::RuntimeControl;
-pub use sessions::{AgentSessions, RunSessions, TerminalSessions};
+pub use sessions::{AgentSessions, AttachedSessions, RunSessions, TerminalSessions};
 pub use shutdown::{SHUTDOWN_GRACE, Shutdown};
 pub use supervisor::{Backoff, INITIAL_BACKOFF, MAXIMUM_BACKOFF};

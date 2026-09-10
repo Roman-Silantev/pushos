@@ -209,6 +209,13 @@ pub struct VoiceSection {
     /// The phrases that mean exactly one thing.
     #[serde(default)]
     pub commands: Vec<VoiceCommandEntry>,
+    /// Whether dictated words wait for a press before they are sent.
+    ///
+    /// Off, a phrase that matched no command goes straight where `request`
+    /// aims it. On, it goes on the panel first and a press sends it. Worth
+    /// turning on when that destination is a live terminal.
+    #[serde(default)]
+    pub confirm_requests: Option<bool>,
 }
 
 impl VoiceSection {
@@ -221,6 +228,9 @@ impl VoiceSection {
         }
         if other.request.is_some() {
             self.request = other.request;
+        }
+        if other.confirm_requests.is_some() {
+            self.confirm_requests = other.confirm_requests;
         }
         self.commands.extend(other.commands);
     }

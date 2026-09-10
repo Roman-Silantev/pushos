@@ -42,6 +42,14 @@ pub struct VoiceProvider {
     listener: Arc<VoiceListener>,
     /// What an unrecognised phrase runs, with the words as `text`.
     request: Option<ActionSelector>,
+    /// Whether dictated words wait for a press before they are sent.
+    ///
+    /// Off, a phrase that matched nothing goes straight where it was aimed. On,
+    /// it goes on the panel first and a press sends it. Worth having on when
+    /// the destination is a live terminal: transcription is not typing, and
+    /// reading what it heard before it is typed into a working session is the
+    /// difference between dictation and hoping.
+    confirm_requests: bool,
     /// How a routed phrase is actually carried out.
     ///
     /// Weak because the dispatcher owns this provider, and running through the
@@ -56,8 +64,16 @@ impl VoiceProvider {
         Self {
             listener,
             request,
+            confirm_requests: false,
             actions: Mutex::new(Weak::<NoActions>::new()),
         }
+    }
+
+    /// Makes dictated words wait for a press before they are sent.
+    #[must_use]
+    pub const fn confirming_requests(mut self, confirm: bool) -> Self {
+        self.confirm_requests = confirm;
+        self
     }
 
     /// What is listening, for whoever has to show that it is.
@@ -110,12 +126,35 @@ impl VoiceProvider {
                 Some(selector) => {
                     let mut params = Params::new();
                     params.set(WORDS, ParamValue::Text(text.as_str().into()));
-                    self.run(
-                        ActionDefinition::new(selector.clone(), params),
-                        &text,
-                        surface,
-                    )
-                    .await
+                    let definition = ActionDefinition::new(selector.clone(), params);
+
+                    if self.confirm_requests {
+                        // Held rather than sent, for the same reason a
+                        // configured phrase can be: transcription is not
+                        // authorisation, and the thing that finally types into
+                        // a live session is a press.
+                        self.listener
+                            .hold(pushos_voice::Pending {
+                                phrase: text.clone(),
+                                action: definition,
+                            })
+                            .await;
+                        info!(heard = %text, "waiting to be sent");
+                        return ActionResult {
+                            status: ActionStatus::Waiting,
+                            message: Some(text.clone()),
+                            display: Some(DisplayIntent::Prompt {
+                                question: text,
+                                choices: vec![
+                                    "send".to_owned(),
+                                    "say it again".to_owned(),
+                                    "discard".to_owned(),
+                                ],
+                            }),
+                        };
+                    }
+
+                    self.run(definition, &text, surface).await
                 }
                 // Nowhere configured to put words. Saying so beats inventing a
                 // destination for them.
@@ -307,6 +346,15 @@ mod tests {
 
     impl Rig {
         async fn new(commands: Vec<SpokenCommand>, request: Option<&str>) -> Self {
+            Self::built(commands, request, false).await
+        }
+
+        /// A rig whose dictated words wait for a press.
+        async fn confirming(request: &str) -> Self {
+            Self::built(Vec::new(), Some(request), true).await
+        }
+
+        async fn built(commands: Vec<SpokenCommand>, request: Option<&str>, confirm: bool) -> Self {
             let microphone = Arc::new(FakeMicrophone::new());
             let transcriber = Arc::new(FakeTranscriber::new());
             let listener = Arc::new(VoiceListener::new(
@@ -320,7 +368,8 @@ mod tests {
                     .parse::<ActionSelector>()
                     .expect("a valid request selector")
             });
-            let provider = Arc::new(VoiceProvider::new(listener, request));
+            let provider =
+                Arc::new(VoiceProvider::new(listener, request).confirming_requests(confirm));
 
             let actions = FakeActions::new();
             let runner: Arc<dyn ActionRunner> = Arc::new(actions.clone());
@@ -508,5 +557,89 @@ mod tests {
             .await
             .expect_err("there is no such verb");
         assert!(matches!(error, ActionError::UnknownVerb { .. }));
+    }
+    #[tokio::test]
+    async fn dictated_words_go_on_the_panel_before_they_go_anywhere() {
+        // Typing into a live session is the one destination where hearing
+        // wrong costs something. Reading it first is the difference between
+        // dictation and hoping.
+        let rig = Rig::confirming("session.send").await;
+        let result = rig.says("run the migration on staging").await;
+
+        assert_eq!(result.status, ActionStatus::Waiting);
+        let Some(DisplayIntent::Prompt { question, choices }) = result.display else {
+            panic!("a prompt");
+        };
+        assert_eq!(question, "run the migration on staging");
+        assert!(choices.contains(&"send".to_owned()));
+        assert!(rig.actions.ran().is_empty(), "nothing was typed yet");
+    }
+
+    #[tokio::test]
+    async fn a_press_sends_what_was_dictated() {
+        let rig = Rig::confirming("session.send").await;
+        rig.says("run the migration on staging").await;
+
+        let result = rig
+            .provider
+            .execute(context("confirm"))
+            .await
+            .expect("there is something waiting");
+
+        assert_eq!(rig.actions.selectors(), ["session.send"]);
+        assert_eq!(
+            rig.actions.ran()[0].params.text("text"),
+            Some("run the migration on staging"),
+            "the words go under the name the destination already reads"
+        );
+        assert_eq!(result.status, ActionStatus::Completed);
+    }
+
+    #[tokio::test]
+    async fn saying_it_again_replaces_what_was_waiting() {
+        // How an operator corrects themselves. The newer words are the ones
+        // they meant, and only one thing can be sent.
+        let rig = Rig::confirming("session.send").await;
+        rig.says("run the migration on stagting").await;
+        rig.says("run the migration on staging").await;
+
+        rig.provider
+            .execute(context("confirm"))
+            .await
+            .expect("there is something waiting");
+
+        assert_eq!(rig.actions.selectors(), ["session.send"], "sent once");
+        assert_eq!(
+            rig.actions.ran()[0].params.text("text"),
+            Some("run the migration on staging")
+        );
+    }
+
+    #[tokio::test]
+    async fn discarding_a_dictation_sends_nothing_and_leaves_nothing_waiting() {
+        let rig = Rig::confirming("session.send").await;
+        rig.says("run the migration on staging").await;
+
+        rig.provider
+            .execute(context("cancel"))
+            .await
+            .expect("cancelling always works");
+        rig.provider
+            .execute(context("confirm"))
+            .await
+            .expect("confirming nothing is not a failure");
+
+        assert!(rig.actions.ran().is_empty());
+    }
+
+    #[tokio::test]
+    async fn without_confirmation_dictated_words_go_straight_where_they_were_aimed() {
+        // The default, and right where the destination is an agent rather than
+        // a live terminal: an agent reads before it acts.
+        let rig = Rig::new(Vec::new(), Some("agent.prompt")).await;
+        let result = rig.says("summarise the sprint").await;
+
+        assert_eq!(rig.actions.selectors(), ["agent.prompt"]);
+        assert_eq!(result.status, ActionStatus::Completed);
     }
 }

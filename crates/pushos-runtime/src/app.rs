@@ -20,7 +20,7 @@ use crate::actors::{
 };
 use crate::bus::EventBus;
 use crate::control::RuntimeControl;
-use crate::sessions::{AgentSessions, RunSessions, TerminalSessions};
+use crate::sessions::{AgentSessions, AttachedSessions, RunSessions, TerminalSessions};
 use crate::shutdown::Shutdown;
 
 /// A configured but not yet running PushOS.
@@ -309,6 +309,11 @@ impl Runtime {
         // Nothing tells PushOS when a terminal window opens, so it asks, and
         // the display follows the answer rather than asking for itself.
         if let Some(provider) = &self.attached {
+            // Studio asks the same question the panel does, and gets the same
+            // answer. A window showing nothing while the Push shows eight is
+            // two views of one runtime disagreeing.
+            sources.push(Arc::new(AttachedSessions::new(Arc::clone(provider))));
+
             let (task, found) = crate::actors::AttachedTask::new(provider.watcher());
             let task = task.every(self.config.current().session_poll);
             publisher = publisher.with_attached(found.clone(), provider.watch(), provider.banked());
