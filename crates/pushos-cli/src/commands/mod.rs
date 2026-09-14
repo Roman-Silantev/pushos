@@ -1,5 +1,7 @@
 //! The individual commands.
 
+#[cfg(target_os = "macos")]
+pub(crate) mod app;
 pub(crate) mod check;
 pub(crate) mod control;
 pub(crate) mod doctor;

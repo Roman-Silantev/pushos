@@ -9,7 +9,7 @@ mod presets;
 
 use clap::Parser;
 
-use crate::cli::{Cli, Command, PackCommand};
+use crate::cli::{AppCommand, Cli, Command, PackCommand};
 
 /// Exit status when PushOS could not do what it was asked.
 const FAILURE: i32 = 1;
@@ -37,6 +37,7 @@ async fn main() -> std::process::ExitCode {
             Ok(())
         }
         Command::Pack { command } => run_pack(command, cli.config.as_deref()),
+        Command::App { command } => run_app(command, cli.config.as_deref()).await,
         Command::Init { preset, force } => {
             commands::init::execute(cli.config.as_deref(), &preset, force)
         }
@@ -48,6 +49,23 @@ async fn main() -> std::process::ExitCode {
             eprintln!("{report}");
             std::process::ExitCode::from(u8::try_from(FAILURE).unwrap_or(1))
         }
+    }
+}
+
+/// Carries out one app command.
+async fn run_app(command: AppCommand, config: Option<&std::path::Path>) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        match command {
+            AppCommand::Install { sign } => commands::app::install(config, sign.as_deref()).await,
+            AppCommand::Uninstall => commands::app::uninstall(),
+            AppCommand::Status => commands::app::status().await,
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (command, config);
+        Err("the PushOS app is for macOS".to_owned())
     }
 }
 

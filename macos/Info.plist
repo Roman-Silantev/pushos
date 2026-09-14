@@ -10,5 +10,7 @@
 	<string>PushOS listens only while you hold a control on the Push 2, and only on this Mac.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>PushOS works out what you said on this Mac. Nothing is sent anywhere.</string>
+	<key>NSAppleEventsUsageDescription</key>
+	<string>PushOS reads what your terminal windows are working on, types into the one you choose, and plays or pauses your music.</string>
 </dict>
 </plist>

@@ -187,6 +187,14 @@ fn scope_of(address: &pushos_config::BindingAddress) -> String {
     }
 }
 
+/// Whether a PushOS is running and answering.
+pub(crate) async fn is_running() -> bool {
+    match connect().await {
+        Ok(mut client) => client.handshake().await.is_ok(),
+        Err(_) => false,
+    }
+}
+
 async fn connect() -> Result<ControlClient, String> {
     ControlClient::connect(paths::control_socket()?)
         .await

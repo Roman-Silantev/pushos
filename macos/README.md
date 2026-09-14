@@ -12,3 +12,11 @@ prompt, and no amount of System Settings would fix it.
 Kept here rather than in a crate because two crates need the same words: the
 `pushos` binary, and the `transcribe` example that checks an engine without a
 Push 2 attached.
+
+## The app
+
+`pushos app install` puts PushOS in `~/Applications/PushOS.app` and starts it at
+login. Its `Info.plist` is this one with the keys an app needs added, and it is
+signed with `PushOS.entitlements`, which declares the two things the hardened
+runtime otherwise refuses without even asking: the microphone, and Apple Events
+to Terminal and Music.

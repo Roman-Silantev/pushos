@@ -59,6 +59,7 @@ pushos pack      # install and manage packs of agents, workflows and pages
 pushos check     # validate it without running anything
 pushos doctor    # report on hardware, configuration and host integrations
 pushos run       # run it
+pushos app       # install it as a Mac app that starts at login
 pushos status    # ask a running PushOS what it is doing
 pushos bindings  # list what it has bound
 pushos sessions  # list the agents and terminals it is driving
@@ -154,6 +155,37 @@ it with `--features whisper`.
 
 macOS will ask for permission the first time PushOS controls an application or
 runs a Shortcut. `pushos doctor` reports what is reachable and what is not.
+
+### As an app that starts at login
+
+Run from Terminal, PushOS borrows Terminal's permissions and stops when its
+window closes. Installed as an app, it has its own, starts when you log in,
+and is restarted if it ever crashes:
+
+```bash
+./target/release/pushos app install   # build the app, sign it, start it
+./target/release/pushos app status    # installed, at login, signed, running
+./target/release/pushos app uninstall # remove it; configuration stays
+```
+
+It lives in `~/Applications/PushOS.app` with no window and no Dock icon, runs
+the configuration it was installed with, and logs to
+`~/Library/Logs/PushOS/pushos.log`. Install again after rebuilding to update it.
+
+macOS keeps an app's permissions only while its signature stays the same. Make
+a signing certificate once and every install is signed with it, so the
+microphone and Terminal permissions you grant are kept:
+
+1. Open Keychain Access.
+2. From the Keychain Access menu choose Certificate Assistant, then Create a
+   Certificate.
+3. Name it `PushOS Local`, with Identity Type Self Signed Root and Certificate
+   Type Code Signing.
+4. Run `pushos app install` again. macOS asks once whether `codesign` may use
+   the certificate; choose Always Allow.
+
+Without one, each install is signed for that build only and macOS asks for the
+permissions again after the next one.
 
 ## Configuring
 

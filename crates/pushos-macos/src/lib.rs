@@ -5,6 +5,7 @@
 //! without a Mac and ported to another host by adding a sibling crate.
 #![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used, clippy::panic))]
 
+pub mod app;
 mod applications;
 mod media;
 /// Hearing the Mac go to sleep, so the Push 2 is not left lit all night.

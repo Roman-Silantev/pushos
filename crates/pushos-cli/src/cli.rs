@@ -62,6 +62,16 @@ pub(crate) enum Command {
         command: PackCommand,
     },
 
+    /// Install PushOS as a Mac app that starts at login.
+    ///
+    /// Gives PushOS permissions of its own, such as the microphone, instead of
+    /// borrowing Terminal's, and keeps it running with no window open.
+    App {
+        /// What to do with the app.
+        #[command(subcommand)]
+        command: AppCommand,
+    },
+
     /// Write a starting configuration.
     Init {
         /// Which one to write. `pushos presets` lists them.
@@ -72,6 +82,29 @@ pub(crate) enum Command {
         #[arg(long)]
         force: bool,
     },
+}
+
+/// What to do with the app.
+#[derive(Debug, Subcommand)]
+pub(crate) enum AppCommand {
+    /// Build the app from this pushos, sign it, and start it at login.
+    ///
+    /// Replaces an installed app. Uses the configuration it is given with
+    /// `--config`, or the usual one.
+    Install {
+        /// The signing certificate to use.
+        ///
+        /// Defaults to one called "PushOS Local" if this Mac has it, and to a
+        /// signature for this build only if not.
+        #[arg(long, value_name = "NAME")]
+        sign: Option<String>,
+    },
+
+    /// Stop the app and remove it. Configuration, notes and logs stay.
+    Uninstall,
+
+    /// Say whether the app is installed, starting at login, signed and running.
+    Status,
 }
 
 /// What to do with packs.
