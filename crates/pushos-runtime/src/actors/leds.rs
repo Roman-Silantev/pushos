@@ -55,6 +55,17 @@ pub(crate) fn plan_showing(
 /// The namespace whose bindings stand for a session rather than an instruction.
 const SESSIONS: &str = "session";
 
+/// What a control stands for, as far as sessions go.
+enum StandsFor {
+    /// It is not a session's control.
+    Nothing,
+    /// It names a session, and nothing is there: an empty slot, or a window
+    /// that has been closed.
+    Absent,
+    /// It names a session that is open, doing this.
+    Session(Activity),
+}
+
 /// What a control stands for, when it stands for a session.
 ///
 /// Read from the binding itself rather than configured twice: a pad bound to
@@ -66,8 +77,8 @@ fn session_on(
     control: ControlId,
     sessions: &[Attached],
     from: usize,
-) -> Option<Activity> {
-    let target: AttachedTarget = ADVERTISED
+) -> StandsFor {
+    let target: Option<AttachedTarget> = ADVERTISED
         .iter()
         .flat_map(|gesture| {
             config
@@ -79,20 +90,22 @@ fn session_on(
                 && binding.action.selector.provider.as_str() == SESSIONS
         })
         .and_then(|binding| binding.action.params.text("target"))
-        .and_then(|written| written.parse().ok())?;
+        .and_then(|written| written.parse().ok());
+    let Some(target) = target else {
+        return StandsFor::Nothing;
+    };
 
     // A slot is a position in the bank being shown, so it is resolved the same
     // way the provider resolves it. Anything else answers for itself.
-    if let AttachedTarget::Slot(at) = target {
-        return sessions
-            .get(from + usize::from(at) - 1)
-            .map(|session| session.activity);
-    }
+    let open = if let AttachedTarget::Slot(at) = target {
+        sessions.get(from + usize::from(at) - 1)
+    } else {
+        sessions.iter().find(|session| target.matches(session))
+    };
 
-    sessions
-        .iter()
-        .find(|session| target.matches(session))
-        .map(|session| session.activity)
+    open.map_or(StandsFor::Absent, |session| {
+        StandsFor::Session(session.activity)
+    })
 }
 
 fn light_for(
@@ -103,9 +116,14 @@ fn light_for(
     from: usize,
 ) -> LedState {
     // What a session is doing outranks the fact that a pad is bound: the pad
-    // being bound is what the operator already knows.
-    if let Some(activity) = session_on(config, context, control, sessions, from) {
-        return LedState::from_status(activity.status_color());
+    // being bound is what the operator already knows. A session at rest, or a
+    // slot with no session in it, is dark rather than glowing as merely bound,
+    // so the lights that are on are the ones worth looking at.
+    match session_on(config, context, control, sessions, from) {
+        StandsFor::Session(activity) if activity.is_resting() => return LedState::OFF,
+        StandsFor::Session(activity) => return LedState::from_status(activity.status_color()),
+        StandsFor::Absent => return LedState::OFF,
+        StandsFor::Nothing => {}
     }
 
     let bound = ADVERTISED.iter().any(|gesture| {
@@ -260,5 +278,96 @@ mod tests {
         let changes = on_music.changes_from(&on_home);
         assert_eq!(changes.len(), 1, "only pad 1 differs between the two pages");
         assert_eq!(changes[0].0, pad(1));
+    }
+
+    /// Two session pads, as the sessions preset binds them.
+    const SESSION_PADS: &str = r#"
+        [[pages]]
+        id = "sessions"
+        name = "Sessions"
+
+        [[bindings]]
+        control = "pad.56"
+        gesture = "tap"
+        action = "session.show"
+        target = "slot:1"
+
+        [[bindings]]
+        control = "pad.57"
+        gesture = "tap"
+        action = "session.show"
+        target = "slot:2"
+
+        [[bindings]]
+        control = "pad.0"
+        gesture = "tap"
+        action = "page.next"
+    "#;
+
+    fn doing(activity: Activity) -> Attached {
+        Attached {
+            id: pushos_domain::ids::AttachedId::new("/dev/ttys001"),
+            title: "Sprint 2 setup".to_owned(),
+            busy: activity == Activity::Working,
+            activity,
+        }
+    }
+
+    fn light(plan: &LedPlan, control: ControlId) -> LedState {
+        plan.states()
+            .iter()
+            .find(|(candidate, _)| *candidate == control)
+            .map_or(LedState::OFF, |(_, state)| *state)
+    }
+
+    #[test]
+    fn a_session_with_nothing_happening_leaves_its_pad_dark() {
+        // Not green. A surface left on all day should light what is going on
+        // and who is wanted, not every session for being there.
+        let config = config(SESSION_PADS);
+        for resting in [Activity::Ready, Activity::Quiet] {
+            let plan = plan_showing(&config, &SurfaceContext::empty(), &[doing(resting)], 0);
+            assert_eq!(light(&plan, pad(56)), LedState::OFF, "{resting:?}");
+        }
+    }
+
+    #[test]
+    fn a_session_that_is_doing_something_or_wants_someone_is_lit() {
+        let config = config(SESSION_PADS);
+        for busy in [
+            Activity::Working,
+            Activity::NeedsDecision,
+            Activity::Drafting,
+        ] {
+            let plan = plan_showing(&config, &SurfaceContext::empty(), &[doing(busy)], 0);
+            assert_eq!(
+                light(&plan, pad(56)),
+                LedState::from_status(busy.status_color()),
+                "{busy:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_slot_with_no_session_in_it_is_dark_rather_than_glowing_as_bound() {
+        // One session open, two slots bound: the second has nothing to show.
+        let config = config(SESSION_PADS);
+        let plan = plan_showing(
+            &config,
+            &SurfaceContext::empty(),
+            &[doing(Activity::Working)],
+            0,
+        );
+        assert_eq!(light(&plan, pad(57)), LedState::OFF);
+    }
+
+    #[test]
+    fn a_control_that_is_not_a_sessions_still_glows_to_say_it_does_something() {
+        let config = config(SESSION_PADS);
+        let plan = plan_showing(&config, &SurfaceContext::empty(), &[], 0);
+        assert_eq!(
+            light(&plan, pad(0)),
+            LedState::from_status(StatusColor::Idle)
+        );
     }
 }

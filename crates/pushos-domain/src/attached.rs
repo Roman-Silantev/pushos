@@ -64,7 +64,18 @@ pub enum Activity {
 }
 
 impl Activity {
-    /// The light this state shows.
+    /// Whether nothing is happening and nobody is needed.
+    ///
+    /// A session at an empty prompt, or a terminal with nothing running. Its pad
+    /// stays dark: on a surface left on all day a light should mean something is
+    /// going on or someone is wanted, and eight pads glowing because eight
+    /// sessions are simply there would be eight lights worn for nothing and a
+    /// question lost among them. The screen still says each one is ready.
+    pub const fn is_resting(self) -> bool {
+        matches!(self, Self::Ready | Self::Quiet)
+    }
+
+    /// The light this state shows on the screen, and on a pad unless it rests.
     pub const fn status_color(self) -> crate::color::StatusColor {
         use crate::color::StatusColor;
         match self {
@@ -584,5 +595,18 @@ mod tests {
         let session = session("/dev/ttys003", "   ");
         assert_eq!(session.label(), "/dev/ttys003");
         assert_eq!(session.device(), "ttys003");
+    }
+
+    #[test]
+    fn only_a_session_with_nothing_happening_rests() {
+        assert!(Activity::Ready.is_resting());
+        assert!(Activity::Quiet.is_resting());
+        for busy in [
+            Activity::Working,
+            Activity::NeedsDecision,
+            Activity::Drafting,
+        ] {
+            assert!(!busy.is_resting(), "{busy:?} is worth a light");
+        }
     }
 }

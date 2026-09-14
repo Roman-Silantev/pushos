@@ -391,8 +391,10 @@ params = { id = "start_work" }
 # --- What is running on this machine -----------------------------------------
 # The coding sessions you already have open, without configuring anything.
 # PushOS reads what each terminal window is working on and puts it on the pads:
-# green is waiting for you, blue is working, purple has a line typed and not
-# sent, amber is asking you something.
+# blue is working, amber blinking is asking you something, purple has a line
+# typed and not sent. A session that has finished and is waiting for its next
+# prompt leaves its pad dark, so the lights that are on are the ones worth
+# looking at; the screen still names every session and says it is ready.
 #
 # It did not start these and does not own them, so it can watch them and type
 # into them and nothing else. The first time you run it macOS asks whether

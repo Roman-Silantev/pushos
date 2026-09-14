@@ -11,7 +11,10 @@
 #
 # --- The map -----------------------------------------------------------------
 #
-#   Bottom row of pads       the eight sessions: tap to read one here
+#   Bottom row of pads       the eight sessions: tap to read one here. Lit
+#                            only when something is happening: blue working,
+#                            amber blinking asking you, purple unsent. Dark
+#                            when a session is done and waiting for you.
 #   Row above the screen     jump to that window on the Mac
 #   Row below the screen     what you say to it: yes, no, continue, accept,
 #                            send, up, down, dismiss
