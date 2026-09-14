@@ -36,6 +36,13 @@ pub struct RenderTask {
     /// second to say that nothing happened.
     animation: u32,
     animating: bool,
+    /// The brightness last sent to the hardware.
+    ///
+    /// `None` until the first draw, because a Push 2 comes up at whatever its
+    /// firmware chose, which is not what PushOS chose.
+    brightness: Option<pushos_domain::rest::Levels>,
+    /// Whether the screen is showing the dark frame of a sleeping surface.
+    dark: bool,
 }
 
 impl RenderTask {
@@ -53,6 +60,8 @@ impl RenderTask {
             view,
             animation: 0,
             animating: false,
+            brightness: None,
+            dark: false,
         }
     }
 
@@ -115,27 +124,88 @@ impl RenderTask {
 
     async fn draw(&mut self) {
         let view = self.view.borrow_and_update().clone();
-        let snapshot = self.with_animation(&view.snapshot);
-        self.animating = snapshot.is_animated();
+        self.apply_brightness(view.levels).await;
 
-        if self.renderer.render(&snapshot, &mut self.frame)
-            && let Err(error) = self.output.present(&self.frame).await
-        {
-            warn!(%error, "could not present a frame");
+        if view.rest.shows_screen() {
+            if !self.draw_screen(&view).await {
+                return;
+            }
+        } else if !self.darken_screen().await {
             return;
         }
 
+        // A sleeping surface keeps only the lights asking for a person. Built
+        // here rather than published, so waking is one publish with nothing to
+        // rebuild.
+        let wanted = if view.rest.shows_screen() {
+            view.leds.as_ref().clone()
+        } else {
+            view.leds.only_wanting_a_person()
+        };
+
         // Only what changed is sent, so moving between pages that differ by one
         // pad costs one message rather than sixty-four.
-        let changes = view.leds.changes_from(&self.lit);
+        let changes = wanted.changes_from(&self.lit);
         if changes.is_empty() {
             return;
         }
 
         match self.output.set_leds(&changes).await {
-            Ok(()) => self.lit = view.leds.as_ref().clone(),
+            Ok(()) => self.lit = wanted,
             Err(error) => warn!(%error, "could not update the lights"),
         }
+    }
+
+    /// Sends a brightness the hardware does not already have.
+    ///
+    /// Kept as unsent when it fails, so the next draw says it again rather than
+    /// leaving the surface at whatever it was, possibly full, all night.
+    async fn apply_brightness(&mut self, levels: pushos_domain::rest::Levels) {
+        if self.brightness == Some(levels) {
+            return;
+        }
+        match self.output.set_brightness(levels).await {
+            Ok(()) => self.brightness = Some(levels),
+            Err(error) => warn!(%error, "could not set the brightness"),
+        }
+    }
+
+    /// Draws the current view. Returns whether the lights should be updated.
+    async fn draw_screen(&mut self, view: &SurfaceView) -> bool {
+        let snapshot = self.with_animation(&view.snapshot);
+        self.animating = snapshot.is_animated();
+        self.dark = false;
+
+        if self.renderer.render(&snapshot, &mut self.frame)
+            && let Err(error) = self.output.present(&self.frame).await
+        {
+            warn!(%error, "could not present a frame");
+            return false;
+        }
+        true
+    }
+
+    /// Shows a sleeping surface's screen: black, and not redrawn.
+    ///
+    /// Black rather than the last picture with the backlight off. An LCD that
+    /// holds one image for hours is what leaves a trace of it, and a dark panel
+    /// holding a uniform frame holds no image at all. Nothing animates while
+    /// asleep, so the render loop stops ticking too.
+    async fn darken_screen(&mut self) -> bool {
+        self.animating = false;
+        if self.dark {
+            return true;
+        }
+
+        self.frame.fill(pushos_domain::color::Rgb::BLACK);
+        if let Err(error) = self.output.present(&self.frame).await {
+            warn!(%error, "could not darken the screen");
+            return false;
+        }
+        self.dark = true;
+        // Whatever was drawn before is gone, so waking must draw it all again.
+        self.renderer.invalidate();
+        true
     }
 }
 

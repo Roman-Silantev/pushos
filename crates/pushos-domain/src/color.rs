@@ -150,6 +150,15 @@ impl LedState {
         Self { color, animation }
     }
 
+    /// Whether this light is asking for a person.
+    ///
+    /// Blinking is reserved for that. [`StatusColor::default_animation`] gives
+    /// it to waiting and failed and nothing else, so a sleeping surface can keep
+    /// exactly these lit without knowing what any of them belong to.
+    pub const fn wants_a_person(self) -> bool {
+        matches!(self.animation, LedAnimation::Blink(_))
+    }
+
     /// A steady light of the given colour.
     pub const fn solid(color: Rgb) -> Self {
         Self::new(color, LedAnimation::Solid)
@@ -240,6 +249,29 @@ mod tests {
                 status.default_animation(),
                 LedAnimation::Solid,
                 "{status:?} must be readable without relying on hue"
+            );
+        }
+    }
+
+    #[test]
+    fn only_what_is_waiting_on_a_person_or_has_failed_blinks() {
+        // `wants_a_person` leans on this. If a status that does not need
+        // anybody ever blinked, a sleeping surface would keep it lit.
+        for status in [
+            StatusColor::Idle,
+            StatusColor::Unassigned,
+            StatusColor::Working,
+            StatusColor::Waiting,
+            StatusColor::Complete,
+            StatusColor::Failed,
+            StatusColor::Workflow,
+            StatusColor::Selected,
+        ] {
+            let light = LedState::new(status.default_rgb(), status.default_animation());
+            assert_eq!(
+                light.wants_a_person(),
+                matches!(status, StatusColor::Waiting | StatusColor::Failed),
+                "{status:?}"
             );
         }
     }

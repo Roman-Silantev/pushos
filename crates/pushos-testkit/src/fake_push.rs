@@ -25,6 +25,8 @@ const INPUT_CAPACITY: usize = 256;
 pub struct SurfaceState {
     leds: HashMap<ControlId, LedState>,
     frames: Vec<DisplayFrame>,
+    /// Every brightness the surface was asked for, in order.
+    brightness: Vec<pushos_domain::rest::Levels>,
     connected: bool,
     /// Held here rather than on the handle so that unplugging ends input for
     /// every clone at once, the way pulling a cable does.
@@ -54,6 +56,16 @@ impl SurfaceState {
     pub fn last_frame(&self) -> Option<&DisplayFrame> {
         self.frames.last()
     }
+
+    /// The brightness the surface is at now, if it has been told one.
+    pub fn brightness(&self) -> Option<pushos_domain::rest::Levels> {
+        self.brightness.last().copied()
+    }
+
+    /// Every brightness it was asked for, oldest first.
+    pub fn brightness_history(&self) -> &[pushos_domain::rest::Levels] {
+        &self.brightness
+    }
 }
 
 /// An in-memory Push 2.
@@ -69,6 +81,7 @@ impl FakePush {
         let state = Arc::new(Mutex::new(SurfaceState {
             leds: HashMap::new(),
             frames: Vec::new(),
+            brightness: Vec::new(),
             connected: true,
             input: Some(input),
         }));
@@ -177,6 +190,15 @@ impl PushOutput for FakePush {
     async fn clear(&self) -> Result<(), PushSurfaceError> {
         self.require_connected().await?;
         self.state.lock().await.leds.clear();
+        Ok(())
+    }
+
+    async fn set_brightness(
+        &self,
+        levels: pushos_domain::rest::Levels,
+    ) -> Result<(), PushSurfaceError> {
+        self.require_connected().await?;
+        self.state.lock().await.brightness.push(levels);
         Ok(())
     }
 }

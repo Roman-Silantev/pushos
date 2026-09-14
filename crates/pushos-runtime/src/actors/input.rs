@@ -28,6 +28,7 @@ use tracing::{debug, info, warn};
 
 use crate::actors::SurfaceState;
 use crate::actors::leds;
+use crate::actors::rest::{Heard, RestClock};
 use crate::bus::EventBus;
 use crate::shutdown::Shutdown;
 
@@ -40,6 +41,10 @@ pub struct SurfaceView {
     pub leds: Arc<pushos_ui::LedPlan>,
     /// Where the operator is, for anything that needs to record it.
     pub context: pushos_domain::context::SurfaceContext,
+    /// Whether anyone is using the surface.
+    pub rest: pushos_domain::rest::Rest,
+    /// How bright the lights and the screen should be because of that.
+    pub levels: pushos_domain::rest::Levels,
 }
 
 impl SurfaceView {
@@ -52,6 +57,9 @@ impl SurfaceView {
             snapshot: Arc::new(UiSnapshot::disconnected()),
             leds: Arc::new(pushos_ui::LedPlan::new()),
             context: pushos_domain::context::SurfaceContext::empty(),
+            rest: pushos_domain::rest::Rest::Awake,
+            levels: pushos_domain::rest::RestPolicy::DEFAULT
+                .levels(pushos_domain::rest::Rest::Awake),
         }
     }
 }
@@ -93,6 +101,8 @@ pub struct InputTask {
     /// than a queue of everything it missed.
     sessions: watch::Receiver<Vec<pushos_ui::SessionLine>>,
     gestures: Vec<GestureEvent>,
+    /// Whether anyone is using the surface, for a board left on all day.
+    rest: RestClock,
 }
 
 /// Tells the input pipeline what the sessions are doing.
@@ -125,6 +135,7 @@ impl InputTask {
         let surface = SurfaceState::new(Arc::clone(&current));
         let recognizer =
             GestureRecognizer::new(current.timing, current.bindings.gesture_interest().clone());
+        let rest = RestClock::new(current.rest, Instant::now());
 
         Self {
             input,
@@ -137,6 +148,7 @@ impl InputTask {
             listening: None,
             attached: None,
             bank: None,
+            rest,
             config,
             bus,
             view,
@@ -269,6 +281,7 @@ impl InputTask {
     pub fn reconfigure(&mut self, config: Arc<RuntimeConfig>) {
         self.recognizer
             .set_interest(config.bindings.gesture_interest().clone());
+        self.rest.adopt(config.rest, Instant::now());
         self.surface.adopt(config);
         self.publish();
     }
@@ -303,6 +316,15 @@ impl InputTask {
     }
 
     async fn on_input(&mut self, event: ControlEvent) {
+        let (heard, changed) = self.rest.on_input(&event);
+        if changed {
+            self.publish();
+        }
+        if heard == Heard::Spent {
+            debug!(control = %event.control, "spent waking the surface");
+            return;
+        }
+
         self.gestures.clear();
         self.recognizer.observe(event, &mut self.gestures);
 
@@ -319,7 +341,9 @@ impl InputTask {
             self.on_gesture(gesture).await;
         }
 
-        if self.surface.expire(now) {
+        let expired = self.surface.expire(now);
+        let rested = self.rest.on_time(now);
+        if expired || rested {
             self.publish();
         }
     }
@@ -436,21 +460,34 @@ impl InputTask {
     }
 
     fn next_deadline(&self) -> Option<Instant> {
-        match (self.recognizer.next_deadline(), self.surface.next_expiry()) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (found, None) | (None, found) => found,
-        }
+        [
+            self.recognizer.next_deadline(),
+            self.surface.next_expiry(),
+            self.rest.next_change(Instant::now()),
+        ]
+        .into_iter()
+        .flatten()
+        .min()
     }
 
-    fn publish(&self) {
+    fn publish(&mut self) {
         let sessions = self
             .attached
             .as_ref()
             .map(|held| held.borrow().clone())
             .unwrap_or_default();
         let from = self.bank.as_ref().map_or(0, |bank| *bank.borrow());
+        let mut view = build_view(&self.surface, &sessions, from);
+
+        // Looked at here because this is where every change to the lights
+        // passes. Something newly asking for a person wakes the surface in the
+        // same publish that shows it.
+        self.rest.on_asking(view.leds.asking(), Instant::now());
+        view.rest = self.rest.state();
+        view.levels = self.rest.levels();
+
         // A dropped receiver means the renderer is gone, which shutdown handles.
-        let _ = self.view.send(build_view(&self.surface, &sessions, from));
+        let _ = self.view.send(view);
     }
 }
 
@@ -460,6 +497,7 @@ fn build_view(
     from: usize,
 ) -> SurfaceView {
     let context = surface.context(false);
+    let rest = pushos_domain::rest::Rest::Awake;
     SurfaceView {
         leds: Arc::new(leds::plan_showing(
             surface.config(),
@@ -469,6 +507,9 @@ fn build_view(
         )),
         snapshot: Arc::new(surface.snapshot()),
         context,
+        // Overwritten by the caller, which owns the clock.
+        rest,
+        levels: surface.config().rest.levels(rest),
     }
 }
 

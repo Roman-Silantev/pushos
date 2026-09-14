@@ -34,6 +34,8 @@ pub(crate) fn execute(requested: Option<&Path>) -> Result<(), String> {
         println!("  permissions: {}", granted.join(", "));
     }
 
+    println!("  surface: {}", describe_rest(&config.rest));
+
     match &config.home_page {
         Some(home) => println!("  home page: {home}"),
         None => println!("  no home page set"),
@@ -52,4 +54,27 @@ pub(crate) fn describe(error: &ConfigError) -> String {
         let _ = write!(report, "\n  {problem}");
     }
     report
+}
+
+/// Says how hard the hardware works and when it rests, in one line.
+fn describe_rest(rest: &pushos_domain::rest::RestPolicy) -> String {
+    let minutes = |after: Option<std::time::Duration>| {
+        after.map(|after| {
+            let minutes = after.as_secs_f64() / 60.0;
+            if minutes.fract() == 0.0 {
+                format!("{minutes:.0} min")
+            } else {
+                format!("{minutes:.1} min")
+            }
+        })
+    };
+    let dims = minutes(rest.dim_after).map_or_else(
+        || "never dims".to_owned(),
+        |after| format!("dims after {after}"),
+    );
+    let sleeps = minutes(rest.sleep_after).map_or_else(
+        || "never goes dark".to_owned(),
+        |after| format!("dark after {after}"),
+    );
+    format!("{}% brightness, {dims}, {sleeps}", rest.brightness)
 }

@@ -10,6 +10,15 @@ const CMD_SET_MIDI_MODE: u8 = 0x0A;
 const CMD_SET_PALETTE_ENTRY: u8 = 0x03;
 /// The `Reapply Color Palette` command identifier.
 const CMD_REAPPLY_PALETTE: u8 = 0x05;
+/// The `Set LED Brightness` command identifier.
+const CMD_SET_LED_BRIGHTNESS: u8 = 0x06;
+/// The `Set Display Brightness` command identifier.
+const CMD_SET_DISPLAY_BRIGHTNESS: u8 = 0x08;
+/// The brightest the lights go, as the hardware counts.
+const LED_BRIGHTNESS_MAX: u32 = 127;
+/// The brightest the backlight goes, as the hardware counts.
+const DISPLAY_BRIGHTNESS_MAX: u32 = 255;
+
 /// The `Set Touch Strip Configuration` command identifier.
 const CMD_SET_TOUCH_STRIP: u8 = 0x17;
 /// The `Set Touch Strip LEDs` command identifier.
@@ -54,6 +63,37 @@ pub(crate) fn set_palette_entry(index: u8, color: Rgb, white: u8) -> Vec<u8> {
 /// Builds the message that applies palette changes to lights already lit.
 pub(crate) fn reapply_palette() -> Vec<u8> {
     message(CMD_REAPPLY_PALETTE, &[])
+}
+
+/// Builds the message that sets every light's brightness, from a percentage.
+///
+/// The hardware counts nought to 127. On USB power alone it quietly caps this
+/// at 8 whatever is asked for, to stay inside the current USB allows.
+pub(crate) fn set_led_brightness(percent: u8) -> Vec<u8> {
+    message(
+        CMD_SET_LED_BRIGHTNESS,
+        &[scaled(percent, LED_BRIGHTNESS_MAX)],
+    )
+}
+
+/// Builds the message that sets the screen's backlight, from a percentage.
+///
+/// The hardware counts nought to 255, which does not fit in a data byte, so
+/// it goes as the low seven bits and then the high one.
+pub(crate) fn set_display_brightness(percent: u8) -> Vec<u8> {
+    let value = scaled(percent, DISPLAY_BRIGHTNESS_MAX);
+    message(CMD_SET_DISPLAY_BRIGHTNESS, &[value & 0x7F, value >> 7])
+}
+
+/// A percentage of the hardware's range, rounded to the nearest step.
+///
+/// Rounded rather than truncated so that a hundred percent is the maximum and
+/// any percentage above nought lights something.
+fn scaled(percent: u8, max: u32) -> u8 {
+    let percent = u32::from(percent.min(100));
+    let value = (percent * max + 50) / 100;
+    let value = if percent > 0 { value.max(1) } else { 0 };
+    u8::try_from(value.min(max)).unwrap_or(u8::MAX)
 }
 
 /// Builds the message that takes the touch strip's lights off the Push.
@@ -123,6 +163,38 @@ mod tests {
             body.iter().all(|byte| byte & 0x80 == 0),
             "system-exclusive data bytes must never set their top bit"
         );
+    }
+
+    #[test]
+    fn light_brightness_matches_the_documented_example() {
+        // The manual's example sets 64 of 127; half is the nearest percentage.
+        assert_eq!(
+            set_led_brightness(50),
+            [0xF0, 0x00, 0x21, 0x1D, 0x01, 0x01, 0x06, 0x40, 0xF7]
+        );
+        assert_eq!(set_led_brightness(100)[7], 127);
+        assert_eq!(set_led_brightness(0)[7], 0);
+    }
+
+    #[test]
+    fn screen_brightness_matches_the_documented_example() {
+        // The manual's example sets 255, split as 0x7F then 0x01.
+        assert_eq!(
+            set_display_brightness(100),
+            [0xF0, 0x00, 0x21, 0x1D, 0x01, 0x01, 0x08, 0x7F, 0x01, 0xF7]
+        );
+        assert_eq!(
+            &set_display_brightness(0)[7..9],
+            [0x00, 0x00],
+            "nought is a dark screen"
+        );
+    }
+
+    #[test]
+    fn any_brightness_above_nought_lights_something() {
+        assert!(set_led_brightness(1)[7] > 0);
+        let dim = set_display_brightness(1);
+        assert!(dim[7] > 0 || dim[8] > 0);
     }
 
     #[test]

@@ -35,6 +35,7 @@ pub mod pack;
 pub mod page;
 pub mod permissions;
 pub mod ports;
+pub mod rest;
 pub mod run;
 pub mod sequence;
 pub mod terminal;

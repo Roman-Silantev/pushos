@@ -121,6 +121,13 @@ pub trait PushOutput: Send + Sync + std::fmt::Debug {
 
     /// Turns every light off. Used on shutdown and before handing the device back.
     async fn clear(&self) -> Result<(), PushSurfaceError>;
+
+    /// Sets how bright every light and the screen's backlight are.
+    ///
+    /// Global rather than per control: this is how hard the hardware works,
+    /// not what any control says. Levels are percentages of the hardware's
+    /// maximum, and a screen at zero is dark.
+    async fn set_brightness(&self, levels: crate::rest::Levels) -> Result<(), PushSurfaceError>;
 }
 
 /// Delivers normalised input from the surface.

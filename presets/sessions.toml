@@ -66,6 +66,18 @@ request = "session.send"
 # panel and Select sends it.
 confirm_requests = true
 
+[surface]
+# A board like this is left on all day. The pads and the screen's backlight are
+# LEDs, which wear with the hours they run bright, and the screen is an LCD,
+# which can keep a trace of a picture held for hours. So PushOS never runs the
+# hardware at full, dims it when nobody has touched it for a while, and turns
+# the screen dark after longer, leaving lit only the pads asking for you.
+# Anything new asking wakes it. A press on a dark surface only wakes it, so
+# nothing happens by accident when you reach for it blind.
+brightness = 70           # percent, while in use
+dim_after_minutes = 10    # 0 never dims
+sleep_after_minutes = 30  # 0 never goes dark
+
 [sessions]
 # Nothing tells PushOS when a window opens, so it asks. Three seconds is faster
 # than you open windows and slower than the display is redrawn.

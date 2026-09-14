@@ -47,6 +47,8 @@ pub struct RuntimeConfig {
     pub workflows: Vec<pushos_domain::workflow::Workflow>,
     /// The named runs of several actions, in declaration order.
     pub sequences: Vec<pushos_domain::sequence::Sequence>,
+    /// How hard the hardware works, and when it rests.
+    pub rest: pushos_domain::rest::RestPolicy,
     /// Push to talk, when it is configured.
     pub voice: Option<crate::voice::VoiceSettings>,
     /// Notes, when they are configured.
@@ -86,6 +88,7 @@ impl RuntimeConfig {
         let workspaces = build_workspaces(file, &providers, &page_ids, &mut problems);
         let workflows = build_workflows(file, &mut problems);
         let sequences = build_sequences(file, &mut problems);
+        let rest = build_rest(file, &mut problems);
         let voice = crate::voice::build(file, &mut problems);
         let memory = crate::memory::build(file, &mut problems);
         let workspace_ids: HashSet<String> = workspaces
@@ -114,6 +117,7 @@ impl RuntimeConfig {
             workspaces,
             workflows,
             sequences,
+            rest,
             voice,
             memory,
             watch_sessions: file.sessions.watch,
@@ -144,6 +148,7 @@ impl RuntimeConfig {
             workspaces: Vec::new(),
             workflows: Vec::new(),
             sequences: Vec::new(),
+            rest: pushos_domain::rest::RestPolicy::DEFAULT,
             voice: None,
             memory: None,
             watch_sessions: false,
@@ -319,6 +324,65 @@ fn build_pages(file: &ConfigFile, problems: &mut Vec<Problem>) -> (Vec<Page>, Ha
 ///
 /// A step missing what its kind needs is reported by name rather than skipped,
 /// because a graph with a hole in it is a run that stops halfway.
+/// Builds when the surface dims and sleeps.
+///
+/// Anything left out keeps its default, so a file that only says how bright
+/// it wants the surface still rests.
+fn build_rest(file: &ConfigFile, problems: &mut Vec<Problem>) -> pushos_domain::rest::RestPolicy {
+    use pushos_domain::rest::RestPolicy;
+
+    let section = &file.surface;
+    let mut policy = RestPolicy::DEFAULT;
+
+    if let Some(value) = section.brightness {
+        match u8::try_from(value) {
+            Ok(percent @ 1..=100) => policy.brightness = percent,
+            _ => problems.push(Problem::SurfaceBrightness { value }),
+        }
+    }
+
+    let minutes = |field: &'static str, written: Option<f64>, default: Option<Duration>| {
+        match written {
+            None => Ok(default),
+            Some(value) if !value.is_finite() || value < 0.0 => {
+                Err(Problem::SurfaceMinutes { field, value })
+            }
+            // Nought switches the stage off rather than making it immediate: a
+            // surface that slept the moment it was left would never be awake.
+            Some(0.0) => Ok(None),
+            Some(value) => Ok(Some(Duration::from_secs_f64(value * 60.0))),
+        }
+    };
+
+    match minutes(
+        "dim_after_minutes",
+        section.dim_after_minutes,
+        policy.dim_after,
+    ) {
+        Ok(after) => policy.dim_after = after,
+        Err(problem) => problems.push(problem),
+    }
+    match minutes(
+        "sleep_after_minutes",
+        section.sleep_after_minutes,
+        policy.sleep_after,
+    ) {
+        Ok(after) => policy.sleep_after = after,
+        Err(problem) => problems.push(problem),
+    }
+
+    if let (Some(dim), Some(sleep)) = (policy.dim_after, policy.sleep_after)
+        && sleep <= dim
+    {
+        problems.push(Problem::SurfaceSleepsBeforeDimming {
+            dim: dim.as_secs_f64() / 60.0,
+            sleep: sleep.as_secs_f64() / 60.0,
+        });
+    }
+
+    policy
+}
+
 /// Builds the named runs of several actions, and proves none can reach itself.
 ///
 /// The reachability check is the reason this is done here rather than at the

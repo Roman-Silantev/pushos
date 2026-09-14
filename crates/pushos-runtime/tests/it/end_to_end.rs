@@ -555,3 +555,99 @@ where
     }
     panic!("the condition never became true");
 }
+
+// --- Resting the hardware -------------------------------------------------------
+// A Push 2 left on for a twelve-hour day. Timers here are fractions of a second
+// so the whole cycle runs in a test; the rules are the ones a real half hour
+// gets.
+
+/// A surface that dims after 120 ms and sleeps after 300 ms.
+fn resting() -> String {
+    format!(
+        "{CONFIG}\n[surface]\nbrightness = 60\ndim_after_minutes = 0.002\nsleep_after_minutes = 0.005\n"
+    )
+}
+
+async fn asleep(harness: &Harness) {
+    settle_async(|| async {
+        harness
+            .surface
+            .state()
+            .await
+            .brightness()
+            .is_some_and(|levels| levels.screen == 0)
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn the_hardware_is_never_left_at_the_brightness_it_came_up_at() {
+    let harness = Harness::start(&resting());
+    settle_async(|| async { harness.surface.state().await.brightness().is_some() }).await;
+
+    let levels = harness
+        .surface
+        .state()
+        .await
+        .brightness()
+        .expect("a brightness was set");
+    assert_eq!((levels.lights, levels.screen), (60, 60));
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn left_alone_the_surface_dims_and_then_goes_dark() {
+    let harness = Harness::start(&resting());
+    asleep(&harness).await;
+
+    let state = harness.surface.state().await;
+    let history = state.brightness_history();
+    assert!(
+        history
+            .iter()
+            .any(|levels| levels.screen > 0 && levels.screen < 60),
+        "it dimmed on the way: {history:?}"
+    );
+    assert!(
+        state
+            .last_frame()
+            .is_some_and(|frame| frame.pixels().iter().all(|pixel| *pixel == 0)),
+        "a sleeping screen is black, not the last picture with the light off"
+    );
+    assert_eq!(
+        state.led(ControlId::Pad(pad(0))),
+        Some(LedState::OFF),
+        "a light asking for nobody goes out"
+    );
+    drop(state);
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn a_press_on_a_dark_surface_wakes_it_and_runs_nothing() {
+    let harness = Harness::start(&resting());
+    asleep(&harness).await;
+
+    harness.tap(0).await;
+    settle_async(|| async {
+        harness
+            .surface
+            .state()
+            .await
+            .brightness()
+            .is_some_and(|levels| levels.screen == 60)
+    })
+    .await;
+
+    // Given the moment in which the action would have run, had it been going to.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    assert_eq!(
+        harness.provider.call_count(),
+        0,
+        "a press made blind on a dark surface is a guess"
+    );
+
+    harness.tap(0).await;
+    harness.wait_for_calls(1).await;
+    harness.stop().await;
+}

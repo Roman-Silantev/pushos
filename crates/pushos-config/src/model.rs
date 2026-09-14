@@ -53,6 +53,9 @@ pub struct ConfigFile {
     /// The terminals the operator already had open.
     #[serde(default)]
     pub sessions: SessionSection,
+    /// How hard the hardware works, and when it rests.
+    #[serde(default)]
+    pub surface: SurfaceSection,
 }
 
 impl ConfigFile {
@@ -76,6 +79,37 @@ impl ConfigFile {
         self.voice.merge(other.voice);
         self.memory.merge(other.memory);
         self.sessions.merge(&other.sessions);
+        self.surface.merge(&other.surface);
+    }
+}
+
+/// How hard the hardware works, and when it rests.
+///
+/// For a surface left on all day. Its lights and its screen's backlight are
+/// LEDs, which wear with the hours they spend driven hard, and its screen is an
+/// LCD, which can keep a trace of a picture held for hours.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SurfaceSection {
+    /// Brightness while in use, in percent. Defaults to 70.
+    pub brightness: Option<i64>,
+    /// Minutes untouched before dimming. Defaults to 10; 0 never dims.
+    pub dim_after_minutes: Option<f64>,
+    /// Minutes untouched before the screen goes dark. Defaults to 30; 0 never.
+    pub sleep_after_minutes: Option<f64>,
+}
+
+impl SurfaceSection {
+    fn merge(&mut self, other: &Self) {
+        if other.brightness.is_some() {
+            self.brightness = other.brightness;
+        }
+        if other.dim_after_minutes.is_some() {
+            self.dim_after_minutes = other.dim_after_minutes;
+        }
+        if other.sleep_after_minutes.is_some() {
+            self.sleep_after_minutes = other.sleep_after_minutes;
+        }
     }
 }
 

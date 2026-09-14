@@ -5,6 +5,7 @@ mod attached;
 mod input;
 pub(crate) mod leds;
 mod render;
+mod rest;
 mod sessions;
 pub(crate) mod slots;
 mod surface;

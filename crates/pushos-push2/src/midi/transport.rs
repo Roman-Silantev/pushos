@@ -165,6 +165,21 @@ impl MidiLink {
             )
     }
 
+    /// Queues one system-exclusive message without waiting, and says whether it
+    /// went.
+    ///
+    /// For what is said again whenever it changes, from the async side, where
+    /// waiting for room would hold up a runtime thread. The caller keeps what it
+    /// meant to say and says it again on the next pass if this reports the
+    /// writer behind.
+    pub(crate) fn offer(&self, bytes: Vec<u8>) -> Offered {
+        match self.commands.try_send(MidiCommand::Raw(bytes)) {
+            Ok(()) => Offered::Queued,
+            Err(TrySendError::Full(_)) => Offered::Behind,
+            Err(TrySendError::Disconnected(_)) => Offered::Gone,
+        }
+    }
+
     fn enqueue(&self, command: MidiCommand) {
         match self.commands.try_send(command) {
             Ok(()) => {}
@@ -282,6 +297,17 @@ fn write_loop(mut output: MidiOutputConnection, requests: &mpsc::Receiver<MidiCo
     }
     debug!("MIDI write loop stopped");
     output.close();
+}
+
+/// What happened to a message offered without waiting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Offered {
+    /// It is on its way.
+    Queued,
+    /// The writer has no room; nothing was sent.
+    Behind,
+    /// The writer has stopped, which means the device is gone.
+    Gone,
 }
 
 /// Why a MIDI connection could not be established.

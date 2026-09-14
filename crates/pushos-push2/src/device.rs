@@ -16,6 +16,7 @@ use tracing::info;
 
 use crate::display::usb::{DisplayError, DisplayLink};
 use crate::identity::PortRole;
+use crate::midi::transport::Offered;
 use crate::midi::transport::{MidiError, MidiLink};
 use crate::midi::{encode, palette, sysex};
 
@@ -157,6 +158,31 @@ impl PushOutput for Push2Device {
         let mut blank = DisplayFrame::blank();
         blank.fill(Rgb::BLACK);
         self.present(&blank).await
+    }
+
+    async fn set_brightness(
+        &self,
+        levels: pushos_domain::rest::Levels,
+    ) -> Result<(), PushSurfaceError> {
+        // Offered rather than waited for, because this runs on the async side.
+        // A brightness that did not arrive is reported, not assumed: the caller
+        // says it again, rather than leaving the surface at full all night.
+        for message in [
+            sysex::set_led_brightness(levels.lights),
+            sysex::set_display_brightness(levels.screen),
+        ] {
+            match self.midi.offer(message) {
+                Offered::Queued => {}
+                Offered::Gone => return Err(PushSurfaceError::Disconnected),
+                Offered::Behind => {
+                    return Err(PushSurfaceError::transport(
+                        "the brightness could not be sent",
+                        std::io::Error::other("the MIDI writer is behind"),
+                    ));
+                }
+            }
+        }
+        Ok(())
     }
 }
 

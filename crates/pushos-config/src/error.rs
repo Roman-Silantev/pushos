@@ -225,6 +225,34 @@ pub enum Problem {
     #[error(transparent)]
     Workflow(#[from] pushos_domain::workflow::WorkflowProblem),
 
+    /// The surface was given a brightness it cannot have.
+    #[error("`[surface] brightness` is {value}; it must be between 1 and 100")]
+    SurfaceBrightness {
+        /// What it was given.
+        value: i64,
+    },
+
+    /// A rest timer was given a length of time that is not one.
+    #[error("`[surface] {field}` is {value}; it must be a number of minutes, 0 or more")]
+    SurfaceMinutes {
+        /// Which timer.
+        field: &'static str,
+        /// What it was given.
+        value: f64,
+    },
+
+    /// The surface would go dark before it dimmed.
+    #[error(
+        "`[surface] sleep_after_minutes` ({sleep}) is not after `dim_after_minutes` ({dim}); \
+         set it later, or set `dim_after_minutes = 0` to go straight to sleep"
+    )]
+    SurfaceSleepsBeforeDimming {
+        /// When it would dim.
+        dim: f64,
+        /// When it would sleep.
+        sleep: f64,
+    },
+
     /// Two sequences share an identity.
     #[error("sequence `{id}` is declared more than once")]
     DuplicateSequence {

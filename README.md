@@ -300,6 +300,33 @@ does by reading the file:
 Run `pushos check` after editing. Every problem is reported at once, each naming
 the binding it came from.
 
+## Leaving it on all day
+
+A Push 2 can sit on a desk showing your sessions for a twelve-hour day, and
+PushOS is built to let it without wearing it out.
+
+The pads, the buttons and the light behind the screen are LEDs. LEDs lose
+brightness with the hours they spend driven hard, and nothing restores that
+afterwards. The screen is an LCD, which can keep a faint trace of a picture
+held for hours; that usually fades, but it is better not to cause it.
+
+So PushOS never runs the hardware at full. After ten minutes untouched it dims,
+still readable. After thirty the screen goes black and every light goes out
+except the pads asking for you, which stay on, dimmed. Anything new asking for
+you wakes the surface. A press on a dark surface only wakes it, and does
+nothing else, so reaching for it blind cannot set anything off.
+
+```toml
+[surface]
+brightness = 70           # percent, while in use
+dim_after_minutes = 10    # 0 never dims
+sleep_after_minutes = 30  # 0 never goes dark
+```
+
+`pushos check` prints what is in force. On USB power alone the Push 2 limits
+its own brightness far below any of this, which is why the screen looks dim
+without its power supply; the settings matter once it is plugged in.
+
 ## Architecture
 
 ```

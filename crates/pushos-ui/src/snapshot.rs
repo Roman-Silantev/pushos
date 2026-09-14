@@ -510,6 +510,29 @@ impl LedPlan {
         &self.states
     }
 
+    /// The same plan with every light out except the ones asking for a person.
+    ///
+    /// What a sleeping surface shows: nothing, unless something needs someone.
+    #[must_use]
+    pub fn only_wanting_a_person(&self) -> Self {
+        Self {
+            states: self
+                .states
+                .iter()
+                .filter(|(_, state)| state.wants_a_person())
+                .copied()
+                .collect(),
+        }
+    }
+
+    /// How many lights are asking for a person.
+    pub fn asking(&self) -> usize {
+        self.states
+            .iter()
+            .filter(|(_, state)| state.wants_a_person())
+            .count()
+    }
+
     /// The entries that differ from `previous`, plus any control `previous` lit
     /// that this plan does not.
     ///
@@ -661,5 +684,36 @@ mod tests {
             Overlay::new("test", "t").with_progress(-5.0).progress,
             Some(0.0)
         );
+    }
+
+    #[test]
+    fn a_sleeping_plan_keeps_only_the_lights_asking_for_a_person() {
+        use pushos_domain::color::StatusColor;
+
+        let light =
+            |status: StatusColor| LedState::new(status.default_rgb(), status.default_animation());
+        let mut plan = LedPlan::new();
+        plan.set(pad(0), light(StatusColor::Idle));
+        plan.set(pad(1), light(StatusColor::Waiting));
+        plan.set(pad(2), light(StatusColor::Working));
+        plan.set(pad(3), light(StatusColor::Failed));
+
+        assert_eq!(plan.asking(), 2);
+        let sleeping = plan.only_wanting_a_person();
+        let kept: Vec<_> = sleeping
+            .states()
+            .iter()
+            .map(|(control, _)| *control)
+            .collect();
+        assert_eq!(kept, [pad(1), pad(3)]);
+
+        // Going to sleep turns the rest off rather than leaving them as they were.
+        let off: Vec<_> = sleeping
+            .changes_from(&plan)
+            .into_iter()
+            .filter(|(_, state)| *state == LedState::OFF)
+            .map(|(control, _)| control)
+            .collect();
+        assert_eq!(off, [pad(0), pad(2)]);
     }
 }

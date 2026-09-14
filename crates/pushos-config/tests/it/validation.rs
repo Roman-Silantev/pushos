@@ -1267,3 +1267,80 @@ fn a_mode_that_is_not_a_mode_is_refused() {
         "{found:?}"
     );
 }
+
+// --- Resting the hardware ----------------------------------------------------
+// A surface left on all day has to be allowed to rest, and the file is where an
+// operator says how. What matters is that an unusable setting is refused rather
+// than quietly becoming a surface that never rests or never wakes.
+
+#[test]
+fn a_surface_rests_by_default_without_being_told_to() {
+    use pushos_domain::rest::RestPolicy;
+    assert_eq!(build("").rest, RestPolicy::DEFAULT);
+}
+
+#[test]
+fn how_bright_and_how_soon_can_all_be_set() {
+    use std::time::Duration;
+
+    let rest = build(
+        r"
+        [surface]
+        brightness = 45
+        dim_after_minutes = 5
+        sleep_after_minutes = 20
+    ",
+    )
+    .rest;
+    assert_eq!(rest.brightness, 45);
+    assert_eq!(rest.dim_after, Some(Duration::from_mins(5)));
+    assert_eq!(rest.sleep_after, Some(Duration::from_mins(20)));
+}
+
+#[test]
+fn a_timer_can_be_part_of_a_minute() {
+    let rest = build("[surface]\ndim_after_minutes = 0.5\n").rest;
+    assert_eq!(rest.dim_after, Some(std::time::Duration::from_secs(30)));
+}
+
+#[test]
+fn nought_minutes_switches_a_stage_off_rather_than_making_it_immediate() {
+    let rest = build("[surface]\ndim_after_minutes = 0\nsleep_after_minutes = 0\n").rest;
+    assert_eq!(rest.dim_after, None);
+    assert_eq!(rest.sleep_after, None);
+}
+
+#[test]
+fn a_brightness_that_would_be_dark_or_impossible_is_refused() {
+    for value in [0, 101, -5] {
+        let found = problems(&format!("[surface]\nbrightness = {value}\n"));
+        assert!(
+            found
+                .iter()
+                .any(|problem| matches!(problem, Problem::SurfaceBrightness { .. })),
+            "{value}: {found:?}"
+        );
+    }
+}
+
+#[test]
+fn a_negative_timer_is_refused() {
+    let found = problems("[surface]\nsleep_after_minutes = -1\n");
+    assert!(
+        found
+            .iter()
+            .any(|problem| matches!(problem, Problem::SurfaceMinutes { .. })),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_surface_that_would_sleep_before_it_dims_is_refused() {
+    let found = problems("[surface]\ndim_after_minutes = 20\nsleep_after_minutes = 10\n");
+    assert!(
+        found
+            .iter()
+            .any(|problem| matches!(problem, Problem::SurfaceSleepsBeforeDimming { .. })),
+        "{found:?}"
+    );
+}
