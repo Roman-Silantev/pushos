@@ -34,15 +34,21 @@ running:
 pushos run
 ```
 
-Then build the application and open it:
+Then install Studio as a Mac app and open it from Spotlight:
 
 ```bash
 npm install
-npm run tauri build
-open "src-tauri/target/release/bundle/macos/PushOS Studio.app"
+npm run app
 ```
 
-That application is self-contained: the interface is compiled into it.
+That builds the application, copies it to `~/Applications/PushOS Studio.app`,
+and deletes the build directory, which is several hundred megabytes for a 3 MB
+app. Pass `-- --keep-build` to keep it. An installed Studio is only replaced by
+another Studio: anything else at that path is left alone.
+
+The application is self-contained: the interface is compiled into it. It is
+signed for this Mac only, which is all it needs, since Studio asks macOS for no
+permissions.
 
 To work on Studio itself:
 

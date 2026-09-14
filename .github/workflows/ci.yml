@@ -101,6 +101,8 @@ jobs:
         working-directory: studio/src-tauri
         run: cargo clippy --all-targets
 
-      - name: Backend builds
-        working-directory: studio/src-tauri
-        run: cargo build
+      # The app itself, built the way `npm run app` builds it: release settings,
+      # unused commands removed, bundled and signed, none of which a
+      # development build exercises.
+      - name: App builds
+        run: npm run tauri build -- --bundles app

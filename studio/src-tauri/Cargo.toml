@@ -8,9 +8,12 @@ license = "Apache-2.0"
 repository = "https://github.com/Roman-Silantev/pushos"
 authors = ["Roman Silantev"]
 
+# An ordinary Rust library, and nothing else. Tauri's template also builds it as
+# a static and a dynamic library, which only iOS and Android load. Studio runs
+# on the Mac, and the static copy alone was 121 MB, kept twice, in every
+# development build.
 [lib]
 name = "pushos_studio"
-crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
 tauri-build = { version = "2.6", features = [] }
@@ -42,3 +45,16 @@ pedantic = { level = "warn", priority = -1 }
 [profile.dev]
 debug = false
 incremental = false
+
+# Studio's release build is the app people open, so it is built for size, the
+# way Tauri's guide recommends. Nearly everything Studio draws is drawn by the
+# system's web view; the Rust half passes requests to PushOS and back, which is
+# too little work for the optimisation level to be noticed.
+#
+# Unwinding is kept, as in PushOS: a command that panics ends that command,
+# where `panic = "abort"` would close Studio and whatever was being edited.
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

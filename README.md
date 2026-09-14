@@ -82,8 +82,8 @@ pushos workspaces # list the projects it knows about
 - **A simulated surface**, so you can work on pages and bindings with no
   hardware attached: `pushos run --fake`. It says so everywhere it appears; a
   stand-in is never presented as a Push 2.
-- **PushOS Studio**, a configuration application that talks to a running PushOS
-  over a local socket. Build it with `npm run tauri build` in
+- **PushOS Studio**, a Mac app for configuring a running PushOS, which it talks
+  to over a local socket. Install it with `npm run app` in
   [`studio/`](studio/).
 - **Agents**, over the Agent Client Protocol. Verified against Claude and Codex.
   A pad names a role, not a session, so it still means something tomorrow.
@@ -186,6 +186,23 @@ microphone and Terminal permissions you grant are kept:
 
 Without one, each install is signed for that build only and macOS asks for the
 permissions again after the next one.
+
+### PushOS Studio
+
+Studio is the app for seeing and changing what every control does. PushOS runs
+without it, and closing it does not stop PushOS. Building it needs Node.js as
+well as Rust:
+
+```bash
+cd studio
+npm install
+npm run app
+```
+
+That builds Studio, puts it in `~/Applications/PushOS Studio.app` beside PushOS
+so Spotlight finds it, and removes what the build left behind. The app is 3 MB
+and builds in under a minute; `npm run app -- --keep-build` keeps the build
+directory for a quicker rebuild. Run it again to update.
 
 ## Configuring
 
