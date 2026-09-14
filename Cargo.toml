@@ -135,26 +135,43 @@ large_enum_variant = "warn"
 mutex_atomic = "warn"
 
 # Development builds are what grows on disk, not the shipped binary. Every test
-# target links the whole dependency graph, and with full debug information each
-# of them carries a copy of it: thirty-six executables, each with every
-# dependency's debug data, is how a build directory reaches tens of gigabytes.
+# target links the whole dependency graph, and each one carried a copy of its
+# debug data: that and incremental sessions are how a build directory reached
+# tens of gigabytes. Measured on this workspace, a clean test build:
 #
-# Line tables are kept for PushOS's own crates, so a panic or a backtrace still
-# names the file and the line. Dependencies carry none: nobody steps through
-# tokio's internals, and their debug data was most of the size.
-[profile.dev]
-debug = "line-tables-only"
+#   full debug information, incremental      2.7 GB
+#   line tables only, incremental off         976 MB
+#   no debug information, incremental off     785 MB
+#
+# Nothing is lost that a failing test needs. A panic's file, line and column
+# are compiled into the panic itself, so they are printed without debug data;
+# only a symbolicated backtrace loses its line numbers.
+#
 # Incremental compilation keeps the previous session of every crate beside the
-# new one, so each rebuild roughly doubled what was on disk. Measured on this
-# workspace: off, a clean build is 1.1 GB instead of 1.9 GB and stays that size
-# across rebuilds instead of reaching 2.4 GB, and an edit to the domain crate at
-# the bottom rebuilds in the same ten seconds either way.
+# new one, so each rebuild roughly doubled what was on disk. Off, the directory
+# stays the size of one build, and an edit to the domain crate at the bottom of
+# the graph rebuilds in the same ten seconds either way.
+[profile.dev]
+debug = false
 incremental = false
 
-[profile.dev.package."*"]
-debug = false
-
+# Optimised for size. The renderer is the busiest code in PushOS and draws a
+# frame in about 0.3 ms at this setting against 0.1 ms at full speed: thousands
+# of frames a second either way, for a display that is sent a few dozen. What it
+# buys is a binary 43% smaller, measured on this workspace:
+#
+#   opt-level 3, thin LTO    9.8 MB
+#   opt-level z, fat LTO     5.6 MB
+#
+# in the same build time. Unwinding is kept: the MIDI, display and storage
+# threads are allowed to fail without taking PushOS down, and `panic = "abort"`
+# would turn each of those into a crash.
+#
+# A build with the optional Whisper engine does its arithmetic on this machine
+# rather than asking macOS, and is worth building for speed instead:
+#   CARGO_PROFILE_RELEASE_OPT_LEVEL=3 cargo build --release --features whisper
 [profile.release]
-lto = "thin"
+opt-level = "z"
+lto = "fat"
 codegen-units = 1
 strip = "symbols"

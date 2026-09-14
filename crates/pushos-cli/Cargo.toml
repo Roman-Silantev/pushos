@@ -12,6 +12,11 @@ authors.workspace = true
 name = "pushos"
 path = "src/main.rs"
 
+[features]
+# Whisper, the speech engine that runs a model on this Mac instead of asking
+# macOS. Off by default: it brings a machine-learning stack with it.
+whisper = ["pushos-voice/whisper"]
+
 [dependencies]
 pushos-domain = { workspace = true }
 pushos-actions = { workspace = true }
