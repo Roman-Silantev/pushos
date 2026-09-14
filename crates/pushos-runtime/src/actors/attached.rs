@@ -167,7 +167,7 @@ pub(crate) fn lines_for(sessions: &[Attached], selected: Option<&AttachedId>) ->
                 session.activity.describe(),
                 tone_for(session.activity),
             )
-            .with_detail(session.device().to_owned());
+            .with_detail(session.detail().to_owned());
 
             if selected.is_some_and(|id| *id == session.id) {
                 line = line.selected();
@@ -196,16 +196,12 @@ mod tests {
     use super::*;
 
     fn session(device: &str, title: &str, busy: bool) -> Attached {
-        Attached {
-            id: AttachedId::new(device),
-            title: title.to_owned(),
-            busy,
-            activity: if busy {
-                pushos_domain::attached::Activity::Working
-            } else {
-                pushos_domain::attached::Activity::Ready
-            },
-        }
+        let activity = if busy {
+            Activity::Working
+        } else {
+            Activity::Ready
+        };
+        Attached::new(device, title, activity, "Terminal")
     }
 
     #[test]

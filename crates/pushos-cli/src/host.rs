@@ -18,7 +18,7 @@ use pushos_domain::ports::{
     WorkspaceMemoryStore,
 };
 use pushos_macos::{
-    AppleScriptMedia, OpenLauncher, ShortcutsCli, SystemProcessRunner, TerminalAppSessions,
+    AppleScriptMedia, MacSessions, OpenLauncher, ShortcutsCli, SystemProcessRunner,
 };
 use pushos_terminal::{PtyTerminals, TerminalSupervisor};
 use pushos_voice::{VoiceListener, VoiceRouter};
@@ -210,7 +210,8 @@ pub(crate) fn memory(
     )))
 }
 
-/// Builds the watcher for terminals the operator already had open.
+/// Builds the watcher for coding sessions PushOS did not start: in tmux, in
+/// Terminal, and wherever Claude Code says its sessions are.
 ///
 /// Returns `None` unless it is switched on, because asking another application
 /// what is open is something macOS will ask the operator to allow, and doing
@@ -220,9 +221,7 @@ pub(crate) fn attached(config: &RuntimeConfig) -> Option<Arc<session::SessionPro
         return None;
     }
 
-    let watcher = Arc::new(TerminalAppSessions::new(Arc::new(
-        SystemProcessRunner::new(),
-    )));
+    let watcher = Arc::new(MacSessions::new(Arc::new(SystemProcessRunner::new())));
     info!(
         watching = watcher.describe(),
         every = ?config.session_poll,

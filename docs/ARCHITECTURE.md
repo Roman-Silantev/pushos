@@ -462,32 +462,60 @@ not cost whatever the operator changed inside it.
 ## What PushOS owns, and what it only watches
 
 A terminal PushOS runs is PushOS's: it knows when the process exits and with
-what status, because it holds the pseudo-terminal. A window the operator
-already had open is not, and never can be, because that pseudo-terminal belongs
-to whoever created it.
+what status, because it holds the pseudo-terminal. A session the operator
+started is not, and never can be, because that pseudo-terminal belongs to
+whoever created it.
 
 Both are useful and they are not the same thing, so they are two ports rather
 than one interface with holes in it. The terminal port promises an exit status;
 the attached one cannot, and does not pretend to. What it offers instead is what
-is genuinely available through a scriptable terminal: what is open, what each
-window calls itself, whether something is running in it, the last of what is on
-screen, and typing.
+is genuinely available from outside: what is open, what each session calls
+itself, what it appears to be doing, the last of what is on screen, and typing.
 
-Three decisions worth stating:
+It is answered by three sources, each good at what the others cannot do:
+
+- **tmux** keeps sessions running with no window attached, by name. PushOS can
+  start one there for a pad, type into it and read it without bringing anything
+  to the front, and the operator opens it in any terminal. Even these are not
+  PushOS's: tmux keeps them, and they outlive PushOS.
+- **Terminal** is scriptable, so the tabs an operator already had open can be
+  read and typed into.
+- **Claude Code** publishes what each of its sessions is doing through
+  `claude agents --json`, wherever the session runs. That is a fact rather than
+  a reading of somebody's screen, and it reaches sessions in an editor that
+  PushOS has no way to type into.
+
+One look asks all three at once, and a pure function merges what they saw, so
+a Claude Code session in a Terminal tab, or a tmux session open in a window, is
+one session rather than two. The merge is where every rule about who is
+believed lives, and it is tested without touching the machine.
+
+Decisions worth stating:
 
 - **A session is identified by its terminal device**, which is the one thing it
-  cannot change about itself. A binding may also name one by part of its title,
-  because that is what an operator remembers: they know which window is the
-  sprint work, not which one is on `ttys004`.
-- **Nothing here ever asks for attention.** PushOS cannot tell whether one of
-  these wants something, and a surface crying out about eight windows at once
-  would be worse than a quiet one.
+  cannot change about itself. One on no device PushOS can see, such as a coding
+  agent in an editor's panel, is identified by its host instead. A binding may
+  name one by its tmux name, which is the form that survives a restart, or by
+  part of its title, because that is what an operator remembers.
+- **What a session says about itself beats what its screen looks like.** The
+  screen is read only where nothing better describes a session, and then
+  reluctantly: it reports that a person is wanted only for something that is
+  plainly a question. The one thing only a screen can tell is that something
+  was typed and not sent.
+- **Only a question asks for attention.** A session waiting on a decision
+  blinks amber; one that is merely there leaves its pad dark, because a surface
+  crying out about eight windows at once would be worse than a quiet one.
+- **Asking is paid for only when something changed.** Claude Code rewrites a
+  small file for a session whenever its state changes, so seeing those files
+  unchanged costs a directory listing and `claude agents` is not run again. It
+  is still run once a minute, for a session that crashed and left its file.
 - **Nothing is watched unless the operator asked.** Reading another
   application means asking macOS for permission to control it, and doing that
   unbidden on a machine with no interest in the feature would be rude.
 
-Every script is fixed text with values passed as arguments, so nothing a window
-titles itself can change what runs.
+Every AppleScript is fixed text with values passed as arguments, and every tmux
+command is an argument vector, so nothing a session titles itself, and nothing
+typed into one, can change what runs.
 
 ## The panel is 960 by 160, and that decides the design
 

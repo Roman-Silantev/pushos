@@ -5,6 +5,12 @@
 //! none of this, so it can only ask what is there, read what is on screen and
 //! type. Pretending the two were the same interface would mean promising
 //! things about these that cannot be kept.
+//!
+//! Even a session this opens is not PushOS's. It asks a program that keeps
+//! sessions running by themselves to start one, and that program keeps it
+//! whether or not PushOS is still running.
+
+use std::path::PathBuf;
 
 use async_trait::async_trait;
 
@@ -41,16 +47,48 @@ pub trait AttachedSessions: Send + Sync + std::fmt::Debug {
     /// a suggestion is Tab and nothing else, and a Tab followed by a return
     /// would accept it and send it, which is not the same instruction.
     ///
-    /// This brings the window to the front, because a key press goes to
-    /// whatever is in front. That is visible and deliberate rather than
-    /// hidden.
+    /// Where the host can only deliver a key to whatever is in front, this
+    /// brings the window to the front first. That is visible and deliberate
+    /// rather than hidden.
     async fn press(&self, session: &AttachedId, key: Key) -> Result<(), AttachError>;
 
-    /// Brings a session's window to the front.
+    /// Brings a session's window to the front, opening one onto it when a
+    /// session that outlives its windows has none.
     async fn focus(&self, session: &AttachedId) -> Result<(), AttachError>;
+
+    /// Starts a session under a name, or finds the one already kept under it.
+    ///
+    /// Finding rather than failing, so one pad both starts a worker and comes
+    /// back to it: the second press is the same request as the first.
+    async fn open(&self, request: &OpenSession) -> Result<Opened, AttachError>;
 
     /// What this adapter watches, for the log and for `doctor`.
     fn describe(&self) -> &str;
+}
+
+/// A session to start, or to find if it is already running.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OpenSession {
+    /// What it is kept and called by. See
+    /// [`is_session_name`](crate::attached::is_session_name).
+    pub name: String,
+    /// Where it starts. The home directory when not given.
+    pub directory: Option<PathBuf>,
+    /// What to type into its shell once it has started, such as `claude`.
+    ///
+    /// Typed rather than run in its place, so a session outlives the program:
+    /// when an agent exits, what is left is a shell in the same folder rather
+    /// than a window that closed.
+    pub command: Option<String>,
+}
+
+/// A session that was asked for.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Opened {
+    /// The session.
+    pub id: AttachedId,
+    /// Whether it was started now, rather than found already running.
+    pub started: bool,
 }
 
 /// A key a pad can press in a session.
@@ -151,6 +189,21 @@ pub enum AttachError {
         session: AttachedId,
     },
 
+    /// PushOS can see the session but has no way to type into it.
+    ///
+    /// Its own kind because the fix is the operator's to make, and specific:
+    /// answer it where it is, or run the next one somewhere PushOS can reach.
+    #[error(
+        "PushOS can see `{session}` in {host} but cannot type into it; answer it there, \
+         or run it in tmux or Terminal to drive it from the Push"
+    )]
+    Unreachable {
+        /// Which one was asked for.
+        session: AttachedId,
+        /// What it is running in.
+        host: String,
+    },
+
     /// Nothing here can see other terminals.
     #[error("{context}")]
     Unavailable {
@@ -177,7 +230,9 @@ impl AttachError {
         use crate::error::ErrorClass;
         match self {
             Self::NotPermitted { .. } => ErrorClass::Permission,
-            Self::Gone { .. } | Self::Unavailable { .. } => ErrorClass::Validation,
+            Self::Gone { .. } | Self::Unreachable { .. } | Self::Unavailable { .. } => {
+                ErrorClass::Validation
+            }
             Self::Backend { class, .. } => *class,
         }
     }

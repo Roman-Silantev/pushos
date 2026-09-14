@@ -5,9 +5,15 @@
 # pseudo-terminal belongs to whoever created it. What it can do is watch them
 # and type into them, which is most of what a surface is for.
 #
+# Sessions are found in tmux, in Terminal, and in Claude Code's own list of its
+# sessions, so one running in VS Code or Cursor is on a pad too. PushOS can show
+# that one and take you to it, but only sessions in tmux or Terminal can be
+# typed into from here. To keep a worker on a pad, see `session.open` in the
+# README.
+#
 # The first time you run this, macOS asks whether PushOS may control Terminal.
-# Say yes; that permission is what makes all of this work, and `pushos doctor`
-# reports on it.
+# Say yes; that permission is what makes reading and typing into its tabs work,
+# and `pushos doctor` reports on it, and on tmux and Claude Code.
 #
 # --- The map -----------------------------------------------------------------
 #

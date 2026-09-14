@@ -12,12 +12,6 @@ use pushos_domain::ports::{ProcessOutcome, ProcessRunner, ProcessSpec};
 use tokio::process::Command;
 use tracing::debug;
 
-/// How much of each output stream is kept for reporting.
-///
-/// PushOS shows failures on a 960 by 160 display and writes them to the log; it
-/// is not a terminal emulator, so unbounded capture would be waste.
-const CAPTURE_LIMIT: usize = 8 * 1024;
-
 /// Runs programs through the operating system.
 #[derive(Debug, Default, Clone, Copy)]
 pub struct SystemProcessRunner;
@@ -72,22 +66,22 @@ impl ProcessRunner for SystemProcessRunner {
 
         Ok(ProcessOutcome {
             exit_code: output.status.code(),
-            stdout_tail: tail(&output.stdout),
-            stderr_tail: tail(&output.stderr),
+            stdout_tail: tail(&output.stdout, spec.capture),
+            stderr_tail: tail(&output.stderr, spec.capture),
         })
     }
 }
 
 /// Keeps the end of a stream, which is where a failure's explanation is.
-fn tail(bytes: &[u8]) -> String {
+fn tail(bytes: &[u8], limit: usize) -> String {
     let text = String::from_utf8_lossy(bytes);
-    if text.len() <= CAPTURE_LIMIT {
+    if text.len() <= limit {
         return text.into_owned();
     }
     let start = text
         .char_indices()
         .rev()
-        .take_while(|(index, _)| text.len() - index <= CAPTURE_LIMIT)
+        .take_while(|(index, _)| text.len() - index <= limit)
         .last()
         .map_or(0, |(index, _)| index);
     text[start..].to_owned()
@@ -176,9 +170,27 @@ mod tests {
 
     #[test]
     fn capture_keeps_the_end_of_a_long_stream_on_a_character_boundary() {
-        let long = "é".repeat(CAPTURE_LIMIT);
-        let kept = tail(long.as_bytes());
-        assert!(kept.len() <= CAPTURE_LIMIT);
+        let limit = ProcessSpec::DEFAULT_CAPTURE;
+        let long = "é".repeat(limit);
+        let kept = tail(long.as_bytes(), limit);
+        assert!(kept.len() <= limit);
         assert!(long.ends_with(&kept), "the tail, not the head, is kept");
+    }
+
+    #[tokio::test]
+    async fn a_program_whose_output_is_the_answer_can_keep_all_of_it() {
+        let spec = ProcessSpec::new(
+            "/bin/sh",
+            [
+                "-c".to_owned(),
+                "head -c 20000 /dev/zero | tr '\\0' x".to_owned(),
+            ],
+        )
+        .capturing(64 * 1024);
+        let outcome = SystemProcessRunner::new()
+            .run(&spec)
+            .await
+            .expect("sh runs");
+        assert_eq!(outcome.stdout_tail.len(), 20_000);
     }
 }

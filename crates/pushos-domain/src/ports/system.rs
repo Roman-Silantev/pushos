@@ -96,11 +96,20 @@ pub struct ProcessSpec {
     pub cwd: Option<PathBuf>,
     /// How long to wait before giving up.
     pub timeout: Duration,
+    /// How much of each output stream to keep, in bytes, counted from the end.
+    pub capture: usize,
 }
 
 impl ProcessSpec {
     /// The default budget for a foreground action.
     pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(120);
+
+    /// How much output is kept by default.
+    ///
+    /// Enough for a failure's explanation, which is at the end of a stream.
+    /// PushOS shows failures on a 960 by 160 display and writes them to the
+    /// log; it is not a terminal emulator, so unbounded capture would be waste.
+    pub const DEFAULT_CAPTURE: usize = 8 * 1024;
 
     /// Builds a specification with the default budget.
     pub fn new(program: impl Into<String>, args: impl IntoIterator<Item = String>) -> Self {
@@ -109,6 +118,7 @@ impl ProcessSpec {
             args: args.into_iter().collect(),
             cwd: None,
             timeout: Self::DEFAULT_TIMEOUT,
+            capture: Self::DEFAULT_CAPTURE,
         }
     }
 
@@ -123,6 +133,16 @@ impl ProcessSpec {
     #[must_use]
     pub const fn within(mut self, timeout: Duration) -> Self {
         self.timeout = timeout;
+        self
+    }
+
+    /// Keeps more or less of the output than the default.
+    ///
+    /// For a program whose output is the answer rather than a report, where
+    /// losing the front of it would lose data rather than context.
+    #[must_use]
+    pub const fn capturing(mut self, bytes: usize) -> Self {
+        self.capture = bytes;
         self
     }
 }

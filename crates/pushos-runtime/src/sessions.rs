@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use pushos_agents::AgentSupervisor;
 use pushos_api::SessionSource;
 use pushos_api::protocol::{SessionInfo, SessionKind};
+use pushos_domain::attached::AttachedTarget;
 use pushos_terminal::TerminalSupervisor;
 use pushos_workflows::WorkflowEngine;
 
@@ -136,12 +137,18 @@ impl SessionSource for AttachedSessions {
                 // into.
                 live: true,
                 selected: selected.as_ref() == Some(&session.id),
-                target: format!("device:{}", session.id),
-                // The title moves as the work does, so there is no durable
-                // name. A pad names a position instead, which is what the
-                // preset binds.
-                standing_target: None,
-                detail: Some(session.device().to_owned()),
+                // Written the way a binding reads it back. This was once
+                // `device:…`, which nothing read, so a control bound from
+                // Studio never found its session.
+                target: AttachedTarget::exactly(&session).to_string(),
+                // Only a session kept under a name has a name that still means
+                // it tomorrow. A title moves as the work does, and a device
+                // goes with its window.
+                standing_target: session
+                    .name
+                    .as_ref()
+                    .map(|name| AttachedTarget::Named(name.clone()).to_string()),
+                detail: Some(session.detail().to_owned()),
                 workspace: None,
             })
             .collect()
@@ -188,6 +195,7 @@ impl SessionSource for RunSessions {
 
 #[cfg(test)]
 mod tests {
+    use pushos_domain::ports::AttachedSessions as _;
     use pushos_terminal::OpenTerminal;
     use pushos_testkit::{FakeTerminal, RecordingTerminalObserver};
 
@@ -256,5 +264,47 @@ mod tests {
                 .await
                 .is_empty()
         );
+    }
+
+    #[tokio::test]
+    async fn the_target_studio_is_offered_finds_the_session_it_describes() {
+        // The bug this guards: attached sessions were offered `device:…`,
+        // which the session namespace read as words in a title, so a control
+        // bound from Studio never found its session.
+        use pushos_domain::attached::{Activity, Attached};
+
+        let fake = pushos_testkit::FakeAttached::holding([
+            Attached::new("/dev/ttys003", "✳ Sprint 2", Activity::Ready, "Terminal"),
+            Attached::new("/dev/ttys006", "✳ Fix login", Activity::Working, "tmux")
+                .named("client-1"),
+            Attached::new("claude:0d2c", "nemo-claw-0a", Activity::Ready, "Cursor").watched_only(),
+        ]);
+        let provider = Arc::new(pushos_actions::providers::session::SessionProvider::new(
+            Arc::new(fake.clone()),
+        ));
+        let described = AttachedSessions::new(Arc::clone(&provider))
+            .sessions()
+            .await;
+        let open = fake.discover().await.expect("the fake lists them");
+
+        assert_eq!(described.len(), 3);
+        for (info, session) in described.iter().zip(&open) {
+            let target: AttachedTarget = info.target.parse().expect("a target a binding reads");
+            assert!(
+                target.matches(session),
+                "`{}` must find `{}`",
+                info.target,
+                session.id
+            );
+        }
+        assert_eq!(
+            described[1].standing_target.as_deref(),
+            Some("name:client-1")
+        );
+        assert_eq!(
+            described[0].standing_target, None,
+            "a device goes with its window"
+        );
+        assert_eq!(described[2].detail.as_deref(), Some("Cursor"));
     }
 }

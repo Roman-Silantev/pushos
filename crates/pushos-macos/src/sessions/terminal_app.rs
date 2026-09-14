@@ -1,9 +1,8 @@
-//! Watching the terminals the operator already had open.
+//! Watching the terminals the operator already had open in Terminal.
 //!
-//! Terminal.app is scriptable, and every tab reports the device it is attached
-//! to, whether something is running in it, and what it calls itself. That is
-//! enough to put eight coding sessions on eight pads without closing any of
-//! them.
+//! Terminal is scriptable, and every tab reports the device it is attached to
+//! and what it calls itself. That is enough to put eight coding sessions on
+//! eight pads without closing any of them.
 //!
 //! PushOS does not own these. It cannot know their exit status, it is not told
 //! when one closes, and what it reads is what is on screen rather than a
@@ -12,17 +11,15 @@
 
 use std::sync::Arc;
 
-use async_trait::async_trait;
-use pushos_domain::attached::{Attached, activity_of};
 use pushos_domain::error::{ActionError, ErrorClass};
 use pushos_domain::ids::AttachedId;
-use pushos_domain::ports::{AttachError, AttachedSessions, Key, ProcessRunner};
-use tracing::{debug, warn};
+use pushos_domain::ports::{AttachError, Key, ProcessRunner};
+use tracing::warn;
 
 use crate::script::ScriptRunner;
 
 /// The application PushOS watches.
-const APPLICATION: &str = "Terminal";
+pub(super) const APPLICATION: &str = "Terminal";
 
 /// Separates the fields of one tab in a reply.
 ///
@@ -37,9 +34,11 @@ const RECORD: char = '\u{1e}';
 ///
 /// One script for all of them rather than one per tab: asking costs a
 /// subprocess and this runs every few seconds, so eight windows must not mean
-/// nine processes.
+/// nine processes. Nothing is asked of Terminal when it is not running, because
+/// asking would start it, and an operator who quit it wants it quit.
 const DISCOVER: &str = r#"on run argv
   set most to (item 1 of argv) as integer
+  if application "Terminal" is not running then return ""
   set out to ""
   tell application "Terminal"
     repeat with w in windows
@@ -54,7 +53,7 @@ const DISCOVER: &str = r#"on run argv
               set seen to h
             end if
           end try
-          set out to out & ((tty of t) as text) & (ASCII character 31) & ((busy of t) as text) & (ASCII character 31) & ((custom title of t) as text) & (ASCII character 31) & seen & (ASCII character 30)
+          set out to out & ((tty of t) as text) & (ASCII character 31) & ((custom title of t) as text) & (ASCII character 31) & seen & (ASCII character 30)
         end try
       end repeat
     end repeat
@@ -155,15 +154,40 @@ const FOCUS: &str = r#"on run argv
   return ""
 end run"#;
 
+/// Opens a new window running one command line.
+///
+/// The line is built by PushOS from a program's path and a validated name,
+/// each quoted for the shell, and passed in as an argument like everything
+/// else here.
+const OPEN: &str = r#"on run argv
+  set command to item 1 of argv
+  tell application "Terminal"
+    do script command
+    activate
+  end tell
+  return "opened"
+end run"#;
+
+/// One tab, as Terminal described it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct Tab {
+    /// The device it is attached to.
+    pub(super) device: String,
+    /// What it calls itself.
+    pub(super) title: String,
+    /// The last of what is on it.
+    pub(super) screen: String,
+}
+
 /// The terminals the operator already had open.
 #[derive(Debug, Clone)]
-pub struct TerminalAppSessions {
+pub(super) struct TerminalApp {
     scripts: ScriptRunner,
 }
 
-impl TerminalAppSessions {
-    /// Builds a watcher over Terminal.app.
-    pub fn new(processes: Arc<dyn ProcessRunner>) -> Self {
+impl TerminalApp {
+    /// Builds a watcher over Terminal.
+    pub(super) fn new(processes: Arc<dyn ProcessRunner>) -> Self {
         Self {
             scripts: ScriptRunner::new(processes),
         }
@@ -176,21 +200,19 @@ impl TerminalAppSessions {
             .await
             .map_err(into_attach_error)
     }
-}
 
-#[async_trait]
-impl AttachedSessions for TerminalAppSessions {
-    async fn discover(&self) -> Result<Vec<Attached>, AttachError> {
+    /// Every tab, in order of device.
+    pub(super) async fn tabs(&self) -> Result<Vec<Tab>, AttachError> {
         let reply = self.ask(DISCOVER, &[GLANCE.to_string()]).await?;
 
         let records = reply.split(RECORD).filter(|r| !r.trim().is_empty()).count();
-        let mut found: Vec<Attached> = reply.split(RECORD).filter_map(parse).collect();
+        let mut found: Vec<Tab> = reply.split(RECORD).filter_map(parse).collect();
 
         // By device, which is the one thing a window cannot change about
         // itself. Terminal answers in whatever order it likes, and a pad that
         // meant a different session each time it was polled would be worse
         // than no pad at all.
-        found.sort_by(|left, right| left.id.as_str().cmp(right.id.as_str()));
+        found.sort_by(|left, right| left.device.cmp(&right.device));
 
         // A reply too long to hand back is cut from the front, which loses
         // whole windows silently. Saying so beats an operator counting seven
@@ -201,86 +223,92 @@ impl AttachedSessions for TerminalAppSessions {
                 records, "some terminals could not be read; the reply was too long"
             );
         }
-
-        debug!(sessions = found.len(), "found terminals already open");
         Ok(found)
     }
 
-    async fn read(&self, session: &AttachedId, most: usize) -> Result<String, AttachError> {
+    /// The last of what one tab has on screen.
+    pub(super) async fn read(&self, device: &str, most: usize) -> Result<String, AttachError> {
         let reply = self
-            .ask(READ, &[session.to_string(), most.max(1).to_string()])
+            .ask(READ, &[device.to_owned(), most.max(1).to_string()])
             .await?;
-        if reply.is_empty() {
-            return Err(AttachError::Gone {
-                session: session.clone(),
-            });
-        }
-        Ok(reply)
+        found(reply, device)
     }
 
-    async fn send(&self, session: &AttachedId, text: &str) -> Result<(), AttachError> {
+    /// Types a line into one tab.
+    pub(super) async fn send(&self, device: &str, text: &str) -> Result<(), AttachError> {
         let reply = self
-            .ask(SEND, &[session.to_string(), text.to_owned()])
+            .ask(SEND, &[device.to_owned(), text.to_owned()])
             .await?;
-        if reply.is_empty() {
-            return Err(AttachError::Gone {
-                session: session.clone(),
-            });
-        }
-        Ok(())
+        found(reply, device).map(drop)
     }
 
-    async fn press(&self, session: &AttachedId, key: Key) -> Result<(), AttachError> {
+    /// Presses a key in one tab, bringing it to the front.
+    pub(super) async fn press(&self, device: &str, key: Key) -> Result<(), AttachError> {
         let reply = self
-            .ask(PRESS, &[session.to_string(), key_code(key).to_string()])
+            .ask(PRESS, &[device.to_owned(), key_code(key).to_string()])
             .await?;
-        if reply.is_empty() {
-            return Err(AttachError::Gone {
-                session: session.clone(),
-            });
-        }
-        Ok(())
+        found(reply, device).map(drop)
     }
 
-    async fn focus(&self, session: &AttachedId) -> Result<(), AttachError> {
-        let reply = self.ask(FOCUS, &[session.to_string()]).await?;
-        if reply.is_empty() {
-            return Err(AttachError::Gone {
-                session: session.clone(),
-            });
-        }
-        Ok(())
+    /// Brings one tab to the front.
+    pub(super) async fn focus(&self, device: &str) -> Result<(), AttachError> {
+        let reply = self.ask(FOCUS, &[device.to_owned()]).await?;
+        found(reply, device).map(drop)
     }
 
-    fn describe(&self) -> &str {
-        APPLICATION
+    /// Opens a new window running `arguments` as one command.
+    pub(super) async fn open_window(&self, arguments: &[String]) -> Result<(), AttachError> {
+        let line = arguments
+            .iter()
+            .map(|argument| quoted(argument))
+            .collect::<Vec<_>>()
+            .join(" ");
+        // `exec`, so the window is the command: leaving it leaves no idle shell
+        // behind, and the session it showed carries on without it.
+        self.ask(OPEN, &[format!("exec {line}")]).await.map(drop)
     }
+}
+
+/// An empty reply means the script looked and found no such tab.
+fn found(reply: String, device: &str) -> Result<String, AttachError> {
+    if reply.is_empty() {
+        return Err(AttachError::Gone {
+            session: AttachedId::new(device),
+        });
+    }
+    Ok(reply)
 }
 
 /// Reads one tab out of a reply.
 ///
 /// A record missing its fields is skipped rather than failing the listing: one
 /// tab PushOS cannot read should not hide the other seven.
-fn parse(record: &str) -> Option<Attached> {
+fn parse(record: &str) -> Option<Tab> {
     let mut fields = record.trim().split(FIELD);
     let device = fields.next()?.trim();
     if !device.starts_with(DEVICE_PREFIX) {
         return None;
     }
 
-    let busy = fields.next().unwrap_or("false").trim();
     let title = fields.next().unwrap_or_default().trim();
     // The rest of the record is the screen, which may contain anything at all
     // including the field separator if a program drew one, so it is whatever
     // is left rather than the next field.
-    let seen: String = fields.collect::<Vec<_>>().join(&FIELD.to_string());
+    let screen: String = fields.collect::<Vec<_>>().join(&FIELD.to_string());
 
-    Some(Attached {
-        id: AttachedId::new(device),
-        activity: activity_of(title, &seen),
+    Some(Tab {
+        device: device.to_owned(),
         title: title.to_owned(),
-        busy: busy.eq_ignore_ascii_case("true"),
+        screen,
     })
+}
+
+/// Quotes one argument for the shell a new window runs.
+///
+/// Single quotes, inside which a shell interprets nothing, with any single
+/// quote in the argument closed, escaped and reopened.
+fn quoted(argument: &str) -> String {
+    format!("'{}'", argument.replace('\'', r"'\''"))
 }
 
 /// The virtual key code macOS uses for a key.
@@ -314,78 +342,47 @@ mod tests {
 
     use super::*;
 
-    fn watcher(processes: &FakeProcesses) -> TerminalAppSessions {
-        TerminalAppSessions::new(Arc::new(processes.clone()))
+    fn terminal(processes: &FakeProcesses) -> TerminalApp {
+        TerminalApp::new(Arc::new(processes.clone()))
     }
 
-    fn record(device: &str, busy: &str, title: &str) -> String {
-        with_screen(device, busy, title, "❯ ")
-    }
-
-    fn with_screen(device: &str, busy: &str, title: &str, screen: &str) -> String {
-        format!("{device}{FIELD}{busy}{FIELD}{title}{FIELD}{screen}{RECORD}")
+    fn record(device: &str, title: &str, screen: &str) -> String {
+        format!("{device}{FIELD}{title}{FIELD}{screen}{RECORD}")
     }
 
     #[test]
-    fn a_reply_becomes_the_sessions_it_describes() {
+    fn a_reply_becomes_the_tabs_it_describes() {
         let reply = format!(
             "{}{}",
-            record("/dev/ttys003", "true", "✳ Sprint 2 setup"),
-            record("/dev/ttys004", "false", "◐ Push OS system")
+            record("/dev/ttys003", "✳ Sprint 2 setup", "❯ "),
+            record("/dev/ttys004", "◐ Push OS system", "Proceed?\n❯ 1. Yes")
         );
-        let found: Vec<Attached> = reply.split(RECORD).filter_map(parse).collect();
+        let found: Vec<Tab> = reply.split(RECORD).filter_map(parse).collect();
 
         assert_eq!(found.len(), 2);
-        assert_eq!(found[0].id.as_str(), "/dev/ttys003");
-        assert!(found[0].busy);
-        assert_eq!(found[0].label(), "Sprint 2 setup");
-        assert!(!found[1].busy);
+        assert_eq!(found[0].device, "/dev/ttys003");
+        assert_eq!(found[0].title, "✳ Sprint 2 setup");
+        assert_eq!(found[1].screen, "Proceed?\n❯ 1. Yes");
     }
 
     #[test]
-    fn what_a_session_is_doing_is_read_while_looking_at_what_is_open() {
-        // One script for all of them. Eight windows must not mean nine
-        // processes every three seconds.
-        let reply = format!(
-            "{}{}",
-            with_screen("/dev/ttys003", "true", "◐ Working now", "❯ "),
-            with_screen(
-                "/dev/ttys004",
-                "true",
-                "✳ Asking",
-                "Proceed?\n❯ 1. Yes\n  2. No"
-            )
-        );
-        let found: Vec<Attached> = reply.split(RECORD).filter_map(parse).collect();
-
-        assert_eq!(
-            found[0].activity,
-            pushos_domain::attached::Activity::Working
-        );
-        assert_eq!(
-            found[1].activity,
-            pushos_domain::attached::Activity::NeedsDecision
-        );
-    }
-
-    #[test]
-    fn a_screen_containing_the_separator_does_not_become_another_session() {
+    fn a_screen_containing_the_separator_does_not_become_another_tab() {
         // A program may draw anything, including the character used to split
         // the fields. The screen is whatever is left, not the next field.
         let odd = format!("some output{FIELD}more output");
-        let reply = with_screen("/dev/ttys003", "true", "✳ Odd", &odd);
-        let found: Vec<Attached> = reply.split(RECORD).filter_map(parse).collect();
+        let reply = record("/dev/ttys003", "✳ Odd", &odd);
+        let found: Vec<Tab> = reply.split(RECORD).filter_map(parse).collect();
 
         assert_eq!(found.len(), 1);
-        assert_eq!(found[0].id.as_str(), "/dev/ttys003");
+        assert_eq!(found[0].screen, odd);
     }
 
     #[test]
     fn a_title_containing_anything_at_all_is_still_one_field() {
         // Titles are whatever a program set them to. A tab called "a, b: c"
         // must not become three sessions.
-        let reply = record("/dev/ttys003", "true", "a, b: c | d\ttab");
-        let found: Vec<Attached> = reply.split(RECORD).filter_map(parse).collect();
+        let reply = record("/dev/ttys003", "a, b: c | d\ttab", "");
+        let found: Vec<Tab> = reply.split(RECORD).filter_map(parse).collect();
 
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].title, "a, b: c | d\ttab");
@@ -396,19 +393,26 @@ mod tests {
         // One tab PushOS cannot read should not hide the other seven.
         let reply = format!(
             "{}{}",
-            record("", "true", "broken"),
-            record("/dev/ttys003", "true", "fine")
+            record("", "broken", ""),
+            record("/dev/ttys003", "fine", "")
         );
-        let found: Vec<Attached> = reply.split(RECORD).filter_map(parse).collect();
+        let found: Vec<Tab> = reply.split(RECORD).filter_map(parse).collect();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].title, "fine");
+    }
+
+    #[test]
+    fn looking_never_starts_terminal() {
+        // An operator who quit Terminal wants it quit, and a question asked of
+        // it every three seconds would open it again.
+        assert!(DISCOVER.contains("is not running then return"));
     }
 
     #[tokio::test]
     async fn discovery_runs_a_fixed_script_with_no_arguments() {
         // Nothing a session titles itself can change what runs.
         let processes = FakeProcesses::new();
-        watcher(&processes).discover().await.ok();
+        terminal(&processes).tabs().await.ok();
 
         let spawned = processes.spawned();
         assert_eq!(spawned.len(), 1);
@@ -423,11 +427,8 @@ mod tests {
     #[tokio::test]
     async fn what_is_typed_is_passed_as_an_argument_never_spliced_into_the_script() {
         let processes = FakeProcesses::new();
-        let _ = watcher(&processes)
-            .send(
-                &AttachedId::new("/dev/ttys003"),
-                "\" & (do shell script \"id\") & \"",
-            )
+        let _ = terminal(&processes)
+            .send("/dev/ttys003", "\" & (do shell script \"id\") & \"")
             .await;
 
         let spawned = processes.spawned();
@@ -444,9 +445,7 @@ mod tests {
         // Tab typed as a character is not Tab, and a suggestion would never be
         // accepted.
         let processes = FakeProcesses::new();
-        let _ = watcher(&processes)
-            .press(&AttachedId::new("/dev/ttys003"), Key::Tab)
-            .await;
+        let _ = terminal(&processes).press("/dev/ttys003", Key::Tab).await;
 
         let spawned = processes.spawned();
         assert!(
@@ -465,11 +464,38 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_session_that_has_gone_says_so_rather_than_failing() {
+    async fn a_new_window_runs_each_argument_quoted_for_the_shell() {
+        let processes = FakeProcesses::new();
+        terminal(&processes)
+            .open_window(&[
+                "/opt/home brew/bin/tmux".to_owned(),
+                "attach-session".to_owned(),
+                "-t".to_owned(),
+                "=it's; rm -rf ~".to_owned(),
+            ])
+            .await
+            .expect("the fake succeeds");
+
+        let spawned = processes.spawned();
+        assert_eq!(
+            spawned[0].args[2],
+            r"exec '/opt/home brew/bin/tmux' 'attach-session' '-t' '=it'\''s; rm -rf ~'"
+        );
+    }
+
+    #[test]
+    fn quoting_leaves_nothing_for_a_shell_to_interpret() {
+        assert_eq!(quoted("plain"), "'plain'");
+        assert_eq!(quoted("$(id) `id` \"x\""), "'$(id) `id` \"x\"'");
+        assert_eq!(quoted("it's"), r"'it'\''s'");
+    }
+
+    #[tokio::test]
+    async fn a_tab_that_has_gone_says_so_rather_than_failing() {
         // A window the operator closed is a fact, not a fault.
         let processes = FakeProcesses::new();
-        let error = watcher(&processes)
-            .read(&AttachedId::new("/dev/ttys003"), 200)
+        let error = terminal(&processes)
+            .read("/dev/ttys003", 200)
             .await
             .expect_err("the fake replies with nothing");
         assert!(matches!(error, AttachError::Gone { .. }));
@@ -481,8 +507,8 @@ mod tests {
         let processes = FakeProcesses::new();
         processes.fail_with(ErrorClass::Permission);
 
-        let error = watcher(&processes)
-            .discover()
+        let error = terminal(&processes)
+            .tabs()
             .await
             .expect_err("permission was refused");
         assert!(matches!(error, AttachError::NotPermitted { .. }));

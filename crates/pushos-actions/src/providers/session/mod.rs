@@ -1,21 +1,28 @@
-//! Driving sessions the operator already had open.
+//! Driving sessions the operator already had open, or asked for by name.
 //!
 //! PushOS did not start these and does not own them, so this namespace is
 //! deliberately narrower than the one for terminals PushOS runs. It can say
 //! which one it is looking at, bring one to the front, type into one, and stop
 //! one. It cannot tell you what any of them exited with, because it will never
 //! find out.
+//!
+//! It can also ask for one by name, for a pad that keeps a worker: the first
+//! press starts the session somewhere that keeps it running by itself, and
+//! every press after that comes back to it.
 
+mod lines;
+
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use pushos_domain::action::{ActionContext, ActionResult, ActionStatus, Depth, DisplayIntent};
-use pushos_domain::attached::{Attached, AttachedTarget, BANK};
+use pushos_domain::attached::{Attached, AttachedTarget, BANK, is_session_name};
 use pushos_domain::error::{ActionError, ErrorClass};
 use pushos_domain::ids::{ActionVerb, AttachedId, ProviderName};
 use pushos_domain::permissions::Permission;
 use pushos_domain::ports::{
-    ActionProvider, AttachError, AttachedSessions, Key, ProviderCapabilities,
+    ActionProvider, AttachError, AttachedSessions, Key, OpenSession, ProviderCapabilities,
 };
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -175,6 +182,72 @@ impl SessionProvider {
         Ok(open)
     }
 
+    /// Forgets what was open, so the next question is asked afresh.
+    fn forget(&self) {
+        if let Ok(mut seen) = self.seen.lock() {
+            seen.open = None;
+        }
+    }
+
+    /// Starts the session a pad names, or comes back to it, and looks at it.
+    ///
+    /// A window is opened onto it unless the binding says not to, because a
+    /// worker that started where nobody can see it would look like a pad that
+    /// did nothing.
+    async fn open_named(&self, context: &ActionContext) -> Result<ActionResult, ActionError> {
+        let params = context.params();
+        let name = params.require_text("name")?.trim();
+        if !is_session_name(name) {
+            return Err(ActionError::backend(
+                format!(
+                    "`{name}` cannot name a session; use letters, digits, hyphens and underscores"
+                ),
+                ErrorClass::Validation,
+                std::io::Error::other("unusable session name"),
+            ));
+        }
+        let request = OpenSession {
+            name: name.to_owned(),
+            directory: params.text("cwd").map(PathBuf::from),
+            command: params.text("command").map(ToOwned::to_owned),
+        };
+
+        let opened = self
+            .sessions
+            .open(&request)
+            .await
+            .map_err(into_action_error)?;
+        self.forget();
+        let session = self
+            .open()
+            .await?
+            .into_iter()
+            .find(|session| session.id == opened.id)
+            .ok_or_else(|| invalid("the session started but could not be seen"))?;
+        self.select(&session);
+
+        let window = params
+            .get("window")
+            .and_then(pushos_domain::action::ParamValue::as_flag)
+            .unwrap_or(true);
+        if window {
+            self.sessions
+                .focus(&session.id)
+                .await
+                .map_err(into_action_error)?;
+        }
+
+        let said = if opened.started { "started" } else { "open" };
+        Ok(ActionResult {
+            status: ActionStatus::Completed,
+            message: Some(format!("{} {said}", session.label())),
+            display: Some(DisplayIntent::Toast {
+                title: session.label().to_owned(),
+                detail: Some(said.to_owned()),
+            }),
+        })
+    }
+
     /// The thing that can see other terminals, for whoever has to poll it.
     pub fn watcher(&self) -> Arc<dyn AttachedSessions> {
         Arc::clone(&self.sessions)
@@ -299,7 +372,7 @@ impl SessionProvider {
             .read(&session.id, READ_MOST)
             .await
             .map_err(into_action_error)?;
-        let said = last_lines(&screen, READ_MOST);
+        let said = lines::last_lines(&screen, READ_MOST);
         if let Ok(mut seen) = self.seen.lock() {
             seen.said = Some((session.id.clone(), said.clone(), Instant::now()));
         }
@@ -326,9 +399,9 @@ impl SessionProvider {
             // not use.
             display: Some(DisplayIntent::Focus {
                 kind: if back == 0 {
-                    session.device().to_owned()
+                    session.detail().to_owned()
                 } else {
-                    format!("{} +{back} back", session.device())
+                    format!("{} +{back} back", session.detail())
                 },
                 title: session.label().to_owned(),
                 state: session.activity.describe().to_owned(),
@@ -365,6 +438,7 @@ impl ActionProvider for SessionProvider {
                 "send",
                 "press",
                 "interrupt",
+                "open",
             ]
             .map(ActionVerb::new),
         )
@@ -374,6 +448,8 @@ impl ActionProvider for SessionProvider {
         .verb_requiring(ActionVerb::new("send"), [Permission::ShellExecute])
         .verb_requiring(ActionVerb::new("press"), [Permission::ShellExecute])
         .verb_requiring(ActionVerb::new("interrupt"), [Permission::ShellExecute])
+        // Starting a session types its command into a shell.
+        .verb_requiring(ActionVerb::new("open"), [Permission::ShellExecute])
     }
 
     async fn execute(&self, context: ActionContext) -> Result<ActionResult, ActionError> {
@@ -386,7 +462,7 @@ impl ActionProvider for SessionProvider {
                     message: Some(session.label().to_owned()),
                     display: Some(DisplayIntent::Toast {
                         title: session.label().to_owned(),
-                        detail: Some(session.device().to_owned()),
+                        detail: Some(session.detail().to_owned()),
                     }),
                 })
             }
@@ -518,6 +594,8 @@ impl ActionProvider for SessionProvider {
                 })
             }
 
+            "open" => self.open_named(&context).await,
+
             other => Err(ActionError::UnknownVerb {
                 provider: self.name(),
                 verb: other.to_owned(),
@@ -538,47 +616,6 @@ const READ_MOST: usize = 2_000;
 /// what the scroll knobs move through.
 const SHOWN_LINES: usize = 8;
 
-/// The last few lines that have anything on them.
-///
-/// A terminal's screen is mostly blank and mostly rules, and a coding agent
-/// draws a good deal of chrome besides. What an operator wants is the last few
-/// things that were actually said, so the rules, the empty rows and the status
-/// line at the foot are dropped and the words are kept.
-fn last_lines(screen: &str, most: usize) -> Vec<String> {
-    let mut kept: Vec<String> = screen
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty() && line.chars().any(char::is_alphanumeric))
-        .filter(|line| !is_chrome(line))
-        .map(|line| line.chars().take(WIDEST).collect())
-        .collect();
-
-    if kept.len() > most {
-        kept.drain(..kept.len() - most);
-    }
-    kept
-}
-
-/// How many characters of a line the panel can hold.
-///
-/// Wider than it looks: the panel is 960 pixels and this type is small, so a
-/// line of prose fits whole and only a wrapped paste is cut.
-const WIDEST: usize = 150;
-
-/// Whether a line is the terminal's own furniture rather than something said.
-fn is_chrome(line: &str) -> bool {
-    let trimmed = line.trim();
-    // A row of rule characters, which every agent draws between sections.
-    let ruled = trimmed
-        .chars()
-        .all(|c| matches!(c, '─' | '━' | '═' | '-' | '_' | '·'));
-
-    ruled
-        || trimmed.contains("shift+tab to cycle")
-        || trimmed.starts_with("/clear to save")
-        || trimmed.contains("new task? /clear")
-}
-
 fn invalid(reason: &'static str) -> ActionError {
     ActionError::backend(
         reason,
@@ -593,524 +630,4 @@ fn into_action_error(error: AttachError) -> ActionError {
 }
 
 #[cfg(test)]
-mod tests {
-    use pushos_domain::action::{ActionDefinition, ActionSelector, ParamValue, Params};
-    use pushos_domain::context::SurfaceContext;
-    use pushos_domain::ids::CorrelationId;
-    use pushos_testkit::{FakeAttached, SessionCall};
-
-    use super::*;
-
-    fn rig() -> (SessionProvider, FakeAttached) {
-        let fake = FakeAttached::with_sessions([
-            ("/dev/ttys003", "✳ Sprint 2 setup"),
-            ("/dev/ttys004", "◐ Review project tasks"),
-        ]);
-        (SessionProvider::new(Arc::new(fake.clone())), fake)
-    }
-
-    fn context(verb: &str, target: Option<&str>) -> ActionContext {
-        let mut params = Params::new();
-        if let Some(target) = target {
-            params.set("target", ParamValue::Text(target.into()));
-        }
-        ActionContext::new(
-            ActionDefinition::new(
-                format!("session.{verb}")
-                    .parse::<ActionSelector>()
-                    .expect("valid"),
-                params,
-            ),
-            CorrelationId::generate(),
-            SurfaceContext::empty(),
-        )
-    }
-
-    fn typing(target: &str, text: &str) -> ActionContext {
-        let mut context = context("send", Some(target));
-        context
-            .definition
-            .params
-            .set("text", ParamValue::Text(text.into()));
-        context
-    }
-
-    #[tokio::test]
-    async fn a_pad_can_name_a_session_by_part_of_its_title() {
-        // Which is what an operator remembers: the sprint work, not ttys003.
-        let (provider, _fake) = rig();
-        let result = provider
-            .execute(context("select", Some("sprint")))
-            .await
-            .expect("it is open");
-
-        assert_eq!(result.message.as_deref(), Some("Sprint 2 setup"));
-        assert_eq!(
-            provider.selected().map(|id| id.to_string()),
-            Some("/dev/ttys003".to_owned())
-        );
-    }
-
-    #[tokio::test]
-    async fn a_pad_can_name_a_session_by_its_device() {
-        let (provider, _fake) = rig();
-        provider
-            .execute(context("select", Some("tty:ttys004")))
-            .await
-            .expect("it is open");
-        assert_eq!(
-            provider.selected().map(|id| id.to_string()),
-            Some("/dev/ttys004".to_owned())
-        );
-    }
-
-    #[tokio::test]
-    async fn one_pad_with_no_target_serves_whichever_is_selected() {
-        let (provider, fake) = rig();
-        provider
-            .execute(context("select", Some("review")))
-            .await
-            .expect("it is open");
-
-        provider
-            .execute(typing("selected", "y\n"))
-            .await
-            .expect("typing succeeds");
-
-        assert!(
-            fake.calls().contains(&SessionCall::Sent(
-                "/dev/ttys004".to_owned(),
-                "y\n".to_owned()
-            )),
-            "{:?}",
-            fake.calls()
-        );
-    }
-
-    #[tokio::test]
-    async fn typing_with_nothing_selected_says_so_rather_than_guessing() {
-        // Typing into whichever session happened to be first would be the
-        // worst possible answer to an ambiguous instruction.
-        let (provider, fake) = rig();
-        provider
-            .execute(typing("selected", "y\n"))
-            .await
-            .expect_err("nothing is selected");
-        assert!(
-            !fake
-                .calls()
-                .iter()
-                .any(|call| matches!(call, SessionCall::Sent(..)))
-        );
-    }
-
-    #[tokio::test]
-    async fn interrupting_sends_the_control_character_not_the_word() {
-        let (provider, fake) = rig();
-        provider
-            .execute(context("interrupt", Some("sprint")))
-            .await
-            .expect("it is open");
-
-        assert!(
-            fake.calls().contains(&SessionCall::Sent(
-                "/dev/ttys003".to_owned(),
-                "\u{3}".to_owned()
-            )),
-            "{:?}",
-            fake.calls()
-        );
-    }
-
-    #[tokio::test]
-    async fn showing_a_session_puts_the_last_of_it_on_the_display() {
-        let (provider, fake) = rig();
-        fake.showing(
-            "an older line\n\n────────────\nthe tests are running\n❯ \n────────────\nall 40 passed\n",
-        );
-
-        let result = provider
-            .execute(context("show", Some("sprint")))
-            .await
-            .expect("it is open");
-
-        let Some(DisplayIntent::Focus { lines, title, .. }) = result.display else {
-            panic!("a session should take the whole panel and stay there");
-        };
-        assert_eq!(title, "Sprint 2 setup");
-        assert_eq!(
-            lines.last().map(String::as_str),
-            Some("all 40 passed"),
-            "the last thing said is what matters: {lines:?}"
-        );
-        assert!(lines.len() <= SHOWN_LINES);
-        assert!(
-            !lines.iter().any(|line| line.trim() == "────────────"),
-            "rules are not what was said: {lines:?}"
-        );
-    }
-
-    #[tokio::test]
-    async fn the_terminals_own_furniture_is_not_shown_as_something_said() {
-        // An agent draws a good deal of chrome. Filling the panel with its
-        // rules and its status line would leave no room for the answer.
-        let (provider, fake) = rig();
-        fake.showing(
-            "the actual answer\n\
-             ────────────────\n\
-             ❯ \n\
-             ────────────────\n\
-             new task? /clear to save 739k tokens\n\
-             ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents\n",
-        );
-
-        let result = provider
-            .execute(context("show", Some("sprint")))
-            .await
-            .expect("it is open");
-        let Some(DisplayIntent::Focus { lines, .. }) = result.display else {
-            panic!("focused");
-        };
-        assert_eq!(lines, ["the actual answer"], "{lines:?}");
-    }
-
-    #[tokio::test]
-    async fn a_session_that_was_closed_is_reported_rather_than_failing_oddly() {
-        let (provider, fake) = rig();
-        fake.close("/dev/ttys003");
-
-        let error = provider
-            .execute(context("select", Some("sprint")))
-            .await
-            .expect_err("that window is closed");
-        assert_eq!(error.class(), ErrorClass::Validation);
-        assert!(error.to_string().contains("sprint"), "{error}");
-    }
-
-    #[tokio::test]
-    async fn a_pad_can_press_a_key_rather_than_type_a_line() {
-        // Accepting a suggestion is Tab and nothing else. Typing a line would
-        // accept it and send it, which is a different instruction.
-        let (provider, fake) = rig();
-        let mut context = context("press", Some("sprint"));
-        context
-            .definition
-            .params
-            .set("key", ParamValue::Text("tab".into()));
-
-        provider.execute(context).await.expect("it is open");
-        assert!(
-            fake.calls()
-                .contains(&SessionCall::Pressed("/dev/ttys003".to_owned(), Key::Tab)),
-            "{:?}",
-            fake.calls()
-        );
-    }
-
-    #[tokio::test]
-    async fn a_key_pushos_cannot_press_is_refused_by_name() {
-        let (provider, _fake) = rig();
-        let mut context = context("press", Some("sprint"));
-        context
-            .definition
-            .params
-            .set("key", ParamValue::Text("f13".into()));
-
-        let error = provider
-            .execute(context)
-            .await
-            .expect_err("there is no such key");
-        assert!(error.to_string().contains("f13"), "{error}");
-        assert_eq!(error.class(), ErrorClass::Validation);
-    }
-
-    /// The device a focused view is showing.
-    fn showing(result: &ActionResult) -> String {
-        match &result.display {
-            Some(DisplayIntent::Focus { title, .. }) => title.clone(),
-            other => panic!("expected a focused session, got {other:?}"),
-        }
-    }
-
-    #[tokio::test]
-    async fn turning_through_the_sessions_wraps_and_needs_no_first_choice() {
-        // An operator reaching for an encoder has not chosen anything yet, and
-        // a knob that did nothing until they had would be a knob nobody used.
-        let (provider, _fake) = rig();
-
-        assert_eq!(
-            showing(&provider.execute(context("next", None)).await.unwrap()),
-            "Sprint 2 setup"
-        );
-        assert_eq!(
-            showing(&provider.execute(context("next", None)).await.unwrap()),
-            "Review project tasks"
-        );
-        assert_eq!(
-            showing(&provider.execute(context("next", None)).await.unwrap()),
-            "Sprint 2 setup",
-            "and round again"
-        );
-    }
-
-    #[tokio::test]
-    async fn turning_the_other_way_goes_back() {
-        let (provider, _fake) = rig();
-        assert_eq!(
-            showing(&provider.execute(context("previous", None)).await.unwrap()),
-            "Review project tasks",
-            "starting from the far end"
-        );
-        assert_eq!(
-            showing(&provider.execute(context("previous", None)).await.unwrap()),
-            "Sprint 2 setup"
-        );
-    }
-
-    #[tokio::test]
-    async fn browsing_opens_what_it_arrives_at() {
-        // Turning a knob to browse and seeing nothing change would be a knob
-        // that does nothing.
-        let (provider, _fake) = rig();
-        let result = provider.execute(context("next", None)).await.expect("open");
-        assert!(matches!(result.display, Some(DisplayIntent::Focus { .. })));
-    }
-
-    /// A history longer than the panel holds, numbered so a window is readable.
-    fn said(lines: usize) -> String {
-        use std::fmt::Write as _;
-        (1..=lines).fold(String::new(), |mut screen, line| {
-            let _ = writeln!(screen, "line {line}");
-            screen
-        })
-    }
-
-    /// What the panel is showing, as the numbers of the lines on it.
-    fn window(result: &ActionResult) -> Vec<usize> {
-        let Some(DisplayIntent::Focus { lines, .. }) = &result.display else {
-            panic!("focused");
-        };
-        lines
-            .iter()
-            .map(|line| {
-                line.trim_start_matches("line ")
-                    .parse()
-                    .expect("the fixture numbers its lines")
-            })
-            .collect()
-    }
-
-    async fn moved(provider: &SessionProvider, verb: &str, key: &str, by: i64) -> ActionResult {
-        let mut moving = context(verb, Some("sprint"));
-        moving.definition.params.set(key, ParamValue::Integer(by));
-        provider.execute(moving).await.expect("open")
-    }
-
-    #[tokio::test]
-    async fn scrolling_moves_back_through_what_was_said() {
-        let (provider, fake) = rig();
-        fake.showing(&said(12));
-        provider
-            .execute(context("select", Some("sprint")))
-            .await
-            .expect("open");
-
-        let result = moved(&provider, "scroll", "by", 2).await;
-        assert_eq!(window(&result), [3, 4, 5, 6, 7, 8, 9, 10], "two lines back");
-
-        let Some(DisplayIntent::Focus { kind, .. }) = result.display else {
-            panic!("focused");
-        };
-        assert!(kind.contains("back"), "and it says so: {kind}");
-    }
-
-    #[tokio::test]
-    async fn scrolling_stops_at_each_end_of_what_was_said() {
-        let (provider, fake) = rig();
-        fake.showing(&said(12));
-        provider
-            .execute(context("select", Some("sprint")))
-            .await
-            .expect("open");
-
-        let far = moved(&provider, "scroll", "by", 500).await;
-        assert_eq!(window(&far), [1, 2, 3, 4, 5, 6, 7, 8], "the beginning");
-
-        let forward = moved(&provider, "scroll", "by", -500).await;
-        assert_eq!(
-            window(&forward),
-            [5, 6, 7, 8, 9, 10, 11, 12],
-            "and back to what it is saying now"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_history_that_fits_has_nowhere_to_scroll_to() {
-        let (provider, fake) = rig();
-        fake.showing(&said(4));
-        provider
-            .execute(context("select", Some("sprint")))
-            .await
-            .expect("open");
-
-        let result = moved(&provider, "scroll", "by", 2).await;
-        assert_eq!(window(&result), [1, 2, 3, 4], "all of it, and no moving");
-
-        let Some(DisplayIntent::Focus { depth, .. }) = result.display else {
-            panic!("focused");
-        };
-        assert_eq!(depth, None, "and no bar, because there is nowhere to go");
-    }
-
-    #[tokio::test]
-    async fn the_panel_is_told_where_in_the_history_it_is() {
-        let (provider, fake) = rig();
-        fake.showing(&said(108));
-        provider
-            .execute(context("select", Some("sprint")))
-            .await
-            .expect("open");
-
-        let result = moved(&provider, "scroll", "by", 500).await;
-        let Some(DisplayIntent::Focus { depth, .. }) = result.display else {
-            panic!("focused");
-        };
-        assert_eq!(
-            depth,
-            Some(Depth {
-                back: 100,
-                total: 108
-            }),
-            "so the panel can draw where in it the operator is"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_knob_aimed_at_one_session_does_not_move_another() {
-        // Eight knobs sit above eight columns, and each one moves the column
-        // beneath it. A scroll position belongs to the thing it was scrolling
-        // and there is one of them, so aiming a scroll has to move what it is
-        // aimed at.
-        let (provider, fake) = rig();
-        fake.showing(&said(12));
-        provider
-            .execute(context("select", Some("sprint")))
-            .await
-            .expect("open");
-        moved(&provider, "scroll", "by", 4).await;
-
-        let mut aimed = context("scroll", Some("review"));
-        aimed.definition.params.set("by", ParamValue::Integer(1));
-        let result = provider.execute(aimed).await.expect("open");
-
-        assert_eq!(
-            window(&result),
-            [4, 5, 6, 7, 8, 9, 10, 11],
-            "one line back into the one the knob names, not five into it"
-        );
-        assert_eq!(
-            provider.selected().map(|id| id.to_string()),
-            Some("/dev/ttys004".to_owned()),
-            "and the panel is now showing the one being read"
-        );
-    }
-
-    #[tokio::test]
-    async fn a_button_can_jump_straight_to_one_bank() {
-        // Eight buttons down the right edge stand for eight banks. Walking to
-        // the fifth from the first is four presses; naming it is one.
-        let fake = FakeAttached::with_sessions(
-            (0..20).map(|at| (format!("/dev/ttys{at:03}"), format!("session {at}"))),
-        );
-        let provider = SessionProvider::new(Arc::new(fake));
-
-        let mut third = context("bank", None);
-        third.definition.params.set("to", ParamValue::Integer(3));
-        provider.execute(third).await.expect("open");
-        assert_eq!(provider.showing_from(), 16);
-
-        // Past the end lands on the last bank that has anything in it, rather
-        // than on eight empty pads.
-        let mut far = context("bank", None);
-        far.definition.params.set("to", ParamValue::Integer(8));
-        provider.execute(far).await.expect("open");
-        assert_eq!(
-            provider.showing_from(),
-            16,
-            "twenty sessions is three banks"
-        );
-
-        let mut first = context("bank", None);
-        first.definition.params.set("to", ParamValue::Integer(1));
-        provider.execute(first).await.expect("open");
-        assert_eq!(provider.showing_from(), 0);
-    }
-
-    #[tokio::test]
-    async fn looking_at_something_else_starts_it_at_the_bottom() {
-        // A scroll position belongs to the thing it was scrolling.
-        let (provider, fake) = rig();
-        fake.showing(&said(12));
-        provider
-            .execute(context("select", Some("sprint")))
-            .await
-            .expect("open");
-        moved(&provider, "scroll", "by", 2).await;
-
-        let result = provider
-            .execute(context("show", Some("review")))
-            .await
-            .expect("open");
-        assert_eq!(
-            window(&result),
-            [5, 6, 7, 8, 9, 10, 11, 12],
-            "the new one starts where it is now"
-        );
-    }
-
-    #[tokio::test]
-    async fn only_typing_needs_saying_yes_to() {
-        // Looking at a session changes nothing. Typing into one runs whatever
-        // it makes of the keystrokes.
-        let (provider, _fake) = rig();
-        let capabilities = provider.capabilities();
-
-        for typing in ["send", "press", "interrupt"] {
-            assert_eq!(
-                capabilities.required_for(&ActionVerb::new(typing)),
-                [Permission::ShellExecute],
-                "`{typing}` types into a live session"
-            );
-        }
-        for looking in ["select", "show", "focus"] {
-            assert!(
-                capabilities
-                    .required_for(&ActionVerb::new(looking))
-                    .is_empty(),
-                "`{looking}` only looks"
-            );
-        }
-    }
-
-    #[tokio::test]
-    async fn a_refused_automation_permission_is_reported_as_one() {
-        let (provider, fake) = rig();
-        fake.refuse();
-
-        let error = provider
-            .execute(context("select", Some("sprint")))
-            .await
-            .expect_err("permission was refused");
-        assert_eq!(error.class(), ErrorClass::Permission);
-    }
-
-    #[tokio::test]
-    async fn an_unknown_verb_is_refused_by_name() {
-        let (provider, _fake) = rig();
-        let error = provider
-            .execute(context("restart", None))
-            .await
-            .expect_err("there is no such verb");
-        assert!(matches!(error, ActionError::UnknownVerb { .. }));
-    }
-}
+mod tests;

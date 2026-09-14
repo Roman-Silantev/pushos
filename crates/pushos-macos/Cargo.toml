@@ -12,13 +12,15 @@ authors.workspace = true
 pushos-domain = { workspace = true }
 pushos-actions = { workspace = true }
 async-trait = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["process", "time", "io-util", "fs", "rt", "macros", "sync"] }
 tracing = { workspace = true }
 
 [dev-dependencies]
 pushos-testkit = { workspace = true }
-tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "test-util"] }
 
 [lints]
 workspace = true

@@ -8,7 +8,6 @@ use std::path::Path;
 use std::sync::Arc;
 
 use pushos_config::RuntimeConfig;
-use pushos_domain::ports::AttachedSessions as _;
 use pushos_domain::ports::ProcessRunner;
 use pushos_macos::SystemProcessRunner;
 use pushos_push2::{PortRole, Push2Device};
@@ -139,11 +138,13 @@ fn check_push() -> Finding {
     }
 }
 
-/// Reports whether PushOS can see the terminals already open.
+/// Reports whether PushOS can see the coding sessions it did not start.
 ///
-/// Nothing at all unless the operator asked for it. macOS decides whether one
-/// application may control another, and the answer only arrives by trying, so
-/// this asks.
+/// Nothing at all unless the operator asked for it. Each source is reported on
+/// its own, because each fails for its own reason: Terminal because macOS has
+/// not allowed it, tmux or Claude Code because they are not installed. Only
+/// Terminal refusing blocks anything; the others are ways in that are simply
+/// not there yet.
 async fn check_attached(root: &Path) -> Vec<Finding> {
     let Ok(config) = pushos_config::load(root).and_then(|file| RuntimeConfig::build(&file)) else {
         return Vec::new();
@@ -152,24 +153,24 @@ async fn check_attached(root: &Path) -> Vec<Finding> {
         return Vec::new();
     }
 
-    let watcher = pushos_macos::TerminalAppSessions::new(Arc::new(SystemProcessRunner::new()));
-    match watcher.discover().await {
-        Ok(open) => vec![Finding::new(
-            Verdict::Good,
-            "sessions",
-            format!(
-                "{} terminal(s) open in {}; asking every {:?}",
-                open.len(),
-                watcher.describe(),
-                config.session_poll
-            ),
-        )],
-        Err(error) => vec![Finding::new(
-            Verdict::Blocking,
-            "sessions",
-            error.to_string(),
-        )],
-    }
+    let sessions = pushos_macos::MacSessions::new(Arc::new(SystemProcessRunner::new()));
+    sessions
+        .report()
+        .await
+        .into_iter()
+        .map(|report| {
+            let verdict = match (report.usable, report.source) {
+                (true, _) => Verdict::Good,
+                (false, "Terminal") => Verdict::Blocking,
+                (false, _) => Verdict::Optional,
+            };
+            Finding::new(
+                verdict,
+                "sessions",
+                format!("{}: {}", report.source, report.detail),
+            )
+        })
+        .collect()
 }
 
 /// Reports where notes are kept, when the operator has configured any.

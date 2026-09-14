@@ -102,11 +102,19 @@ pushos workspaces # list the projects it knows about
   wrote means exactly one thing and runs it, and anything else goes to the agent
   you were already working with. Anything irreversible waits for a press,
   because transcription is not authorisation.
-- **The sessions you already have open**, on pads. PushOS reads what each
-  terminal window is working on, shows the last thing it said, and types into
-  whichever one you selected. It did not start them and does not own them: a
-  pseudo-terminal belongs to whoever created it. Watching and typing is most of
-  what a pad is for.
+- **Every coding session on this Mac**, on pads, including the ones you started
+  yourself. PushOS finds them in tmux, in Terminal, and in Claude Code's own
+  list of its sessions, so a Claude Code session in VS Code or Cursor shows up
+  too. Claude Code says what each of its sessions is doing, so a pad blinks
+  amber when one is waiting for you rather than when its screen happens to end
+  in a numbered list; anything else, Codex included, is read from its screen.
+  PushOS shows the last thing each one said and types into whichever you
+  selected. One in an editor's panel it can show and take you to, but not type
+  into, and it says so.
+- **A session per pad**, kept by tmux. The first press starts a named session in
+  a folder and runs your agent in it; every press after that comes back to it.
+  It keeps running when its window is closed and when PushOS restarts, and it
+  opens in any terminal, VS Code's included, with `tmux attach -t` and its name.
 - **Sequences**: several actions behind one gesture. "Start work" can open an
   editor, a terminal and a playlist from one pad. Every step goes through the
   same checks a press does, runs in order and stops at a failure unless marked
@@ -344,6 +352,41 @@ gesture = "tap"
 action = "memory.brief"
 ```
 
+### One session per pad
+
+A pad can keep a worker. The first tap starts a tmux session under a name, in a
+folder, types a command into it and opens a Terminal window onto it. Every tap
+after that brings the same session back, opening a window again if you closed
+it, and selects it, so what you dictate next goes there.
+
+```toml
+[permissions]
+granted = ["shell.execute"]
+
+[sessions]
+watch = true
+
+[[bindings]]
+control = "pad.56"
+gesture = "tap"
+action = "session.open"
+label = "Client 1"
+params = { name = "client-1", cwd = "~/Work/client", command = "claude" }
+
+# The same worker from anywhere else on the surface.
+[[bindings]]
+control = "button.upper_1"
+gesture = "press"
+action = "session.focus"
+target = "name:client-1"
+```
+
+It needs tmux, which `brew install tmux` provides and `pushos doctor` checks
+for. `window = false` starts a worker without opening a window. The command is
+typed into a shell rather than run in its place, so when the agent exits you are
+left in the same folder instead of losing the window. To watch one from VS Code,
+run `tmux attach -t client-1` in its terminal.
+
 Two rules the configuration enforces, both so that you can predict what a pad
 does by reading the file:
 
@@ -491,6 +534,7 @@ Built and tested:
 | Phase 12 | Packs: installable agents, workflows and pages, with a review |
 | Compound actions | Sequences of actions behind one gesture, refused if they could loop |
 | Hardware care | Brightness below full, dimming and sleep when untouched, dark when PushOS stops or the Mac sleeps |
+| Every session | tmux, Terminal and Claude Code's own session list merged into one; a tmux session per pad |
 | Footprint | A 4.7 MB program, and a build directory that stays under a gigabyte |
 
 `SPEC.md` and `AGENT_PACKS_SPEC.md` hold the full plan.

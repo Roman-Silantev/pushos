@@ -91,7 +91,8 @@ string_id!(
     ///
     /// The terminal device it is attached to, which is stable for as long as
     /// that terminal is open and is the one thing a session cannot change
-    /// about itself.
+    /// about itself. A session on no device PushOS can see is identified by
+    /// its host instead, as `claude:` and the session's own identifier.
     AttachedId
 );
 string_id!(

@@ -305,12 +305,7 @@ mod tests {
     "#;
 
     fn doing(activity: Activity) -> Attached {
-        Attached {
-            id: pushos_domain::ids::AttachedId::new("/dev/ttys001"),
-            title: "Sprint 2 setup".to_owned(),
-            busy: activity == Activity::Working,
-            activity,
-        }
+        Attached::new("/dev/ttys001", "Sprint 2 setup", activity, "Terminal")
     }
 
     fn light(plan: &LedPlan, control: ControlId) -> LedState {

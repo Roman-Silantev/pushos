@@ -18,8 +18,8 @@ mod media;
 mod power;
 mod process;
 mod script;
+mod sessions;
 mod shortcuts;
-mod terminals;
 
 pub use applications::OpenLauncher;
 pub use media::{AppleScriptMedia, DEFAULT_PLAYER};
@@ -27,5 +27,5 @@ pub use media::{AppleScriptMedia, DEFAULT_PLAYER};
 pub use power::{SleepWatch, SleepWatchError};
 pub use process::SystemProcessRunner;
 pub use script::{ApplicationName, ScriptRunner, UnsafeApplicationName};
+pub use sessions::{MacSessions, SourceReport};
 pub use shortcuts::ShortcutsCli;
-pub use terminals::TerminalAppSessions;

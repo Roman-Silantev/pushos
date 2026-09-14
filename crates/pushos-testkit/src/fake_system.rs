@@ -249,6 +249,20 @@ impl ShortcutRunner for FakeShortcuts {
 pub struct FakeProcesses {
     recorder: Arc<Recorder<ProcessSpec>>,
     exit_code: Arc<Mutex<i32>>,
+    replies: Arc<Mutex<Option<Replies>>>,
+}
+
+/// Decides what a fake process prints, from what was asked to run.
+type Reply = dyn Fn(&ProcessSpec) -> ProcessOutcome + Send + Sync;
+
+/// What every process prints, when a test has said.
+#[derive(Clone)]
+struct Replies(Arc<Reply>);
+
+impl std::fmt::Debug for Replies {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Replies")
+    }
 }
 
 impl FakeProcesses {
@@ -257,6 +271,30 @@ impl FakeProcesses {
         Self {
             recorder: Recorder::new(),
             exit_code: Arc::new(Mutex::new(0)),
+            replies: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// Answers every subsequent process with whatever `reply` makes of it.
+    ///
+    /// For adapters whose work is reading what a program prints: the reply
+    /// sees the program and its arguments, so one fake can stand in for a
+    /// conversation with several.
+    pub fn reply_with(
+        &self,
+        reply: impl Fn(&ProcessSpec) -> ProcessOutcome + Send + Sync + 'static,
+    ) {
+        if let Ok(mut replies) = self.replies.lock() {
+            *replies = Some(Replies(Arc::new(reply)));
+        }
+    }
+
+    /// A successful run that printed `stdout`.
+    pub fn printed(stdout: impl Into<String>) -> ProcessOutcome {
+        ProcessOutcome {
+            exit_code: Some(0),
+            stdout_tail: stdout.into(),
+            stderr_tail: String::new(),
         }
     }
 
@@ -288,6 +326,10 @@ impl Default for FakeProcesses {
 impl ProcessRunner for FakeProcesses {
     async fn run(&self, spec: &ProcessSpec) -> Result<ProcessOutcome, ActionError> {
         self.recorder.record(spec.clone())?;
+        let replies = self.replies.lock().ok().and_then(|replies| replies.clone());
+        if let Some(Replies(reply)) = replies {
+            return Ok(reply(spec));
+        }
         Ok(ProcessOutcome {
             exit_code: Some(self.exit_code.lock().map_or(0, |code| *code)),
             stdout_tail: String::new(),
