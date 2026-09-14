@@ -106,10 +106,18 @@ pushos workspaces # list the projects it knows about
   whichever one you selected. It did not start them and does not own them: a
   pseudo-terminal belongs to whoever created it. Watching and typing is most of
   what a pad is for.
+- **Sequences**: several actions behind one gesture. "Start work" can open an
+  editor, a terminal and a playlist from one pad. Every step goes through the
+  same checks a press does, runs in order and stops at a failure unless marked
+  optional, and a sequence that could run itself forever is refused when the
+  file is read.
 - **Packs**, installable directories of agents, workflows, pages and bindings.
   Nothing is written until you have seen what one adds and what it is asking
   for, and a pack cannot grant itself anything: that is enforced rather than
-  promised. Removing one deletes what was copied in and nothing else.
+  promised. Removing one deletes what was copied in and nothing else. A running
+  PushOS lists, reviews and installs them over its control socket, and a pack
+  left in `available/` beside your configuration is offered without being
+  loaded. The Operator Pack puts fifty-six roles across seven rows of pads.
 - **Notes**, kept as Markdown files in directories you chose. One pad writes
   down what you just dictated, one finds it again, one puts what it found in
   front of the agent you are working with. PushOS keeps an index so search is
@@ -432,6 +440,9 @@ Built and tested:
 | Phase 10 | Notes: Markdown on disk, searchable, and briefings for agents |
 | Phase 11 | Presets: six tested surfaces to start from |
 | Phase 12 | Packs: installable agents, workflows and pages, with a review |
+| Compound actions | Sequences of actions behind one gesture, refused if they could loop |
+| Hardware care | Brightness below full, dimming and sleep when untouched, dark when PushOS stops or the Mac sleeps |
+| Footprint | A 4.7 MB program, and a build directory that stays under a gigabyte |
 
 `SPEC.md` and `AGENT_PACKS_SPEC.md` hold the full plan.
 

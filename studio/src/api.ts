@@ -79,9 +79,11 @@ export interface Vocabulary {
   providers: ProviderInfo[];
 }
 
-/** Whether a session is an agent or a terminal. */
-/** Whether a session is an agent, a terminal, or a workflow run. */
-export type SessionKind = "agent" | "terminal" | "workflow";
+/**
+ * What kind of work a session is: an agent, a terminal PushOS runs, a workflow
+ * run, or a terminal window PushOS did not start and only watches.
+ */
+export type SessionKind = "agent" | "terminal" | "workflow" | "attached";
 
 /**
  * One session running now, described so a control can be bound to it.
@@ -222,7 +224,21 @@ export function describeSurface(surface: SurfaceReport): {
 
 /** The action namespace that drives a kind of session. */
 export function providerFor(kind: SessionKind): string {
-  return kind;
+  // A window PushOS did not open is driven by `session`, which is narrower than
+  // `terminal`: it can be watched and typed into, never started or closed.
+  return kind === "attached" ? "session" : kind;
+}
+
+/** What to call a kind of session in a sentence. */
+export function kindName(kind: SessionKind): string {
+  switch (kind) {
+    case "attached":
+      return "terminal window";
+    case "workflow":
+      return "workflow run";
+    default:
+      return kind;
+  }
 }
 
 /**
@@ -248,7 +264,7 @@ export function targetSuitsAction(
   const provider = action.split(".")[0] ?? "";
   if (provider === wanted) return null;
 
-  return `${session.name} is a ${session.kind}; ${wanted} actions drive it, not ${provider}.`;
+  return `${session.name} is a ${kindName(session.kind)}; ${wanted} actions drive it, not ${provider}.`;
 }
 
 /** Whether two addresses point at the same binding. */

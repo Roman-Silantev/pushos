@@ -7,6 +7,7 @@
 //! swap it in. Invalid configuration never replaces what is running.
 #![cfg_attr(test, allow(clippy::expect_used, clippy::unwrap_used, clippy::panic))]
 
+mod bindings;
 mod build;
 mod editor;
 mod error;
@@ -14,10 +15,13 @@ mod loader;
 mod memory;
 pub mod model;
 pub mod paths;
+mod sequences;
 mod spec;
 mod store;
+mod surface;
 mod voice;
 mod watcher;
+mod workflows;
 
 pub use build::RuntimeConfig;
 pub use editor::{BindingEdit, ConfigDocuments, PageRemoval};

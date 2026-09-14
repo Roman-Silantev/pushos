@@ -11,7 +11,7 @@ import type {
   SessionInfo,
   Vocabulary,
 } from "../api";
-import { targetSuitsAction } from "../api";
+import { kindName, targetSuitsAction } from "../api";
 import { captionFor } from "../layout";
 import { element } from "./surface";
 
@@ -369,13 +369,13 @@ function assignField(
   for (const session of sessions) {
     const group = document.createElement("optgroup");
     const state = session.live ? session.status : `${session.status}, ended`;
-    group.label = `${session.name} \u2014 ${session.kind}, ${state}`;
+    group.label = `${session.name} \u2014 ${kindName(session.kind)}, ${state}`;
 
     if (session.standing_target !== undefined) {
       const standing = document.createElement("option");
       standing.value = session.standing_target;
       const holds = session.kind === "agent" ? "fills the role" : "holds the name";
-      standing.textContent = `${session.standing_target} (whichever ${session.kind} ${holds})`;
+      standing.textContent = `${session.standing_target} (whichever ${kindName(session.kind)} ${holds})`;
       group.append(standing);
     }
 

@@ -5,15 +5,16 @@
 // and closing Studio changes nothing about the surface.
 
 import {
+  type BindingAddress,
+  type BindingSpec,
   client,
   describeError,
   describeSurface,
-  type BindingAddress,
-  type BindingSpec,
   type EditReport,
+  kindName,
+  type PageSpec,
   type SessionInfo,
   type StatusReport,
-  type PageSpec,
   type Vocabulary,
   type WorkspaceInfo,
 } from "./api";
@@ -406,7 +407,7 @@ function runningPanel(): HTMLElement {
       element(
         "span",
         session.selected ? "session-chosen" : "session-kind",
-        session.selected ? "selected" : session.kind,
+        session.selected ? "selected" : kindName(session.kind),
       ),
     );
     item.append(heading);
