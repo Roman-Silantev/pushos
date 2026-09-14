@@ -4,8 +4,6 @@
 //! proves the path an operator actually uses: a real binding table, the real
 //! dispatcher, the real permission check, and a real pad.
 
-#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
-
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

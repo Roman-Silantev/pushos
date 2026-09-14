@@ -5,8 +5,6 @@
 //! force, restores the page it was last on, and points what starts afterwards
 //! at its directory.
 
-#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
-
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

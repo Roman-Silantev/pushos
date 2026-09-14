@@ -4,8 +4,6 @@
 //! event becomes an action through Control, Gesture, Binding, Action, with no
 //! hardware attached and no provider knowing anything about a pad.
 
-#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
-
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 

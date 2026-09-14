@@ -831,6 +831,11 @@ cargo test
 
 plus relevant integration tests.
 
+Integration tests live in one binary per crate: `tests/it/main.rs`, with a
+module per area beside it. A new file directly under `tests/` is a new binary,
+which links the crate and everything beneath it all over again, on disk and at
+link time. Add a module to `tests/it/` instead.
+
 Then inspect specifically for:
 
 ```text

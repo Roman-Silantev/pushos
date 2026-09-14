@@ -4,8 +4,6 @@
 //! operator must be able to predict what a control does by reading the file,
 //! and anything PushOS cannot predict is refused rather than guessed at.
 
-#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
-
 use pushos_config::{ConfigFile, Problem, RuntimeConfig};
 use pushos_domain::binding::BindingKey;
 use pushos_domain::controls::{ButtonId, ControlId, PadIndex};

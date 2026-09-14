@@ -137,6 +137,13 @@ cargo build --release
 `libusb` is built from source as part of the build, so there is nothing to
 install first.
 
+The program itself is under 10 MB. What the build leaves behind is larger, and
+is kept deliberately small: about 1 GB for the tests, 1.6 GB with a release
+build beside them, and it does not grow when you rebuild. `cargo clean` gives
+all of it back. The optional `whisper` speech engine is the exception, since it
+brings a machine-learning stack with it, and it is only built when you ask for
+it with `--features whisper`.
+
 macOS will ask for permission the first time PushOS controls an application or
 runs a Shortcut. `pushos doctor` reports what is reachable and what is not.
 

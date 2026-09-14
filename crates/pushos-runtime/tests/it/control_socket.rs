@@ -4,8 +4,6 @@
 //! running PushOS over a socket, the configuration files stay the source of
 //! truth, and an edit that would break the surface changes nothing.
 
-#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
-
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;

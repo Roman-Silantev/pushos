@@ -66,10 +66,33 @@ cpal = "0.18"
 
 # macOS frameworks, reached without writing Objective-C.
 objc2 = "0.6"
-objc2-foundation = "0.3"
-objc2-speech = "0.3"
+# Apple's framework crates default to binding every header in the framework,
+# which for Foundation alone is over a hundred megabytes of generated code that
+# PushOS never calls. Only the headers voice actually uses are switched on.
+objc2-foundation = { version = "0.3", default-features = false, features = [
+    "std",
+    "NSError",
+    "NSOperation",
+    "NSString",
+] }
+objc2-speech = { version = "0.3", default-features = false, features = [
+    "std",
+    "block2",
+    "objc2-avf-audio",
+    "SFSpeechRecognizer",
+    "SFSpeechRecognitionRequest",
+    "SFSpeechRecognitionResult",
+    "SFSpeechRecognitionTask",
+    "SFTranscription",
+] }
 tokenizers = { version = "0.23", default-features = false, features = ["onig"] }
-objc2-avf-audio = "0.3"
+objc2-avf-audio = { version = "0.3", default-features = false, features = [
+    "std",
+    "AVAudioApplication",
+    "AVAudioBuffer",
+    "AVAudioFormat",
+    "AVAudioTypes",
+] }
 block2 = "0.6"
 # Pseudo-terminals. PushOS runs jobs itself rather than opening windows, so it
 # needs a real terminal a program will believe in.
@@ -110,6 +133,26 @@ todo = "deny"
 dbg_macro = "deny"
 large_enum_variant = "warn"
 mutex_atomic = "warn"
+
+# Development builds are what grows on disk, not the shipped binary. Every test
+# target links the whole dependency graph, and with full debug information each
+# of them carries a copy of it: thirty-six executables, each with every
+# dependency's debug data, is how a build directory reaches tens of gigabytes.
+#
+# Line tables are kept for PushOS's own crates, so a panic or a backtrace still
+# names the file and the line. Dependencies carry none: nobody steps through
+# tokio's internals, and their debug data was most of the size.
+[profile.dev]
+debug = "line-tables-only"
+# Incremental compilation keeps the previous session of every crate beside the
+# new one, so each rebuild roughly doubled what was on disk. Measured on this
+# workspace: off, a clean build is 1.1 GB instead of 1.9 GB and stays that size
+# across rebuilds instead of reaching 2.4 GB, and an edit to the domain crate at
+# the bottom rebuilds in the same ten seconds either way.
+incremental = false
+
+[profile.dev.package."*"]
+debug = false
 
 [profile.release]
 lto = "thin"

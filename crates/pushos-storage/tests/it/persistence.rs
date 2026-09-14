@@ -1,7 +1,5 @@
 //! Storage behaviour, exercised against a real database.
 
-#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
-
 use pushos_domain::event::{DomainEvent, EventEnvelope, EventSource};
 use pushos_domain::ids::CorrelationId;
 use pushos_storage::{EventRecord, StorageWriter, WorkspaceMemoryRow};

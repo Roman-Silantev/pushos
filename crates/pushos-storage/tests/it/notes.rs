@@ -4,8 +4,6 @@
 //! wrong against SQLite, so none of this is faked: a real FTS5 table, real
 //! triggers, and real queries.
 
-#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
-
 use std::time::{Duration, UNIX_EPOCH};
 
 use pushos_domain::ids::{NoteId, SourceId, WorkspaceId};

@@ -5,8 +5,6 @@
 //! here are therefore about what an edit leaves behind, not only about what it
 //! changes.
 
-#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
-
 use std::path::PathBuf;
 
 use pushos_config::{BindingAddress, BindingSpec, ConfigDocuments, PageSpec};

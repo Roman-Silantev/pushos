@@ -5,8 +5,6 @@
 //! dispatcher, the real permission check, and a control that goes down and
 //! comes back up.
 
-#![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
-
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
