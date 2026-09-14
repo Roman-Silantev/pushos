@@ -535,7 +535,7 @@ Built and tested:
 | Compound actions | Sequences of actions behind one gesture, refused if they could loop |
 | Hardware care | Brightness below full, dimming and sleep when untouched, dark when PushOS stops or the Mac sleeps |
 | Every session | tmux, Terminal and Claude Code's own session list merged into one; a tmux session per pad |
-| Footprint | A 4.7 MB program, and a build directory that stays under a gigabyte |
+| Footprint | A 4.8 MB program, and a build directory that stays under a gigabyte |
 
 `SPEC.md` and `AGENT_PACKS_SPEC.md` hold the full plan.
 
