@@ -7,6 +7,14 @@
 
 mod applications;
 mod media;
+/// Hearing the Mac go to sleep, so the Push 2 is not left lit all night.
+///
+/// The only module in this crate allowed `unsafe`, because there is no other
+/// way to be told before macOS sleeps: the notification is a C callback from
+/// IOKit, and it must be answered.
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+mod power;
 mod process;
 mod script;
 mod shortcuts;
@@ -14,6 +22,8 @@ mod terminals;
 
 pub use applications::OpenLauncher;
 pub use media::{AppleScriptMedia, DEFAULT_PLAYER};
+#[cfg(target_os = "macos")]
+pub use power::{SleepWatch, SleepWatchError};
 pub use process::SystemProcessRunner;
 pub use script::{ApplicationName, ScriptRunner, UnsafeApplicationName};
 pub use shortcuts::ShortcutsCli;

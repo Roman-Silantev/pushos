@@ -85,6 +85,8 @@ pub struct InputTask {
     /// Followed here rather than asked for when drawing, because the answer has
     /// to reach the display within the press that changed it.
     listening: Option<watch::Receiver<pushos_domain::voice::Listening>>,
+    /// Whether the computer is awake, from whatever hears it sleep.
+    power: Option<watch::Receiver<pushos_domain::rest::MachinePower>>,
     /// The sessions PushOS did not start, as last seen.
     ///
     /// Followed so the lights can show what each one is doing. A pad standing
@@ -146,6 +148,7 @@ impl InputTask {
             reloads: config.subscribe(),
             projects: None,
             listening: None,
+            power: None,
             attached: None,
             bank: None,
             rest,
@@ -171,6 +174,13 @@ impl InputTask {
     #[must_use]
     pub fn hearing(mut self, listening: watch::Receiver<pushos_domain::voice::Listening>) -> Self {
         self.listening = Some(listening);
+        self
+    }
+
+    /// Follows whether the computer is awake.
+    #[must_use]
+    pub fn minding(mut self, power: watch::Receiver<pushos_domain::rest::MachinePower>) -> Self {
+        self.power = Some(power);
         self
     }
 
@@ -254,6 +264,14 @@ impl InputTask {
                     }
                 }
 
+                // Ahead of nothing in particular, but acted on at once: the
+                // computer is holding its sleep until the lights are out.
+                powered = wait_for_power(self.power.as_mut()) => {
+                    if powered {
+                        self.follow_power();
+                    }
+                }
+
                 moved = wait_for_attached(self.attached.as_mut()) => {
                     if moved {
                         self.publish();
@@ -284,6 +302,17 @@ impl InputTask {
         self.rest.adopt(config.rest, Instant::now());
         self.surface.adopt(config);
         self.publish();
+    }
+
+    /// Takes whether the computer is awake.
+    fn follow_power(&mut self) {
+        let Some(power) = self.power.as_mut() else {
+            return;
+        };
+        let state = *power.borrow_and_update();
+        if self.rest.on_machine(state, Instant::now()) {
+            self.publish();
+        }
     }
 
     /// Takes whether the microphone is on.
@@ -559,6 +588,16 @@ async fn wait_for_listening(
 ) -> bool {
     match listening {
         Some(listening) => listening.changed().await.is_ok(),
+        None => std::future::pending().await,
+    }
+}
+
+/// Waits for the computer to sleep or wake, or forever when nothing says.
+async fn wait_for_power(
+    power: Option<&mut watch::Receiver<pushos_domain::rest::MachinePower>>,
+) -> bool {
+    match power {
+        Some(power) => power.changed().await.is_ok(),
         None => std::future::pending().await,
     }
 }

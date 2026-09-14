@@ -37,6 +37,7 @@ pub struct Runtime {
     memory: Option<Arc<pushos_actions::providers::memory::MemoryProvider>>,
     sequences: Option<Arc<pushos_actions::providers::sequence::SequenceProvider>>,
     attached: Option<Arc<pushos_actions::providers::session::SessionProvider>>,
+    power: Option<watch::Receiver<pushos_domain::rest::MachinePower>>,
     bus: EventBus,
 }
 
@@ -89,6 +90,7 @@ impl Runtime {
             memory: None,
             sequences: None,
             attached: None,
+            power: None,
             bus: EventBus::new(),
         }
     }
@@ -210,6 +212,17 @@ impl Runtime {
         provider: Arc<pushos_actions::providers::session::SessionProvider>,
     ) -> Self {
         self.attached = Some(provider);
+        self
+    }
+
+    /// Follows whether the computer is awake.
+    ///
+    /// Optional: without it the surface still rests on its own timers, but a
+    /// computer that sleeps before they run out leaves the Push 2 lit all night,
+    /// because the hardware keeps what it was last given.
+    #[must_use]
+    pub fn with_power(mut self, power: watch::Receiver<pushos_domain::rest::MachinePower>) -> Self {
+        self.power = Some(power);
         self
     }
 
@@ -426,6 +439,7 @@ impl Runtime {
             sessions: watched_sessions,
             bank: watched_bank,
             listening: self.voice.map(|provider| provider.listener().watch()),
+            power: self.power,
             bus: self.bus,
         }
     }
@@ -460,6 +474,7 @@ pub struct RunningRuntime {
     lines: watch::Receiver<Vec<pushos_ui::SessionLine>>,
     /// Whether the microphone is on, when voice is configured.
     listening: Option<watch::Receiver<pushos_domain::voice::Listening>>,
+    power: Option<watch::Receiver<pushos_domain::rest::MachinePower>>,
     /// The sessions PushOS did not start, when any are watched.
     sessions: Option<watch::Receiver<Vec<pushos_domain::attached::Attached>>>,
     /// Which bank of eight of them is being shown.
@@ -509,6 +524,12 @@ impl RunningRuntime {
         // rather than waiting for the operator to let go and press again.
         let pipeline = match &self.listening {
             Some(listening) => pipeline.hearing(listening.clone()),
+            None => pipeline,
+        };
+
+        // So a sleeping computer puts the surface out before it freezes.
+        let pipeline = match &self.power {
+            Some(power) => pipeline.minding(power.clone()),
             None => pipeline,
         };
 

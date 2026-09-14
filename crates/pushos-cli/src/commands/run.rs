@@ -59,9 +59,15 @@ pub(crate) async fn execute(requested: Option<&Path>, fake: bool) -> Result<(), 
     // terminals, projects and the control socket are not the hardware's to own:
     // a Push 2 unplugged and plugged back in must find its work still running,
     // and PushOS with nothing attached must still be configurable.
-    let running = build_runtime(&config, &storage, worktrees, control)
-        .start(&shutdown)
-        .await;
+    // Kept for as long as PushOS runs. Dropping it stops the listening, and a
+    // Mac that sleeps unheard leaves the Push 2 lit until morning.
+    let (_sleep_watch, power) = listen_for_sleep();
+
+    let mut runtime = build_runtime(&config, &storage, worktrees, control);
+    if let Some(power) = power {
+        runtime = runtime.with_power(power);
+    }
+    let running = runtime.start(&shutdown).await;
 
     if fake {
         run_once_on_fake_surface(&running, shutdown.clone()).await?;
@@ -302,16 +308,90 @@ fn stop_on_interrupt(shutdown: &Shutdown) {
         tokio::select! {
             biased;
             () = interrupted.cancelled() => {}
-            result = tokio::signal::ctrl_c() => {
-                if result.is_ok() {
-                    info!("interrupted");
-                }
+            asked = asked_to_stop() => {
+                info!(signal = asked, "asked to stop");
                 // Begin rather than stop: this task is registered with the same
                 // coordinator, so waiting here would wait for itself.
                 interrupted.begin();
             }
         }
     });
+}
+
+/// Starts hearing the Mac go to sleep, when this Mac will say.
+///
+/// Reported and carried on without when it will not: PushOS still rests the
+/// surface on its own timers, it simply cannot put it out ahead of a sleep.
+#[cfg(target_os = "macos")]
+fn listen_for_sleep() -> (
+    Option<pushos_macos::SleepWatch>,
+    Option<tokio::sync::watch::Receiver<pushos_domain::rest::MachinePower>>,
+) {
+    match pushos_macos::SleepWatch::start() {
+        Ok((watch, power)) => (Some(watch), Some(power)),
+        Err(error) => {
+            warn!(%error, "the Push 2 will not be put out before the Mac sleeps");
+            (None, None)
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+const fn listen_for_sleep() -> (
+    Option<()>,
+    Option<tokio::sync::watch::Receiver<pushos_domain::rest::MachinePower>>,
+) {
+    (None, None)
+}
+
+/// Waits for any of the ordinary ways a process is told to stop.
+///
+/// Not only Ctrl-C. Closing the terminal window PushOS runs in sends a hangup,
+/// and `kill`, logging out and a service manager all send terminate. Any of
+/// those without a handler ends the process on the spot, before the Push 2 is
+/// told anything, and a Push 2 holds the last lights it was given for as long
+/// as it has power: every pad lit, all night. Handled, they all go the same way
+/// Ctrl-C does, which puts the lights out and hands the device back.
+///
+/// Only a kill that cannot be caught still leaves them on, and nothing in a
+/// process can answer that.
+async fn asked_to_stop() -> &'static str {
+    #[cfg(unix)]
+    {
+        use tokio::signal::unix::{SignalKind, signal};
+
+        // A signal that cannot be listened for is left out rather than taking
+        // the others with it.
+        let listen = |kind: SignalKind| {
+            signal(kind)
+                .inspect_err(|error| warn!(%error, "a stop signal cannot be listened for"))
+                .ok()
+        };
+        let mut terminate = listen(SignalKind::terminate());
+        let mut hangup = listen(SignalKind::hangup());
+
+        tokio::select! {
+            _ = tokio::signal::ctrl_c() => "interrupt",
+            () = next_of(terminate.as_mut()) => "terminate",
+            () = next_of(hangup.as_mut()) => "hangup",
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = tokio::signal::ctrl_c().await;
+        "interrupt"
+    }
+}
+
+/// Waits for a signal, or forever when it could not be listened for.
+#[cfg(unix)]
+async fn next_of(stream: Option<&mut tokio::signal::unix::Signal>) {
+    match stream {
+        Some(stream) => {
+            stream.recv().await;
+        }
+        None => std::future::pending::<()>().await,
+    }
 }
 
 async fn wait(backoff: &mut Backoff, shutdown: &Shutdown) {

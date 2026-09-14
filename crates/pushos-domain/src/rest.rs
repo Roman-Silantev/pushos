@@ -26,12 +26,36 @@ pub enum Rest {
     /// Left alone for long enough that nobody is watching. The screen is dark
     /// and only the lights asking for a person stay on.
     Asleep,
+    /// The computer itself is going to sleep. Everything is off.
+    ///
+    /// Distinct from asleep because nothing can answer a question while the
+    /// computer sleeps, and because the Push 2 holds whatever it was last given
+    /// for as long as it has power: whatever is lit when the computer sleeps
+    /// stays lit until morning.
+    Off,
+}
+
+/// Whether the computer PushOS runs on is awake.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum MachinePower {
+    /// Running normally.
+    #[default]
+    Running,
+    /// About to sleep, or asleep.
+    Sleeping,
 }
 
 impl Rest {
     /// Whether the screen shows anything at all.
     pub const fn shows_screen(self) -> bool {
-        !matches!(self, Self::Asleep)
+        matches!(self, Self::Awake | Self::Dimmed)
+    }
+
+    /// Whether the lights asking for a person stay on.
+    ///
+    /// Only while the computer is awake to hear the answer.
+    pub const fn keeps_asking_lights(self) -> bool {
+        !matches!(self, Self::Off)
     }
 
     /// Whether a press should be spent waking the surface rather than acting.
@@ -40,7 +64,7 @@ impl Rest {
     /// means what it says; a dark one is being pressed blind, and acting on
     /// that press would be acting on a guess.
     pub const fn swallows_waking_input(self) -> bool {
-        matches!(self, Self::Asleep)
+        matches!(self, Self::Asleep | Self::Off)
     }
 }
 
@@ -126,6 +150,13 @@ impl RestPolicy {
             // keep the dimmed level rather than going out with the rest.
             Rest::Asleep => Levels {
                 lights: dimmed,
+                screen: 0,
+            },
+            // Nought as well as every light being told off. The hardware
+            // multiplies every LED by this, and at nought drives none of them,
+            // so a light whose off message was lost is dark anyway.
+            Rest::Off => Levels {
+                lights: 0,
                 screen: 0,
             },
         }
@@ -239,7 +270,20 @@ mod tests {
     }
 
     #[test]
+    fn when_the_computer_sleeps_everything_on_the_surface_is_off() {
+        let off = RestPolicy::DEFAULT.levels(Rest::Off);
+        assert_eq!((off.lights, off.screen), (0, 0));
+        assert!(!Rest::Off.shows_screen());
+        assert!(
+            !Rest::Off.keeps_asking_lights(),
+            "nobody can answer while the computer sleeps"
+        );
+        assert!(Rest::Asleep.keeps_asking_lights());
+    }
+
+    #[test]
     fn only_a_sleeping_surface_spends_a_press_on_waking() {
+        assert!(Rest::Off.swallows_waking_input());
         assert!(Rest::Asleep.swallows_waking_input());
         assert!(!Rest::Dimmed.swallows_waking_input());
         assert!(!Rest::Awake.swallows_waking_input());

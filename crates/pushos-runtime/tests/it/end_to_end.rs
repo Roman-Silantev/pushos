@@ -128,6 +128,25 @@ struct Harness {
 
 impl Harness {
     fn start(text: &str) -> Self {
+        Self::started(text, None)
+    }
+
+    /// A harness whose computer can be put to sleep and woken.
+    fn with_power(
+        text: &str,
+    ) -> (
+        Self,
+        tokio::sync::watch::Sender<pushos_domain::rest::MachinePower>,
+    ) {
+        let (power, following) =
+            tokio::sync::watch::channel(pushos_domain::rest::MachinePower::Running);
+        (Self::started(text, Some(following)), power)
+    }
+
+    fn started(
+        text: &str,
+        power: Option<tokio::sync::watch::Receiver<pushos_domain::rest::MachinePower>>,
+    ) -> Self {
         let (surface, input) = FakePush::new();
         let provider = RecordingProvider::new("test", ["one", "two"]);
         let shutdown = Shutdown::new();
@@ -149,6 +168,10 @@ impl Harness {
             .with_provider(Arc::clone(&sequences) as Arc<dyn pushos_domain::ports::ActionProvider>)
             .expect("the namespace is free")
             .with_sequences(sequences);
+        let runtime = match power {
+            Some(power) => runtime.with_power(power),
+            None => runtime,
+        };
         let events = runtime.bus().subscribe();
 
         let output: Arc<dyn PushOutput> = Arc::new(surface.clone());
@@ -649,5 +672,67 @@ async fn a_press_on_a_dark_surface_wakes_it_and_runs_nothing() {
 
     harness.tap(0).await;
     harness.wait_for_calls(1).await;
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn a_sleeping_computer_puts_every_light_out_first() {
+    // The Push 2 keeps what it was last given for as long as it has power, and
+    // a sleeping computer can tell it nothing. So everything goes out before.
+    use pushos_domain::rest::MachinePower;
+
+    let (harness, power) = Harness::with_power(&resting());
+    settle_async(|| async {
+        harness
+            .surface
+            .state()
+            .await
+            .led(ControlId::Pad(pad(0)))
+            .is_some_and(|light| light != LedState::OFF)
+    })
+    .await;
+
+    power.send_replace(MachinePower::Sleeping);
+    settle_async(|| async {
+        harness
+            .surface
+            .state()
+            .await
+            .brightness()
+            .is_some_and(|levels| (levels.lights, levels.screen) == (0, 0))
+    })
+    .await;
+
+    let state = harness.surface.state().await;
+    assert_eq!(state.led(ControlId::Pad(pad(0))), Some(LedState::OFF));
+    assert_eq!(state.lit_count(), 0, "not one light left on");
+    assert!(
+        state
+            .last_frame()
+            .is_some_and(|frame| frame.pixels().iter().all(|pixel| *pixel == 0))
+    );
+    drop(state);
+
+    // Waking brings it back dimmed, not at full.
+    power.send_replace(MachinePower::Running);
+    settle_async(|| async {
+        harness
+            .surface
+            .state()
+            .await
+            .brightness()
+            .is_some_and(|levels| levels.lights > 0)
+    })
+    .await;
+    let levels = harness
+        .surface
+        .state()
+        .await
+        .brightness()
+        .expect("a brightness");
+    assert!(
+        levels.lights < 60 && levels.screen < 60,
+        "a Mac waking for mail at 3am should not light the desk: {levels:?}"
+    );
     harness.stop().await;
 }

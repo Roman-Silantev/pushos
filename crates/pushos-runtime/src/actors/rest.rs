@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use pushos_domain::controls::ControlId;
 use pushos_domain::input::ControlEvent;
-use pushos_domain::rest::{Levels, Rest, RestPolicy};
+use pushos_domain::rest::{Levels, MachinePower, Rest, RestPolicy};
 
 /// Whether an input event should reach the gesture recogniser.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -61,7 +61,43 @@ impl RestClock {
 
     /// When time alone will next change anything.
     pub(crate) fn next_change(&self, now: Instant) -> Option<Instant> {
+        if self.state == Rest::Off {
+            return None;
+        }
         self.policy.next_change(self.touched, now)
+    }
+
+    /// Records the computer going to sleep or waking.
+    ///
+    /// Going to sleep puts everything out, because whatever is lit then stays
+    /// lit until morning. Waking brings the surface back dimmed rather than
+    /// bright, and on the timers it would have had: a computer that wakes for a
+    /// few minutes in the night to fetch mail should not light a desk at full
+    /// for them, and someone who has just opened the lid can read a dimmed
+    /// surface and touch it to brighten it. Returns whether the state changed.
+    pub(crate) fn on_machine(&mut self, power: MachinePower, now: Instant) -> bool {
+        match power {
+            MachinePower::Sleeping => {
+                let changed = self.state != Rest::Off;
+                self.state = Rest::Off;
+                self.waking = None;
+                changed
+            }
+            MachinePower::Running => {
+                if self.state != Rest::Off {
+                    return false;
+                }
+                // As though it had already been left long enough to dim.
+                self.touched = self
+                    .policy
+                    .dim_after
+                    .and_then(|after| now.checked_sub(after))
+                    .unwrap_or(now);
+                self.state = Rest::Awake;
+                self.settle(now);
+                true
+            }
+        }
     }
 
     /// Takes a new policy from a reloaded configuration.
@@ -108,7 +144,7 @@ impl RestClock {
     pub(crate) fn on_asking(&mut self, asking: usize, now: Instant) -> bool {
         let more = asking > self.asking;
         self.asking = asking;
-        if !more || self.state == Rest::Awake {
+        if !more || matches!(self.state, Rest::Awake | Rest::Off) {
             return false;
         }
         self.touched = now;
@@ -122,6 +158,10 @@ impl RestClock {
     }
 
     fn settle(&mut self, now: Instant) -> bool {
+        // Only the computer waking brings the surface back from off.
+        if self.state == Rest::Off {
+            return false;
+        }
         let next = self
             .policy
             .state_after(now.saturating_duration_since(self.touched));
@@ -266,6 +306,53 @@ mod tests {
         assert!(!clock.on_asking(2, start + 32 * MINUTE));
         assert!(!clock.on_asking(1, start + 33 * MINUTE), "one was answered");
         assert_eq!(clock.state(), Rest::Asleep);
+    }
+
+    #[test]
+    fn the_computer_sleeping_puts_everything_out_and_time_does_not_undo_it() {
+        let start = Instant::now();
+        let mut clock = RestClock::new(RestPolicy::DEFAULT, start);
+
+        assert!(clock.on_machine(MachinePower::Sleeping, start));
+        assert_eq!(clock.state(), Rest::Off);
+        assert_eq!(clock.next_change(start), None, "no timer while it sleeps");
+        assert!(!clock.on_time(start + 8 * 60 * MINUTE));
+        assert!(
+            !clock.on_asking(3, start + 8 * 60 * MINUTE),
+            "a question cannot light a desk while nobody can answer it"
+        );
+        assert_eq!(clock.state(), Rest::Off);
+    }
+
+    #[test]
+    fn waking_the_computer_brings_the_surface_back_dimmed_on_its_timers() {
+        let start = Instant::now();
+        let mut clock = RestClock::new(RestPolicy::DEFAULT, start);
+        clock.on_machine(MachinePower::Sleeping, start);
+
+        let morning = start + 9 * 60 * MINUTE;
+        assert!(clock.on_machine(MachinePower::Running, morning));
+        assert_eq!(clock.state(), Rest::Dimmed);
+
+        // And goes dark again on schedule if nobody touches it.
+        assert!(clock.on_time(morning + 20 * MINUTE));
+        assert_eq!(clock.state(), Rest::Asleep);
+    }
+
+    #[test]
+    fn a_touch_after_waking_brightens_it_as_usual() {
+        let start = Instant::now();
+        let mut clock = RestClock::new(RestPolicy::DEFAULT, start);
+        clock.on_machine(MachinePower::Sleeping, start);
+        let morning = start + 9 * 60 * MINUTE;
+        clock.on_machine(MachinePower::Running, morning);
+
+        assert_eq!(
+            clock.on_input(&pad(morning, InputPhase::Down { velocity: 90 })),
+            (Heard::Act, true),
+            "a dimmed surface is readable, so the press means what it says"
+        );
+        assert_eq!(clock.state(), Rest::Awake);
     }
 
     #[test]

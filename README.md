@@ -327,6 +327,18 @@ sleep_after_minutes = 30  # 0 never goes dark
 its own brightness far below any of this, which is why the screen looks dim
 without its power supply; the settings matter once it is plugged in.
 
+The Push 2 has its own power supply and keeps whatever it was last shown for as
+long as that supply is on, even with nothing driving it. So PushOS also puts
+every light and the screen out whenever it stops being able to look after them:
+
+- **When it stops.** Ctrl-C, closing the terminal window it runs in, `kill`
+  and logging out all turn the lights off and hand the Push back. Only
+  `kill -9`, which no program can answer, leaves them as they were.
+- **When the Mac sleeps.** macOS tells PushOS before it sleeps, and PushOS puts
+  the Push dark first. When the Mac wakes, the surface comes back dimmed, so a
+  Mac that wakes in the night to fetch mail does not light the desk; touch it to
+  brighten it.
+
 ## Architecture
 
 ```

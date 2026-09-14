@@ -134,13 +134,15 @@ impl RenderTask {
             return;
         }
 
-        // A sleeping surface keeps only the lights asking for a person. Built
-        // here rather than published, so waking is one publish with nothing to
-        // rebuild.
+        // A sleeping surface keeps only the lights asking for a person, and one
+        // whose computer is asleep keeps none. Built here rather than published,
+        // so waking is one publish with nothing to rebuild.
         let wanted = if view.rest.shows_screen() {
             view.leds.as_ref().clone()
-        } else {
+        } else if view.rest.keeps_asking_lights() {
             view.leds.only_wanting_a_person()
+        } else {
+            pushos_ui::LedPlan::new()
         };
 
         // Only what changed is sent, so moving between pages that differ by one
