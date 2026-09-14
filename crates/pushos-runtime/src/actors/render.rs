@@ -21,6 +21,13 @@ use crate::shutdown::Shutdown;
 /// all: a still screen is drawn once and left alone.
 const FRAME_INTERVAL: Duration = Duration::from_millis(33);
 
+/// How often an animated screen is redrawn once it has dimmed.
+///
+/// Ten frames a second. Nobody has touched the surface for a while, so the
+/// motion only has to say that something is working, not look smooth, and each
+/// frame is a render and a USB transfer the Mac does not need to do.
+const DIMMED_FRAME_INTERVAL: Duration = Duration::from_millis(100);
+
 /// Draws the display and drives the lights.
 #[derive(Debug)]
 pub struct RenderTask {
@@ -43,6 +50,9 @@ pub struct RenderTask {
     brightness: Option<pushos_domain::rest::Levels>,
     /// Whether the screen is showing the dark frame of a sleeping surface.
     dark: bool,
+    /// How long until the next animation frame, which depends on whether the
+    /// surface has dimmed.
+    frame_interval: Duration,
 }
 
 impl RenderTask {
@@ -62,6 +72,7 @@ impl RenderTask {
             animating: false,
             brightness: None,
             dark: false,
+            frame_interval: FRAME_INTERVAL,
         }
     }
 
@@ -84,7 +95,7 @@ impl RenderTask {
                     self.draw().await;
                 }
 
-                () = next_frame(self.animating) => {
+                () = next_frame(self.animating, self.frame_interval) => {
                     self.animation = self.animation.wrapping_add(1);
                     self.draw().await;
                 }
@@ -125,6 +136,11 @@ impl RenderTask {
     async fn draw(&mut self) {
         let view = self.view.borrow_and_update().clone();
         self.apply_brightness(view.levels).await;
+        self.frame_interval = if view.rest == pushos_domain::rest::Rest::Dimmed {
+            DIMMED_FRAME_INTERVAL
+        } else {
+            FRAME_INTERVAL
+        };
 
         if view.rest.shows_screen() {
             if !self.draw_screen(&view).await {
@@ -212,9 +228,9 @@ impl RenderTask {
 }
 
 /// Waits for the next animation frame, or forever when nothing is moving.
-async fn next_frame(animating: bool) {
+async fn next_frame(animating: bool, interval: Duration) {
     if animating {
-        tokio::time::sleep(FRAME_INTERVAL).await;
+        tokio::time::sleep(interval).await;
     } else {
         std::future::pending::<()>().await;
     }

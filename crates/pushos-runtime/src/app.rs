@@ -328,7 +328,9 @@ impl Runtime {
             sources.push(Arc::new(AttachedSessions::new(Arc::clone(provider))));
 
             let (task, found) = crate::actors::AttachedTask::new(provider.watcher());
-            let task = task.every(self.config.current().session_poll);
+            let task = task
+                .every(self.config.current().session_poll)
+                .minding(watching.clone());
             publisher = publisher.with_attached(found.clone(), provider.watch(), provider.banked());
             watched_sessions = Some(found);
             watched_bank = Some(provider.banked());

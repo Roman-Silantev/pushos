@@ -99,16 +99,29 @@ block2 = "0.6"
 portable-pty = "0.9"
 
 # Rendering
-tiny-skia = "0.12"
+# PNG support is on by default and PushOS never reads or writes a PNG; it
+# draws into a frame buffer and sends that.
+tiny-skia = { version = "0.12", default-features = false, features = ["std", "simd"] }
 fontdue = "0.9"
 
 # Observability + errors
 tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+# Without `env-filter`, which brings a regular expression engine to read one
+# environment variable. `filter::Targets` reads the same `level,target=level`
+# form and needs none.
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
 thiserror = "2.0"
 
 # Tooling
-clap = { version = "4.6", features = ["derive"] }
+# Everything clap does by default except colouring its own help text.
+clap = { version = "4.6", default-features = false, features = [
+    "std",
+    "derive",
+    "help",
+    "usage",
+    "error-context",
+    "suggestions",
+] }
 notify = { version = "8.2", default-features = false, features = ["macos_fsevent"] }
 arc-swap = "1.9"
 

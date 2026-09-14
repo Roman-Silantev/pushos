@@ -8,14 +8,18 @@ mod host;
 mod presets;
 
 use clap::Parser;
-use tracing_subscriber::EnvFilter;
 
 use crate::cli::{Cli, Command, PackCommand};
 
 /// Exit status when PushOS could not do what it was asked.
 const FAILURE: i32 = 1;
 
-#[tokio::main]
+// Two workers rather than one per core. PushOS spends its life waiting on a
+// MIDI port, a USB endpoint, a socket and a timer; the few things that truly
+// block, speech recognition and pseudo-terminals, already run on blocking
+// threads of their own. Ten idle workers were ten threads to wake and nothing
+// to give them.
+#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
     install_logging(cli.log.filter());
@@ -68,13 +72,28 @@ fn run_pack(command: PackCommand, config: Option<&std::path::Path>) -> Result<()
 }
 
 /// Sets up logging, letting `RUST_LOG` override the chosen level.
+///
+/// `RUST_LOG` takes a level, or a level and per-module levels, such as
+/// `info,pushos_push2=debug`. A value that does not read as one is ignored in
+/// favour of the default rather than silencing everything.
 fn install_logging(default: &str) {
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(default));
+    use tracing_subscriber::filter::Targets;
+    use tracing_subscriber::layer::SubscriberExt as _;
+    use tracing_subscriber::util::SubscriberInitExt as _;
 
-    tracing_subscriber::fmt()
-        .with_env_filter(filter)
-        .with_target(false)
-        .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
-        .with_writer(std::io::stderr)
+    let filter = std::env::var("RUST_LOG")
+        .ok()
+        .and_then(|written| written.parse::<Targets>().ok())
+        .or_else(|| default.parse::<Targets>().ok())
+        .unwrap_or_default();
+
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::fmt::layer()
+                .with_target(false)
+                .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
+                .with_writer(std::io::stderr),
+        )
+        .with(filter)
         .init();
 }
