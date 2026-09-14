@@ -24,6 +24,12 @@ const TRANSFER_TIMEOUT: Duration = Duration::from_millis(1_000);
 /// re-sends the last one well inside that window.
 const KEEPALIVE_INTERVAL: Duration = Duration::from_millis(700);
 
+/// How long the loop waits between frames while the picture is black.
+///
+/// Long enough to be no wake-ups at all in practice. A new frame wakes it at
+/// once; this only bounds how long an idle thread sleeps between checks.
+const DARK_WAIT: Duration = Duration::from_secs(600);
+
 /// A live connection to the display.
 #[derive(Debug)]
 pub(crate) struct DisplayLink {
@@ -89,17 +95,29 @@ fn transfer_loop(
     healthy: &AtomicBool,
 ) {
     let mut encoder = FrameEncoder::new();
-    let mut current = Arc::new(DisplayFrame::blank());
+    // The panel starts blank, and a blank panel needs nothing sent to stay so.
+    let mut dark = true;
 
     loop {
-        match frames.take_within(KEEPALIVE_INTERVAL) {
-            SlotEvent::Value(latest) => current = latest,
-            // Nothing new: re-send so the panel does not time out and blank.
+        let wait = if dark { DARK_WAIT } else { KEEPALIVE_INTERVAL };
+        match frames.take_within(wait) {
+            // Encoded once, when it arrives. Keeping it alive sends the same
+            // bytes again rather than working them out again.
+            SlotEvent::Value(latest) => {
+                dark = latest.is_black();
+                encoder.encode(&latest);
+            }
+            // A black picture is not kept alive. The panel turns itself black
+            // two seconds after its last frame, which is exactly what a black
+            // frame shows, so a sleeping surface sends nothing over USB all
+            // night instead of a third of a megabyte every 700 milliseconds.
+            SlotEvent::Idle if dark => continue,
+            // Anything else would blank without it, so it is sent again.
             SlotEvent::Idle => {}
             SlotEvent::Closed => break,
         }
 
-        if let Err(error) = send_frame(handle, &mut encoder, &current) {
+        if let Err(error) = send_frame(handle, encoder.encoded()) {
             warn!(%error, "display transfer failed; treating the display as gone");
             healthy.store(false, Ordering::Release);
             break;
@@ -112,11 +130,9 @@ fn transfer_loop(
 
 fn send_frame(
     handle: &rusb::DeviceHandle<rusb::GlobalContext>,
-    encoder: &mut FrameEncoder,
-    frame: &DisplayFrame,
+    wire: &[u8],
 ) -> Result<(), rusb::Error> {
     handle.write_bulk(DISPLAY_ENDPOINT, &FRAME_HEADER, TRANSFER_TIMEOUT)?;
-    let wire = encoder.encode(frame);
     for chunk in FrameEncoder::chunks(wire) {
         handle.write_bulk(DISPLAY_ENDPOINT, chunk, TRANSFER_TIMEOUT)?;
     }

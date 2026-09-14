@@ -31,6 +31,14 @@ impl DisplayFrame {
         }
     }
 
+    /// Whether every pixel is black.
+    ///
+    /// Stops at the first one that is not, which for any drawn screen is near
+    /// the start.
+    pub fn is_black(&self) -> bool {
+        self.pixels.iter().all(|pixel| *pixel == 0)
+    }
+
     /// Borrows the packed pixels, row-major from the top-left.
     pub fn pixels(&self) -> &[u16] {
         &self.pixels
@@ -215,5 +223,13 @@ mod tests {
         assert!(frame.pixel(DISPLAY_WIDTH - 1, DISPLAY_HEIGHT - 1).is_some());
         assert!(frame.pixel(DISPLAY_WIDTH, 0).is_none());
         assert!(frame.pixel(0, DISPLAY_HEIGHT).is_none());
+    }
+
+    #[test]
+    fn a_frame_knows_whether_it_is_black() {
+        let mut frame = DisplayFrame::blank();
+        assert!(frame.is_black());
+        frame.pixels_mut()[DISPLAY_WIDTH * DISPLAY_HEIGHT - 1] = 1;
+        assert!(!frame.is_black(), "one lit pixel anywhere is not black");
     }
 }

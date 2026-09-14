@@ -48,20 +48,34 @@ impl FrameEncoder {
     /// Filler bytes are written once at construction and never touched again,
     /// so each call only rewrites real pixel data.
     pub(crate) fn encode(&mut self, frame: &DisplayFrame) -> &[u8] {
-        let pixels = frame.pixels();
-        for row in 0..DISPLAY_HEIGHT {
-            let line_start = row * LINE_BYTES;
-            let source = &pixels[row * DISPLAY_WIDTH..(row + 1) * DISPLAY_WIDTH];
-            debug_assert_eq!(source.len() * 2, LINE_PIXEL_BYTES);
-
-            for (column, pixel) in source.iter().enumerate() {
-                let bytes = pixel.to_le_bytes();
-                let offset = line_start + column * 2;
-                let shaping = (column * 2) % SHAPING.len();
-                self.buffer[offset] = bytes[0] ^ SHAPING[shaping];
-                self.buffer[offset + 1] = bytes[1] ^ SHAPING[(shaping + 1) % SHAPING.len()];
+        // The shaping pattern is four bytes and a pixel is two, so it repeats
+        // every pair of pixels. Walking lines and pixel pairs as fixed-size
+        // arrays leaves no index to check and no remainder to take, which is
+        // what lets the compiler turn the loop into a few wide instructions.
+        let (lines, _) = self.buffer.as_chunks_mut::<LINE_BYTES>();
+        let (rows, _) = frame.pixels().as_chunks::<DISPLAY_WIDTH>();
+        for (line, row) in lines.iter_mut().zip(rows) {
+            let (quads, _) = line[..LINE_PIXEL_BYTES].as_chunks_mut::<4>();
+            let (pairs, _) = row.as_chunks::<2>();
+            for (out, [first, second]) in quads.iter_mut().zip(pairs) {
+                let [a0, a1] = first.to_le_bytes();
+                let [b0, b1] = second.to_le_bytes();
+                *out = [
+                    a0 ^ SHAPING[0],
+                    a1 ^ SHAPING[1],
+                    b0 ^ SHAPING[2],
+                    b1 ^ SHAPING[3],
+                ];
             }
         }
+        &self.buffer
+    }
+
+    /// The bytes of the last frame encoded, without encoding it again.
+    ///
+    /// What keeping the panel awake sends. The picture has not changed, so the
+    /// work of turning it into wire bytes does not need doing twice.
+    pub(crate) fn encoded(&self) -> &[u8] {
         &self.buffer
     }
 
