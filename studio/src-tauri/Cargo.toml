@@ -29,3 +29,16 @@ unsafe_code = "deny"
 [lints.clippy]
 all = { level = "warn", priority = -1 }
 pedantic = { level = "warn", priority = -1 }
+
+# Studio is its own Cargo project, kept out of the main workspace, and Cargo
+# applies a workspace's profiles only to the packages inside it. So the build
+# settings that keep PushOS's build directory small have to be stated again
+# here, or Studio's development builds keep full debug information and every
+# old incremental session: its build directory had reached 3.8 GB.
+#
+# Nothing a failing build needs is lost. A panic's file, line and column are
+# compiled into the panic itself; only a symbolicated backtrace loses its line
+# numbers. See the main Cargo.toml for the measurements behind both settings.
+[profile.dev]
+debug = false
+incremental = false
