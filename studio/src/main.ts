@@ -137,16 +137,23 @@ async function refresh(): Promise<void> {
  * inspector, so this touches one node and leaves the forms alone.
  */
 async function refreshSessions(): Promise<void> {
-  if (state.status === null) return;
+  // Nobody is looking at a hidden window, so it asks PushOS nothing and draws
+  // nothing; it catches up the moment it is shown.
+  if (state.status === null || document.hidden) return;
 
+  let sessions: SessionInfo[];
   try {
-    const { sessions } = await (await client()).sessions();
-    state.sessions = sessions;
+    ({ sessions } = await (await client()).sessions());
   } catch {
     // A session list that could not be read is not worth a banner: the next
     // edit will report the failure properly, and the panel says it is empty.
-    state.sessions = [];
+    sessions = [];
   }
+
+  // Most looks find nothing changed, and redrawing the same panel every few
+  // seconds is work for nothing.
+  if (JSON.stringify(sessions) === JSON.stringify(state.sessions)) return;
+  state.sessions = sessions;
 
   const panel = document.querySelector<HTMLElement>(".running");
   panel?.replaceWith(runningPanel());
@@ -762,3 +769,4 @@ refresh().catch((error: unknown) => reportFatal(describeError(error).message));
 // operator having to ask. Only that panel is redrawn, so an edit in progress is
 // never thrown away.
 setInterval(() => void refreshSessions(), SESSION_POLL_MS);
+document.addEventListener("visibilitychange", () => void refreshSessions());
