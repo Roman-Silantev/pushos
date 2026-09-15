@@ -23,6 +23,12 @@ use crate::control::RuntimeControl;
 use crate::sessions::{AgentSessions, AttachedSessions, RunSessions, TerminalSessions};
 use crate::shutdown::Shutdown;
 
+/// How often questions are checked against what their sessions are doing.
+///
+/// Only memory is looked at, so often enough that a question answered in its
+/// own window leaves the Push within a few seconds of settling.
+const SETTLE_QUESTIONS: std::time::Duration = std::time::Duration::from_secs(3);
+
 /// A configured but not yet running PushOS.
 pub struct Runtime {
     config: Arc<ConfigStore>,
@@ -296,6 +302,7 @@ impl Runtime {
 
         let mut watched_sessions = None;
         let mut watched_bank = None;
+        let mut watched_questions = None;
 
         // Created once, for the life of the process. A surface publishes into
         // the view; with none attached it holds the waiting screen.
@@ -332,8 +339,36 @@ impl Runtime {
                 .every(self.config.current().session_poll)
                 .minding(watching.clone());
             publisher = publisher.with_attached(found.clone(), provider.watch(), provider.banked());
-            watched_sessions = Some(found);
+            watched_sessions = Some(found.clone());
             watched_bank = Some(provider.banked());
+            watched_questions = Some(provider.questions());
+
+            // A question answered in the session's own window stops being one
+            // there, and the Push stops offering to answer it. Looked at when
+            // the sessions change and every few seconds besides: a session that
+            // moved on while its question was still settling changes nothing
+            // after, and would otherwise keep a stale question forever.
+            let settling = Arc::clone(provider);
+            let mut following = found;
+            let stopping = shutdown.clone();
+            shutdown.spawn(async move {
+                let mut every = tokio::time::interval(SETTLE_QUESTIONS);
+                every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                loop {
+                    tokio::select! {
+                        biased;
+                        () = stopping.cancelled() => break,
+                        changed = following.changed() => {
+                            if changed.is_err() {
+                                break;
+                            }
+                        }
+                        _ = every.tick() => {}
+                    }
+                    let open = following.borrow_and_update().clone();
+                    settling.settle(&open);
+                }
+            });
 
             let watching = shutdown.clone();
             let publishing = publisher.clone();
@@ -348,6 +383,9 @@ impl Runtime {
                 watching.clone(),
             )
             .with_sessions(sources);
+            if let Some(provider) = &self.attached {
+                control = control.with_questions(Arc::clone(provider));
+            }
             if let Some(manager) = &self.workspaces {
                 control = control.with_workspaces(Arc::clone(manager));
             }
@@ -440,6 +478,7 @@ impl Runtime {
             lines,
             sessions: watched_sessions,
             bank: watched_bank,
+            questions: watched_questions,
             listening: self.voice.map(|provider| provider.listener().watch()),
             power: self.power,
             bus: self.bus,
@@ -481,6 +520,8 @@ pub struct RunningRuntime {
     sessions: Option<watch::Receiver<Vec<pushos_domain::attached::Attached>>>,
     /// Which bank of eight of them is being shown.
     bank: Option<watch::Receiver<usize>>,
+    /// The questions sessions are waiting on the operator to answer.
+    questions: Option<watch::Receiver<Vec<pushos_domain::attached::SessionQuestion>>>,
     bus: EventBus,
 }
 
@@ -540,6 +581,11 @@ impl RunningRuntime {
         let pipeline = match (&self.sessions, &self.bank) {
             (Some(sessions), Some(bank)) => pipeline.watching(sessions.clone(), bank.clone()),
             _ => pipeline,
+        };
+        // So a session's question appears on the display the moment it is asked.
+        let pipeline = match &self.questions {
+            Some(questions) => pipeline.asked(questions.clone()),
+            None => pipeline,
         };
         let render = RenderTask::new(output, renderer, self.watching.clone());
 

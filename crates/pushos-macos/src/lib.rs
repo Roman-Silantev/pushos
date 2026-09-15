@@ -27,5 +27,5 @@ pub use media::{AppleScriptMedia, DEFAULT_PLAYER};
 pub use power::{SleepWatch, SleepWatchError};
 pub use process::SystemProcessRunner;
 pub use script::{ApplicationName, ScriptRunner, UnsafeApplicationName};
-pub use sessions::{MacSessions, SourceReport};
+pub use sessions::{MacSessions, SourceReport, terminal_above};
 pub use shortcuts::ShortcutsCli;

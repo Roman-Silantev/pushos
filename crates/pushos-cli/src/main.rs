@@ -9,7 +9,7 @@ mod presets;
 
 use clap::Parser;
 
-use crate::cli::{AppCommand, Cli, Command, PackCommand};
+use crate::cli::{AppCommand, Cli, Command, HookCommand, PackCommand};
 
 /// Exit status when PushOS could not do what it was asked.
 const FAILURE: i32 = 1;
@@ -22,7 +22,16 @@ const FAILURE: i32 = 1;
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> std::process::ExitCode {
     let cli = Cli::parse();
-    install_logging(cli.log.filter());
+    // An agent reads what its hook prints, and shows what it logs. The hook
+    // speaks only through its answer.
+    if !matches!(
+        cli.command,
+        Command::Hook {
+            command: HookCommand::Permission { .. }
+        }
+    ) {
+        install_logging(cli.log.filter());
+    }
 
     let outcome = match cli.command {
         Command::Run { fake } => commands::run::execute(cli.config.as_deref(), fake).await,
@@ -38,6 +47,11 @@ async fn main() -> std::process::ExitCode {
         }
         Command::Pack { command } => run_pack(command, cli.config.as_deref()),
         Command::App { command } => run_app(command, cli.config.as_deref()).await,
+        Command::Hook { command } => match command {
+            HookCommand::Install { yes } => commands::hook::install(yes),
+            HookCommand::Uninstall => commands::hook::uninstall(),
+            HookCommand::Permission { agent } => commands::hook::permission(agent).await,
+        },
         Command::Init { preset, force } => {
             commands::init::execute(cli.config.as_deref(), &preset, force)
         }

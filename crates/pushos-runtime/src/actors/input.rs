@@ -104,6 +104,10 @@ pub struct InputTask {
     sessions: watch::Receiver<super::Progress>,
     /// What each role's agent is doing, as last published.
     roles: Vec<super::RoleActivity>,
+    /// The questions sessions are waiting on the operator to answer.
+    questions: Option<watch::Receiver<Vec<pushos_domain::attached::SessionQuestion>>>,
+    /// How many were waiting when last looked, so only a new one is announced.
+    questions_seen: usize,
     gestures: Vec<GestureEvent>,
     /// Whether anyone is using the surface, for a board left on all day.
     rest: RestClock,
@@ -159,6 +163,8 @@ impl InputTask {
             view,
             sessions,
             roles: Vec::new(),
+            questions: None,
+            questions_seen: 0,
             gestures: Vec::with_capacity(4),
         }
     }
@@ -197,6 +203,41 @@ impl InputTask {
         self.attached = Some(attached);
         self.bank = Some(bank);
         self
+    }
+
+    /// Follows the questions sessions put to the operator.
+    #[must_use]
+    pub(crate) fn asked(
+        mut self,
+        questions: watch::Receiver<Vec<pushos_domain::attached::SessionQuestion>>,
+    ) -> Self {
+        self.questions = Some(questions);
+        self
+    }
+
+    /// Puts a newly asked question on the display.
+    ///
+    /// Only a new one: the display is not interrupted again because one of
+    /// several was answered. The session's pad is already blinking for it, so
+    /// this is what it wants, in words.
+    fn follow_questions(&mut self) {
+        let Some(questions) = self.questions.as_mut() else {
+            return;
+        };
+        let waiting = questions.borrow_and_update().clone();
+        if waiting.len() > self.questions_seen
+            && let Some(newest) = waiting.last()
+        {
+            self.surface.apply(
+                pushos_domain::action::DisplayIntent::Prompt {
+                    question: newest.describe(),
+                    choices: vec!["Allow".to_owned(), "Deny".to_owned()],
+                },
+                Instant::now(),
+            );
+            self.publish();
+        }
+        self.questions_seen = waiting.len();
     }
 
     /// Runs until the surface goes away or shutdown begins.
@@ -287,6 +328,10 @@ impl InputTask {
                     if banked {
                         self.publish();
                     }
+                }
+
+                () = wait_for_questions(self.questions.as_mut()) => {
+                    self.follow_questions();
                 }
             }
         }
@@ -584,6 +629,19 @@ async fn wait_for_attached(
 }
 
 /// Waits for the bank being shown to move, or forever when none is watched.
+/// Waits for the questions waiting on the operator to change, or forever when
+/// nothing puts questions to them or whatever did has gone.
+async fn wait_for_questions(
+    questions: Option<&mut watch::Receiver<Vec<pushos_domain::attached::SessionQuestion>>>,
+) {
+    if let Some(questions) = questions
+        && questions.changed().await.is_ok()
+    {
+        return;
+    }
+    std::future::pending::<()>().await;
+}
+
 async fn wait_for_bank(bank: Option<&mut watch::Receiver<usize>>) -> bool {
     match bank {
         Some(bank) => bank.changed().await.is_ok(),

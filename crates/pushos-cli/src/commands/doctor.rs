@@ -60,6 +60,7 @@ pub(crate) async fn execute(requested: Option<&Path>) -> Result<(), String> {
     findings.extend(check_voice(&root));
     findings.extend(check_memory(&root));
     findings.extend(check_attached(&root).await);
+    findings.extend(check_hooks());
     findings.extend(check_host_tools().await);
 
     for finding in &findings {
@@ -136,6 +137,34 @@ fn check_push() -> Finding {
             format!("{error}; check nothing else is holding the device"),
         ),
     }
+}
+
+/// Reports whether each coding agent installed here asks the Push first.
+///
+/// Never blocking: an agent without the hook asks in its own window, as it
+/// always has.
+fn check_hooks() -> Vec<Finding> {
+    super::hook::installed()
+        .into_iter()
+        .map(|(agent, answered)| {
+            if answered {
+                Finding::new(
+                    Verdict::Good,
+                    "questions",
+                    format!("{}: its permission questions come to the Push", agent.name()),
+                )
+            } else {
+                Finding::new(
+                    Verdict::Optional,
+                    "questions",
+                    format!(
+                        "{}: `pushos hook install` to answer its permission questions from the Push",
+                        agent.name()
+                    ),
+                )
+            }
+        })
+        .collect()
 }
 
 /// Reports whether PushOS can see the coding sessions it did not start.

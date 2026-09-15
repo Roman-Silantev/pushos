@@ -116,6 +116,16 @@ pub enum Request {
         /// reconciled: the list is the thing the operator read.
         granting: Vec<pushos_domain::permissions::Permission>,
     },
+    /// Put a session's question to the operator, and wait for the answer.
+    ///
+    /// Sent by the command a coding agent runs when it is about to ask
+    /// permission. The answer can take minutes, because it waits for a person;
+    /// a client asking should wait that long, and the agent's own prompt is on
+    /// screen in the meantime.
+    Ask {
+        /// What is being asked.
+        question: pushos_domain::attached::SessionQuestion,
+    },
 }
 
 /// What the runtime answers.
@@ -148,8 +158,20 @@ pub enum Response {
     Packs(PackList),
     /// What installing a pack would mean.
     PackReview(Box<PackReview>),
+    /// What the operator decided about a question.
+    Answered(Answer),
     /// The request could not be carried out.
     Failed(Failure),
+}
+
+/// What the operator decided about a question, if anything.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Answer {
+    /// `None` when no answer came from the Push: nobody pressed anything in
+    /// time, it was answered in the session's own window, or this PushOS is
+    /// not watching sessions. The agent's own prompt decides then.
+    #[serde(default)]
+    pub decision: Option<pushos_domain::attached::Decision>,
 }
 
 /// The packs PushOS can offer, and which are installed.
@@ -515,6 +537,33 @@ pub enum FailureKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_question_and_its_answer_travel_as_one_line_each() {
+        use pushos_domain::attached::{Decision, SessionQuestion};
+
+        let ask = Request::Ask {
+            question: SessionQuestion {
+                agent: "Codex".to_owned(),
+                session: Some("019e".to_owned()),
+                device: Some("/dev/ttys006".to_owned()),
+                tool: "Bash".to_owned(),
+                detail: "cargo test\nwith a line break".to_owned(),
+            },
+        };
+        let line = serde_json::to_string(&ask).expect("serialisable");
+        assert!(!line.contains('\n'), "one request is one line: {line}");
+        assert_eq!(serde_json::from_str::<Request>(&line).expect("parses"), ask);
+
+        for decision in [Some(Decision::Allow), Some(Decision::Deny), None] {
+            let answered = Response::Answered(Answer { decision });
+            let line = serde_json::to_string(&answered).expect("serialisable");
+            assert_eq!(
+                serde_json::from_str::<Response>(&line).expect("parses"),
+                answered
+            );
+        }
+    }
 
     #[test]
     fn requests_round_trip_as_tagged_json() {

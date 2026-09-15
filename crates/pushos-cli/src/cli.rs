@@ -72,6 +72,13 @@ pub(crate) enum Command {
         command: AppCommand,
     },
 
+    /// Answer coding agents' permission questions from the Push.
+    Hook {
+        /// What to do with the hook.
+        #[command(subcommand)]
+        command: HookCommand,
+    },
+
     /// Write a starting configuration.
     Init {
         /// Which one to write. `pushos presets` lists them.
@@ -81,6 +88,30 @@ pub(crate) enum Command {
         /// Overwrite an existing configuration.
         #[arg(long)]
         force: bool,
+    },
+}
+
+/// What to do with the permission hook.
+#[derive(Debug, Subcommand)]
+pub(crate) enum HookCommand {
+    /// Add the hook to Claude Code and Codex, after saying what changes.
+    Install {
+        /// Add it without being asked to confirm.
+        #[arg(long, short = 'y')]
+        yes: bool,
+    },
+
+    /// Take the hook out again. Nothing else in their settings changes.
+    Uninstall,
+
+    /// Put a permission question to the Push. Run by the agent, not by hand.
+    ///
+    /// Reads the question from stdin and prints the answer the agent reads,
+    /// or nothing, which leaves the agent's own prompt to decide.
+    Permission {
+        /// Which agent is asking.
+        #[arg(long, value_enum)]
+        agent: crate::commands::hook::question::Agent,
     },
 }
 

@@ -11,13 +11,16 @@
 //! every press after that comes back to it.
 
 mod lines;
+mod questions;
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use pushos_domain::action::{ActionContext, ActionResult, ActionStatus, Depth, DisplayIntent};
-use pushos_domain::attached::{Attached, AttachedTarget, BANK, is_session_name};
+use pushos_domain::attached::{
+    Attached, AttachedTarget, BANK, Decision, SessionQuestion, is_session_name,
+};
 use pushos_domain::error::{ActionError, ErrorClass};
 use pushos_domain::ids::{ActionVerb, AttachedId, ProviderName};
 use pushos_domain::permissions::Permission;
@@ -30,6 +33,8 @@ use std::time::{Duration, Instant};
 
 use tokio::sync::watch;
 use tracing::info;
+
+use self::questions::Questions;
 
 /// The namespace this provider claims.
 pub const NAMESPACE: &str = "session";
@@ -67,6 +72,8 @@ pub struct SessionProvider {
     /// times a second. Believing the last answer for a fraction of one keeps
     /// the surface honest without spawning `osascript` for every detent.
     seen: Mutex<Seen>,
+    /// Questions sessions are waiting on the operator to answer from here.
+    questions: Questions,
 }
 
 /// The last answers, and when they were given.
@@ -99,7 +106,61 @@ impl SessionProvider {
             bank: watch::channel(0).0,
             scrolled: AtomicUsize::new(0),
             seen: Mutex::new(Seen::default()),
+            questions: Questions::default(),
         }
+    }
+
+    /// Puts a session's question to the operator, and waits for the answer.
+    ///
+    /// `None` when no answer came from here: nobody pressed anything in time,
+    /// or it was answered in the session's own window first.
+    pub async fn ask(&self, question: SessionQuestion) -> Option<Decision> {
+        info!(question = %question.describe(), "a session is asking the operator");
+        self.questions.ask(question, questions::PATIENCE).await
+    }
+
+    /// Follows the questions waiting on the operator, for the display.
+    pub fn questions(&self) -> watch::Receiver<Vec<SessionQuestion>> {
+        self.questions.watch()
+    }
+
+    /// Withdraws the questions the open sessions have stopped asking.
+    pub fn settle(&self, open: &[Attached]) {
+        self.questions.settle(open);
+    }
+
+    /// Answers a question: the one the target's session is asking, or with no
+    /// target, the oldest one waiting, so a single pair of buttons answers
+    /// every session.
+    async fn decide(
+        &self,
+        context: &ActionContext,
+        decision: Decision,
+    ) -> Result<ActionResult, ActionError> {
+        let answered = if context.params().text("target").is_some() {
+            let session = self.resolve(context).await?;
+            self.questions
+                .answer(|question| question.is_from(&session), decision)
+                .ok_or_else(|| invalid("that session is not asking anything"))?
+        } else {
+            self.questions
+                .answer(|_| true, decision)
+                .ok_or_else(|| invalid("nothing is asking"))?
+        };
+
+        let said = match decision {
+            Decision::Allow => "allowed",
+            Decision::Deny => "denied",
+        };
+        info!(question = %answered.describe(), said, "answered from the Push");
+        Ok(ActionResult {
+            status: ActionStatus::Completed,
+            message: Some(format!("{said}: {}", answered.describe())),
+            display: Some(DisplayIntent::Toast {
+                title: format!("{} {said}", answered.tool),
+                detail: Some(answered.agent),
+            }),
+        })
     }
 
     /// Follows which session the operator is looking at.
@@ -439,6 +500,8 @@ impl ActionProvider for SessionProvider {
                 "press",
                 "interrupt",
                 "open",
+                "approve",
+                "deny",
             ]
             .map(ActionVerb::new),
         )
@@ -450,6 +513,9 @@ impl ActionProvider for SessionProvider {
         .verb_requiring(ActionVerb::new("interrupt"), [Permission::ShellExecute])
         // Starting a session types its command into a shell.
         .verb_requiring(ActionVerb::new("open"), [Permission::ShellExecute])
+        // Allowing lets a session run what it asked to. Denying stops
+        // something, and needs nothing.
+        .verb_requiring(ActionVerb::new("approve"), [Permission::ShellExecute])
     }
 
     async fn execute(&self, context: ActionContext) -> Result<ActionResult, ActionError> {
@@ -595,6 +661,9 @@ impl ActionProvider for SessionProvider {
             }
 
             "open" => self.open_named(&context).await,
+
+            "approve" => self.decide(&context, Decision::Allow).await,
+            "deny" => self.decide(&context, Decision::Deny).await,
 
             other => Err(ActionError::UnknownVerb {
                 provider: self.name(),

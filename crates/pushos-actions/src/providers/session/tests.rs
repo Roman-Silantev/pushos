@@ -631,3 +631,92 @@ async fn typing_into_a_session_pushos_can_only_watch_says_where_to_answer_it() {
     assert!(error.to_string().contains("Visual Studio Code"), "{error}");
     assert_eq!(error.class(), ErrorClass::Validation);
 }
+
+fn asked_from(device: &str) -> pushos_domain::attached::SessionQuestion {
+    pushos_domain::attached::SessionQuestion {
+        agent: "Claude Code".to_owned(),
+        session: None,
+        device: Some(device.to_owned()),
+        tool: "Bash".to_owned(),
+        detail: "touch notes.md".to_owned(),
+    }
+}
+
+async fn waiting_for(provider: &SessionProvider, count: usize) {
+    let mut shown = provider.questions();
+    shown
+        .wait_for(|shown| shown.len() == count)
+        .await
+        .expect("the questions are published");
+}
+
+#[tokio::test]
+async fn one_button_answers_whichever_session_asked_first() {
+    // Allowing is the operator's decision about what was asked, and a single
+    // pair of buttons serves every session.
+    let (provider, _fake) = rig();
+    let provider = Arc::new(provider);
+    let asking = Arc::clone(&provider);
+    let waiting = tokio::spawn(async move { asking.ask(asked_from("/dev/ttys004")).await });
+    waiting_for(&provider, 1).await;
+
+    let result = provider
+        .execute(context("approve", None))
+        .await
+        .expect("something is asking");
+    assert!(
+        result
+            .message
+            .as_deref()
+            .is_some_and(|said| said.starts_with("allowed")),
+        "{result:?}"
+    );
+    assert_eq!(
+        waiting.await.expect("joined"),
+        Some(pushos_domain::attached::Decision::Allow)
+    );
+}
+
+#[tokio::test]
+async fn a_pad_aimed_at_one_session_answers_only_that_sessions_question() {
+    let (provider, _fake) = rig();
+    let provider = Arc::new(provider);
+    for device in ["/dev/ttys003", "/dev/ttys004"] {
+        let asking = Arc::clone(&provider);
+        tokio::spawn(async move { asking.ask(asked_from(device)).await });
+    }
+    waiting_for(&provider, 2).await;
+
+    provider
+        .execute(context("deny", Some("review")))
+        .await
+        .expect("the review session is asking");
+    let left = provider.questions().borrow().clone();
+    assert_eq!(left.len(), 1);
+    assert_eq!(left[0].device.as_deref(), Some("/dev/ttys003"));
+}
+
+#[tokio::test]
+async fn answering_when_nothing_is_asking_says_so() {
+    let (provider, _fake) = rig();
+    let error = provider
+        .execute(context("approve", None))
+        .await
+        .expect_err("nothing is asking");
+    assert_eq!(error.class(), ErrorClass::Validation);
+}
+
+#[tokio::test]
+async fn only_allowing_needs_saying_yes_to() {
+    let (provider, _fake) = rig();
+    let capabilities = provider.capabilities();
+    assert_eq!(
+        capabilities.required_for(&ActionVerb::new("approve")),
+        [Permission::ShellExecute]
+    );
+    assert!(
+        capabilities
+            .required_for(&ActionVerb::new("deny"))
+            .is_empty()
+    );
+}

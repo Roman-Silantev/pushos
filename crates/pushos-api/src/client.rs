@@ -52,6 +52,34 @@ impl ControlClient {
 
     /// Sends a request and waits for its answer.
     pub async fn send(&mut self, request: &Request) -> Result<Response, ClientError> {
+        self.send_waiting(request, REQUEST_TIMEOUT).await
+    }
+
+    /// Puts a session's question to the operator, waiting up to `patience`.
+    ///
+    /// No answer from the Push is an answer too, and comes back as one with
+    /// no decision.
+    pub async fn ask(
+        &mut self,
+        question: pushos_domain::attached::SessionQuestion,
+        patience: Duration,
+    ) -> Result<crate::protocol::Answer, ClientError> {
+        match self
+            .send_waiting(&Request::Ask { question }, patience)
+            .await?
+        {
+            Response::Answered(answer) => Ok(answer),
+            Response::Failed(failure) => Err(ClientError::Refused(failure)),
+            _ => Err(ClientError::Closed),
+        }
+    }
+
+    /// Sends a request and waits up to `patience` for its answer.
+    async fn send_waiting(
+        &mut self,
+        request: &Request,
+        patience: Duration,
+    ) -> Result<Response, ClientError> {
         let mut line = serde_json::to_vec(request).map_err(ClientError::Encode)?;
         line.push(b'\n');
 
@@ -63,7 +91,7 @@ impl ControlClient {
         .map_err(|_| ClientError::TimedOut)?
         .map_err(ClientError::Transport)?;
 
-        let answer = tokio::time::timeout(REQUEST_TIMEOUT, self.lines.next_line())
+        let answer = tokio::time::timeout(patience, self.lines.next_line())
             .await
             .map_err(|_| ClientError::TimedOut)?
             .map_err(ClientError::Transport)?

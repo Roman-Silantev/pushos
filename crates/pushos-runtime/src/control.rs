@@ -43,6 +43,9 @@ pub struct RuntimeControl {
     sessions: Vec<Arc<dyn SessionSource>>,
     /// The projects, when any are configured.
     workspaces: Option<Arc<pushos_workspaces::WorkspaceManager>>,
+    /// Where sessions' questions are put to the operator, when sessions are
+    /// watched.
+    questions: Option<Arc<pushos_actions::providers::session::SessionProvider>>,
 }
 
 impl RuntimeControl {
@@ -60,7 +63,18 @@ impl RuntimeControl {
             view,
             sessions: Vec::new(),
             workspaces: None,
+            questions: None,
         }
+    }
+
+    /// Puts sessions' questions to the operator through this provider.
+    #[must_use]
+    pub fn with_questions(
+        mut self,
+        provider: Arc<pushos_actions::providers::session::SessionProvider>,
+    ) -> Self {
+        self.questions = Some(provider);
+        self
     }
 
     /// Reports the projects this manager knows about.
@@ -190,6 +204,15 @@ fn entry(
 impl ControlPlane for RuntimeControl {
     async fn status(&self) -> StatusReport {
         self.report(&self.config.current())
+    }
+
+    async fn ask(&self, question: pushos_domain::attached::SessionQuestion) -> pushos_api::Answer {
+        let Some(provider) = &self.questions else {
+            return pushos_api::Answer::default();
+        };
+        pushos_api::Answer {
+            decision: provider.ask(question).await,
+        }
     }
 
     async fn describe(&self) -> Vocabulary {

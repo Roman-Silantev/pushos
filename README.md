@@ -387,6 +387,39 @@ typed into a shell rather than run in its place, so when the agent exits you are
 left in the same folder instead of losing the window. To watch one from VS Code,
 run `tmux attach -t client-1` in its terminal.
 
+### Answering from the Push
+
+Claude Code and Codex can ask the Push before they ask you in their own window.
+Add PushOS to their hooks once:
+
+```bash
+pushos hook install      # shows what it adds to each agent's settings, then asks
+pushos hook uninstall    # takes it out again
+```
+
+From then on, when an agent wants permission for something, the question is on
+the display and the session's pad blinks amber. Answer it with two controls:
+
+```toml
+[[bindings]]
+control = "button.upper_8"
+gesture = "press"
+action = "session.approve"
+
+[[bindings]]
+control = "button.upper_7"
+gesture = "press"
+action = "session.deny"
+```
+
+With no target these answer whichever session asked first; with one they answer
+that session. This works for sessions PushOS cannot type into as well, such as
+Claude Code in VS Code's panel. The agent's own prompt stays on screen, and
+whichever is answered first counts: answer it at the keyboard and the Push
+stops offering to within a few seconds. If PushOS is not running, or nobody
+answers, the agent simply asks in its window as it always did. Codex runs a new
+hook only once you have trusted it with `/hooks`.
+
 ### What a role's agent may do
 
 A role can say what the agent filling it may do, and PushOS holds it to that:
@@ -562,6 +595,8 @@ Built and tested:
 | Compound actions | Sequences of actions behind one gesture, refused if they could loop |
 | Hardware care | Brightness below full, dimming and sleep when untouched, dark when PushOS stops or the Mac sleeps |
 | Every session | tmux, Terminal and Claude Code's own session list merged into one; a tmux session per pad |
+| Answers from the Push | Claude Code and Codex put their permission questions to the Push first |
+| Role limits | Every agent held to what its role allows, at start, by mode and at each question |
 | Footprint | A 4.8 MB program, and a build directory that stays under a gigabyte |
 
 `SPEC.md` and `AGENT_PACKS_SPEC.md` hold the full plan.

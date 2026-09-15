@@ -18,8 +18,8 @@ pub use client::{ClientError, ControlClient};
 pub use endpoint::{SOCKET_FILE, SOCKET_MODE, default_socket, socket_in};
 pub use plane::{ControlPlane, SessionSource};
 pub use protocol::{
-    BindingList, ControlInfo, EditReport, Failure, FailureKind, GridPosition, PROTOCOL_VERSION,
-    PageInfo, ProviderInfo, Request, Response, SessionInfo, SessionKind, SessionList, StatusReport,
-    TestReport, Vocabulary, WorkspaceInfo, WorkspaceList,
+    Answer, BindingList, ControlInfo, EditReport, Failure, FailureKind, GridPosition,
+    PROTOCOL_VERSION, PageInfo, ProviderInfo, Request, Response, SessionInfo, SessionKind,
+    SessionList, StatusReport, TestReport, Vocabulary, WorkspaceInfo, WorkspaceList,
 };
 pub use server::{ControlServer, ServerError};

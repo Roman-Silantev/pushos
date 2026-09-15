@@ -219,6 +219,7 @@ async fn answer(request: Request, plane: &dyn ControlPlane) -> Response {
                 Err(failure) => Response::Failed(failure),
             }
         }
+        Request::Ask { question } => Response::Answered(plane.ask(question).await),
         Request::Reload => match plane.reload().await {
             Ok(status) => Response::Status(status),
             Err(failure) => Response::Failed(failure),

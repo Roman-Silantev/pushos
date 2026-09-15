@@ -14,9 +14,11 @@
 //! own panel tells PushOS what it is doing, but there is no terminal to type
 //! into, and saying so is better than pretending otherwise.
 
+mod question;
 mod screen;
 mod target;
 
+pub use question::{Decision, SessionQuestion};
 pub use screen::activity_of;
 pub use target::{AttachedTarget, MalformedTarget};
 

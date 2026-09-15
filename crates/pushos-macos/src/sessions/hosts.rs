@@ -61,6 +61,35 @@ impl Hosts {
     }
 }
 
+/// The terminal device of the nearest process above `pid` that has one.
+///
+/// A command an agent runs for a hook runs with no terminal of its own, but
+/// the agent that started it has one, and that device is how the session is
+/// known.
+pub async fn terminal_above(processes: &dyn ProcessRunner, pid: u32) -> Option<String> {
+    let spec = ProcessSpec::new(PS, ["-axo".to_owned(), "pid=,ppid=,tty=,comm=".to_owned()])
+        .within(Duration::from_secs(5))
+        .capturing(4 * 1024 * 1024);
+    let outcome = processes.run(&spec).await.ok()?;
+    nearest_device(&parse(&outcome.stdout_tail), pid)
+}
+
+/// The first device found walking up from `pid`, itself included.
+fn nearest_device(table: &HashMap<u32, Row>, pid: u32) -> Option<String> {
+    let mut at = pid;
+    for _ in 0..MOST_ANCESTORS {
+        let row = table.get(&at)?;
+        if let Some(device) = &row.device {
+            return Some(device.clone());
+        }
+        if row.parent == at || row.parent == 0 {
+            return None;
+        }
+        at = row.parent;
+    }
+    None
+}
+
 /// One row of the process table.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Row {
@@ -207,6 +236,26 @@ mod tests {
     fn a_parent_that_is_its_own_parent_does_not_loop() {
         let table = parse("  10  11 ??  a\n  11  11 ??  b\n");
         assert!(whereabouts(&table, 10, 4000).is_some());
+    }
+
+    #[test]
+    fn a_hook_with_no_terminal_is_placed_on_the_terminal_of_the_agent_above_it() {
+        // The agent in a Terminal tab runs a shell, which runs the hook, and
+        // neither of those has a device.
+        let table = parse(
+            "  894   893 ttys002  -zsh\n 1622   894 ttys002  claude\n 1650  1622 ??  /bin/sh\n 1651  1650 ??  pushos\n",
+        );
+        assert_eq!(
+            nearest_device(&table, 1651).as_deref(),
+            Some("/dev/ttys002")
+        );
+    }
+
+    #[test]
+    fn a_hook_under_an_editors_panel_has_no_terminal() {
+        let table =
+            parse("  901     1 ??  Code Helper\n 1701   901 ??  claude\n 1750  1701 ??  pushos\n");
+        assert_eq!(nearest_device(&table, 1750), None);
     }
 
     #[tokio::test]

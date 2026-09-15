@@ -6,8 +6,8 @@
 use async_trait::async_trait;
 
 use crate::protocol::{
-    BindingList, EditReport, Failure, FailureKind, PackList, PackReview, SessionList, StatusReport,
-    TestReport, Vocabulary, WorkspaceList,
+    Answer, BindingList, EditReport, Failure, FailureKind, PackList, PackReview, SessionList,
+    StatusReport, TestReport, Vocabulary, WorkspaceList,
 };
 use pushos_config::{BindingAddress, BindingSpec, PageSpec};
 
@@ -88,6 +88,14 @@ pub trait ControlPlane: Send + Sync + std::fmt::Debug {
             FailureKind::NotFound,
             format!("no pack called `{pack}` is on offer"),
         ))
+    }
+
+    /// Puts a session's question to the operator, and waits for the answer.
+    ///
+    /// Defaulted to no answer: a PushOS not watching sessions has nobody to
+    /// ask, and the agent's own prompt is left to decide.
+    async fn ask(&self, _question: pushos_domain::attached::SessionQuestion) -> Answer {
+        Answer::default()
     }
 }
 

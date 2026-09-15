@@ -41,6 +41,8 @@ use self::merge::{Route, Seen, merge};
 use self::terminal_app::TerminalApp;
 use self::tmux::Tmux;
 
+pub use self::hosts::terminal_above;
+
 /// Every coding session on this Mac that PushOS did not start.
 #[derive(Debug)]
 pub struct MacSessions {
