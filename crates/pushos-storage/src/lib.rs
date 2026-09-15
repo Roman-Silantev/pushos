@@ -10,6 +10,7 @@ mod error;
 mod memory;
 mod notes;
 mod records;
+mod retention;
 mod runs;
 mod schema;
 mod writer;

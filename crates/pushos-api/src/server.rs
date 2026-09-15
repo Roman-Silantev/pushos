@@ -28,6 +28,9 @@ const MAX_SOCKET_PATH: usize = 100;
 /// with its parameters is far smaller than this.
 const MAX_REQUEST_BYTES: u64 = 64 * 1024;
 
+/// How long to wait after a connection could not be accepted.
+const ACCEPT_PAUSE: std::time::Duration = std::time::Duration::from_millis(250);
+
 /// A listening control socket.
 ///
 /// Removing the socket file on drop means a stale file never makes a client
@@ -98,6 +101,7 @@ impl ControlServer {
     pub async fn serve(self, plane: Arc<dyn ControlPlane>, stop: impl Future<Output = ()>) {
         let mut stop = std::pin::pin!(stop);
 
+        let mut failing = false;
         loop {
             tokio::select! {
                 biased;
@@ -106,6 +110,7 @@ impl ControlServer {
 
                 accepted = self.listener.accept() => match accepted {
                     Ok((stream, _)) => {
+                        failing = false;
                         let plane = Arc::clone(&plane);
                         // Connections are short and serialised per client; a
                         // failure in one must not end the listener.
@@ -115,7 +120,15 @@ impl ControlServer {
                             }
                         });
                     }
-                    Err(error) => warn!(%error, "could not accept a control connection"),
+                    Err(error) => {
+                        // A failure that persists, such as running out of file
+                        // descriptors, fails again at once. Said once, and
+                        // paced, so it neither spins nor fills the log.
+                        if !std::mem::replace(&mut failing, true) {
+                            warn!(%error, "could not accept a control connection");
+                        }
+                        tokio::time::sleep(ACCEPT_PAUSE).await;
+                    }
                 },
             }
         }

@@ -88,11 +88,20 @@ impl ShippedPack {
 
 /// Where shipped packs are written out, for this version of PushOS.
 ///
-/// Per version, so an upgrade never offers the previous version's files.
+/// Per version, so an upgrade never offers the previous version's files, and
+/// the copies any earlier version wrote are removed the first time this one
+/// asks, so upgrades do not leave a copy each behind.
 pub fn cache_directory() -> PathBuf {
-    std::env::temp_dir()
-        .join("pushos-shipped-packs")
-        .join(env!("CARGO_PKG_VERSION"))
+    let all = std::env::temp_dir().join("pushos-shipped-packs");
+    let this = all.join(env!("CARGO_PKG_VERSION"));
+    if let Ok(entries) = std::fs::read_dir(&all) {
+        for entry in entries.flatten() {
+            if entry.path() != this {
+                std::fs::remove_dir_all(entry.path()).ok();
+            }
+        }
+    }
+    this
 }
 
 #[cfg(test)]

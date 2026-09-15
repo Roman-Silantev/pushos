@@ -38,6 +38,15 @@ impl AgentCommand {
         self
     }
 
+    /// Gives the `npx` that starts an adapter a download cache of its own.
+    ///
+    /// Kept under a size before each start; see [`crate::npm_cache`].
+    #[must_use]
+    pub fn with_npm_cache(self, directory: impl AsRef<std::path::Path>) -> Self {
+        let directory = directory.as_ref().to_string_lossy().into_owned();
+        self.with_env(crate::npm_cache::NPM_CACHE, directory)
+    }
+
     /// The adapter that fronts Claude Code.
     ///
     /// A default, not a hard-coded dependency: it is the same shape as anything

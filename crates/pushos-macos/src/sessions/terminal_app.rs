@@ -10,6 +10,7 @@
 //! nothing an operator or a session titles itself can change what runs.
 
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use pushos_domain::error::{ActionError, ErrorClass};
 use pushos_domain::ids::AttachedId;
@@ -69,6 +70,12 @@ end run"#;
 /// focused view asks for its own screen, one window at a time, where there is
 /// room to spare.
 const GLANCE: usize = 220;
+
+/// How much of a listing is kept.
+///
+/// Every tab's glance, at up to four bytes a character, for well over a hundred
+/// tabs. The listing is the answer, so none of it may be cut.
+const LISTING: usize = 1024 * 1024;
 
 /// What a terminal device path begins with.
 ///
@@ -183,6 +190,8 @@ pub(super) struct Tab {
 #[derive(Debug, Clone)]
 pub(super) struct TerminalApp {
     scripts: ScriptRunner,
+    /// Whether a reply cut short has been reported, so it is said once.
+    cut_short: Arc<AtomicBool>,
 }
 
 impl TerminalApp {
@@ -190,6 +199,7 @@ impl TerminalApp {
     pub(super) fn new(processes: Arc<dyn ProcessRunner>) -> Self {
         Self {
             scripts: ScriptRunner::new(processes),
+            cut_short: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -203,7 +213,11 @@ impl TerminalApp {
 
     /// Every tab, in order of device.
     pub(super) async fn tabs(&self) -> Result<Vec<Tab>, AttachError> {
-        let reply = self.ask(DISCOVER, &[GLANCE.to_string()]).await?;
+        let reply = self
+            .scripts
+            .run_capturing(DISCOVER, &[GLANCE.to_string()], LISTING)
+            .await
+            .map_err(into_attach_error)?;
 
         let records = reply.split(RECORD).filter(|r| !r.trim().is_empty()).count();
         let mut found: Vec<Tab> = reply.split(RECORD).filter_map(parse).collect();
@@ -217,7 +231,9 @@ impl TerminalApp {
         // A reply too long to hand back is cut from the front, which loses
         // whole windows silently. Saying so beats an operator counting seven
         // pads where there are eight.
-        if found.len() < records {
+        let short = found.len() < records;
+        let was_short = self.cut_short.swap(short, Ordering::Relaxed);
+        if short && !was_short {
             warn!(
                 kept = found.len(),
                 records, "some terminals could not be read; the reply was too long"

@@ -262,9 +262,21 @@ impl Storage {
 }
 
 fn serve(connection: &Connection, inbox: &mpsc::Receiver<Request>) {
+    let mut since_trim = 0_u64;
     while let Ok(request) = inbox.recv() {
         if matches!(request, Request::Shutdown) {
             break;
+        }
+        // The record is a window, kept to its size as events arrive rather than
+        // only when PushOS starts, which may be months apart.
+        if matches!(request, Request::RecordEvent(_)) {
+            since_trim += 1;
+            if since_trim >= crate::retention::TRIM_EVERY {
+                since_trim = 0;
+                if let Err(error) = crate::retention::trim(connection, crate::retention::now()) {
+                    warn!(%error, "could not trim the record");
+                }
+            }
         }
         // One failed statement is not a reason to stop serving: the audit trail
         // matters, but so does the surface staying up.

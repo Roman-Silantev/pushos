@@ -183,9 +183,14 @@ impl MidiLink {
     fn enqueue(&self, command: MidiCommand) {
         match self.commands.try_send(command) {
             Ok(()) => {}
-            Err(TrySendError::Full(dropped)) => {
-                self.dropped_writes.fetch_add(1, Ordering::Relaxed);
-                warn!(?dropped, "MIDI writer is behind; dropped an outgoing batch");
+            Err(TrySendError::Full(_)) => {
+                let dropped = self.dropped_writes.fetch_add(1, Ordering::Relaxed) + 1;
+                // At the first drop and then each time the count doubles, so a
+                // writer that stays behind is reported a few dozen times in its
+                // life rather than once for every batch.
+                if dropped.is_power_of_two() {
+                    warn!(dropped, "MIDI writer is behind; dropping outgoing batches");
+                }
             }
             Err(TrySendError::Disconnected(_)) => {
                 debug!("MIDI writer has stopped; discarding outgoing batch");

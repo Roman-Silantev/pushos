@@ -53,6 +53,20 @@ pub struct RenderTask {
     /// How long until the next animation frame, which depends on whether the
     /// surface has dimmed.
     frame_interval: Duration,
+    /// Which failures to reach the hardware have been reported.
+    ///
+    /// A link that fails fails on every frame, thirty times a second. Said
+    /// once, and again only after it has worked in between, so a surface left
+    /// broken overnight writes one line rather than a million.
+    reported: Reported,
+}
+
+/// Which hardware failures are already in the log.
+#[derive(Debug, Default)]
+struct Reported {
+    frame: bool,
+    lights: bool,
+    brightness: bool,
 }
 
 impl RenderTask {
@@ -73,6 +87,7 @@ impl RenderTask {
             brightness: None,
             dark: false,
             frame_interval: FRAME_INTERVAL,
+            reported: Reported::default(),
         }
     }
 
@@ -169,8 +184,15 @@ impl RenderTask {
         }
 
         match self.output.set_leds(&changes).await {
-            Ok(()) => self.lit = wanted,
-            Err(error) => warn!(%error, "could not update the lights"),
+            Ok(()) => {
+                self.lit = wanted;
+                self.reported.lights = false;
+            }
+            Err(error) => {
+                if !std::mem::replace(&mut self.reported.lights, true) {
+                    warn!(%error, "could not update the lights");
+                }
+            }
         }
     }
 
@@ -183,8 +205,15 @@ impl RenderTask {
             return;
         }
         match self.output.set_brightness(levels).await {
-            Ok(()) => self.brightness = Some(levels),
-            Err(error) => warn!(%error, "could not set the brightness"),
+            Ok(()) => {
+                self.brightness = Some(levels);
+                self.reported.brightness = false;
+            }
+            Err(error) => {
+                if !std::mem::replace(&mut self.reported.brightness, true) {
+                    warn!(%error, "could not set the brightness");
+                }
+            }
         }
     }
 
@@ -194,11 +223,16 @@ impl RenderTask {
         self.animating = snapshot.is_animated();
         self.dark = false;
 
-        if self.renderer.render(&snapshot, &mut self.frame)
-            && let Err(error) = self.output.present(&self.frame).await
-        {
-            warn!(%error, "could not present a frame");
-            return false;
+        if self.renderer.render(&snapshot, &mut self.frame) {
+            match self.output.present(&self.frame).await {
+                Ok(()) => self.reported.frame = false,
+                Err(error) => {
+                    if !std::mem::replace(&mut self.reported.frame, true) {
+                        warn!(%error, "could not present a frame; saying so again only once it recovers");
+                    }
+                    return false;
+                }
+            }
         }
         true
     }

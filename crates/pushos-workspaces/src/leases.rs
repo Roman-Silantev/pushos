@@ -5,7 +5,7 @@
 //! convenience; this is correctness, because two agents editing one checkout
 //! produce a conflict nobody can untangle after the fact.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
 use pushos_domain::ids::{AgentId, WorkspaceId};
@@ -39,6 +39,10 @@ impl std::fmt::Display for Holder {
 #[derive(Debug, Default)]
 pub struct WorktreeLeases {
     held: HashMap<Holder, PathBuf>,
+    /// Trees being removed, or removed. A claim works from a list of trees it
+    /// read before it took the book, and must not be handed one of these from
+    /// it. No more of them than roles PushOS has made trees for: one path each.
+    retired: HashSet<PathBuf>,
 }
 
 impl WorktreeLeases {
@@ -57,7 +61,7 @@ impl WorktreeLeases {
 
     /// Whether a tree is free to hand out.
     pub fn is_free(&self, path: &Path) -> bool {
-        self.holder(path).is_none()
+        self.holder(path).is_none() && !self.retired.contains(path)
     }
 
     /// The tree a holder has, if it has one.
@@ -70,15 +74,35 @@ impl WorktreeLeases {
     /// One that already had one gives that up first: a role works in one place,
     /// and holding two would make the count wrong for both.
     pub fn take(&mut self, session: &Holder, path: impl Into<PathBuf>) {
-        self.held.insert(session.clone(), path.into());
+        let path = path.into();
+        // Only a free tree is taken, so a retired path taken again is a new
+        // tree made where the old one was.
+        self.retired.remove(&path);
+        self.held.insert(session.clone(), path);
     }
 
     /// Gives back whatever a holder had.
     ///
-    /// The tree itself is left alone: it may hold work nobody has committed,
-    /// and deleting that to tidy up would be the worst thing PushOS could do.
+    /// Only the book changes. Whether the tree itself goes is decided by what
+    /// is in it, and never here.
     pub fn release(&mut self, session: &Holder) -> Option<PathBuf> {
         self.held.remove(session)
+    }
+
+    /// Sets a free tree aside to be removed, so nobody is handed it meanwhile.
+    ///
+    /// `false` when it is not free, and must not be removed.
+    pub fn retire(&mut self, path: &Path) -> bool {
+        if !self.is_free(path) {
+            return false;
+        }
+        self.retired.insert(path.to_path_buf());
+        true
+    }
+
+    /// Puts back a tree that was set aside and then kept.
+    pub fn restore(&mut self, path: &Path) {
+        self.retired.remove(path);
     }
 
     /// How many trees are spoken for.
@@ -151,6 +175,30 @@ mod tests {
             leases.is_free(Path::new("/trees/one")),
             "the tree it gave up is free again"
         );
+    }
+
+    #[test]
+    fn a_tree_being_removed_is_handed_to_nobody_and_a_held_one_is_never_removed() {
+        let mut leases = WorktreeLeases::new();
+        leases.take(&holder("s1"), "/trees/one");
+        assert!(!leases.retire(Path::new("/trees/one")), "someone is in it");
+
+        assert!(leases.retire(Path::new("/trees/two")));
+        assert!(!leases.is_free(Path::new("/trees/two")));
+        assert!(!leases.retire(Path::new("/trees/two")), "already going");
+
+        leases.restore(Path::new("/trees/two"));
+        assert!(leases.is_free(Path::new("/trees/two")), "kept after all");
+    }
+
+    #[test]
+    fn a_tree_made_again_where_a_removed_one_was_is_held_as_usual() {
+        let mut leases = WorktreeLeases::new();
+        assert!(leases.retire(Path::new("/trees/one")));
+
+        leases.take(&holder("s1"), "/trees/one");
+        leases.release(&holder("s1"));
+        assert!(leases.is_free(Path::new("/trees/one")));
     }
 
     #[test]

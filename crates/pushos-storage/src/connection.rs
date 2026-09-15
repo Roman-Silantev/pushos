@@ -31,6 +31,10 @@ pub(crate) fn open(path: &Path) -> Result<Connection, StorageError> {
     let connection = Connection::open(path).map_err(StorageError::open)?;
     configure(&connection)?;
     migrate(&connection)?;
+    // A file that grew while PushOS was stopped, or before its record had a
+    // window, is brought back inside it before anything else is written.
+    crate::retention::trim(&connection, crate::retention::now())?;
+    crate::retention::compact_if_mostly_empty(&connection)?;
     Ok(connection)
 }
 
@@ -57,6 +61,12 @@ fn configure(connection: &Connection) -> Result<(), StorageError> {
         .map_err(StorageError::configure)?;
     connection
         .pragma_update(None, "synchronous", "NORMAL")
+        .map_err(StorageError::configure)?;
+    // The write-ahead log is emptied into the database as it goes, but its file
+    // keeps the largest size it ever reached unless told otherwise. Eight
+    // megabytes is ample for a burst of events and the most it keeps after one.
+    connection
+        .pragma_update(None, "journal_size_limit", 8 * 1024 * 1024)
         .map_err(StorageError::configure)?;
     Ok(())
 }

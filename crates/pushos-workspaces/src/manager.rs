@@ -255,6 +255,67 @@ impl WorkspaceManager {
         Ok(tree.path)
     }
 
+    /// Removes the free trees PushOS made that hold no uncommitted work.
+    ///
+    /// For when PushOS starts: the agents that were working in trees last time
+    /// stopped with it, and their trees would otherwise stay until each role
+    /// happened to be started again.
+    pub async fn tidy(&self) {
+        for workspace in self
+            .registry
+            .all()
+            .iter()
+            .filter(|workspace| workspace.isolate_agents)
+        {
+            let Ok(trees) = self.repository.worktrees(&workspace.root).await else {
+                continue;
+            };
+            for tree in trees.iter().filter(|tree| is_ours(tree)) {
+                self.remove(workspace, tree).await;
+            }
+        }
+    }
+
+    /// Removes the tree at `path` if nothing uncommitted is in it.
+    async fn remove_if_clean(&self, workspace: &Workspace, path: &Path) {
+        let Ok(trees) = self.repository.worktrees(&workspace.root).await else {
+            return;
+        };
+        if let Some(tree) = trees.iter().find(|tree| tree.path == path && is_ours(tree)) {
+            self.remove(workspace, tree).await;
+        }
+    }
+
+    /// Removes a tree nobody holds, unless it holds uncommitted work.
+    ///
+    /// Set aside first, and git run outside the lock: deleting a tree's build
+    /// output can take seconds, and claims must not wait on it.
+    async fn remove(&self, workspace: &Workspace, tree: &Worktree) {
+        if !self.state.lock().await.leases.retire(&tree.path) {
+            return;
+        }
+        let removed = match self.repository.remove_worktree(&workspace.root, tree).await {
+            Ok(true) => {
+                info!(path = %tree.path.display(), "removed a working tree nobody was using");
+                true
+            }
+            Ok(false) => {
+                debug!(
+                    path = %tree.path.display(),
+                    "kept a working tree: it holds work nobody has committed"
+                );
+                false
+            }
+            Err(error) => {
+                debug!(%error, path = %tree.path.display(), "could not remove a working tree");
+                false
+            }
+        };
+        if !removed {
+            self.state.lock().await.leases.restore(&tree.path);
+        }
+    }
+
     /// Takes a tree PushOS made earlier that nobody is working in.
     ///
     /// Reused rather than accumulated: every role in every project would
@@ -268,14 +329,9 @@ impl WorkspaceManager {
             return Some(held.to_path_buf());
         }
 
-        let free = existing.iter().find(|tree| {
-            !tree.is_main
-                && tree
-                    .branch
-                    .as_ref()
-                    .is_some_and(|branch| branch.starts_with(BRANCH_PREFIX))
-                && state.leases.is_free(&tree.path)
-        })?;
+        let free = existing
+            .iter()
+            .find(|tree| is_ours(tree) && state.leases.is_free(&tree.path))?;
 
         state.leases.take(holder, &free.path);
         Some(free.path.clone())
@@ -318,12 +374,13 @@ impl WorkspaceContext for WorkspaceManager {
         };
 
         let holder = Holder::new(&found.id, agent);
-        let mut state = self.state.lock().await;
-        if let Some(path) = state.leases.release(&holder) {
-            // The tree is left where it is. It may hold work nobody has
-            // committed, and removing that to tidy up would be the worst thing
-            // PushOS could do.
+        let released = self.state.lock().await.leases.release(&holder);
+        if let Some(path) = released {
             debug!(%holder, path = %path.display(), "gave back a working tree");
+            // Removed once nobody is in it, unless it holds work nobody has
+            // committed. A tree is a checkout plus whatever was built in it,
+            // and trees left behind for every role would fill the disk.
+            self.remove_if_clean(found, &path).await;
         }
     }
 
@@ -344,6 +401,15 @@ impl WorkspaceContext for WorkspaceManager {
             .map(|found| found.env.clone())
             .unwrap_or_default()
     }
+}
+
+/// Whether a tree is one PushOS made for a role, and not the operator's own.
+fn is_ours(tree: &Worktree) -> bool {
+    !tree.is_main
+        && tree
+            .branch
+            .as_ref()
+            .is_some_and(|branch| branch.starts_with(BRANCH_PREFIX))
 }
 
 /// Reports a project that could not be opened in an application.
@@ -643,7 +709,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_tree_given_back_is_used_again_rather_than_left_to_accumulate() {
+    async fn a_tree_given_back_with_uncommitted_work_is_kept_and_used_again() {
+        // Removing it would lose that work, so it stays, and the next role to
+        // need a tree takes it rather than making another.
         let fixture = Fixture::new();
         fixture.select("pushos", SurfaceContext::empty()).await;
 
@@ -653,6 +721,7 @@ mod tests {
             .claim(None, &builder)
             .await
             .expect("isolated");
+        fixture.repository.leave_work_in(&first);
         fixture.manager.release(None, &builder).await;
         let second = fixture
             .manager
@@ -665,8 +734,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_tree_given_back_is_not_deleted() {
-        // It may hold work nobody has committed.
+    async fn a_clean_tree_given_back_is_removed_so_trees_do_not_pile_up() {
         let fixture = Fixture::new();
         fixture.select("pushos", SurfaceContext::empty()).await;
 
@@ -680,8 +748,56 @@ mod tests {
             .release(None, &AgentId::new("builder"))
             .await;
 
-        assert_eq!(fixture.repository.added(), 1, "the tree is still there");
+        assert_eq!(
+            fixture.repository.added(),
+            0,
+            "the tree and its build output went"
+        );
         assert_eq!(fixture.manager.leased().await, 0);
+    }
+
+    #[tokio::test]
+    async fn starting_removes_free_clean_trees_and_keeps_the_rest() {
+        let fixture = Fixture::new();
+        fixture.select("pushos", SurfaceContext::empty()).await;
+
+        // One in use now, then two left from last time, one with work in it.
+        let in_use = fixture
+            .manager
+            .claim(None, &AgentId::new("builder"))
+            .await
+            .expect("isolated");
+        fixture
+            .repository
+            .preload("/tmp/trees/pushos/old-clean", "pushos/pushos/old-clean");
+        fixture
+            .repository
+            .preload("/tmp/trees/pushos/old-work", "pushos/pushos/old-work");
+        fixture
+            .repository
+            .leave_work_in("/tmp/trees/pushos/old-work");
+        fixture
+            .repository
+            .preload("/tmp/operator-tree", "feature/mine");
+
+        fixture.manager.tidy().await;
+
+        let left: Vec<PathBuf> = fixture
+            .repository
+            .worktrees_now()
+            .into_iter()
+            .map(|tree| tree.path)
+            .collect();
+        assert!(left.contains(&in_use), "a tree in use stays");
+        assert!(
+            left.contains(&PathBuf::from("/tmp/trees/pushos/old-work")),
+            "work stays"
+        );
+        assert!(
+            left.contains(&PathBuf::from("/tmp/operator-tree")),
+            "a tree PushOS did not make is not PushOS's to remove"
+        );
+        assert!(!left.contains(&PathBuf::from("/tmp/trees/pushos/old-clean")));
     }
 
     #[tokio::test]

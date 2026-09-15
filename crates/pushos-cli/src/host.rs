@@ -287,9 +287,16 @@ pub(crate) fn voice(config: &RuntimeConfig) -> Option<Arc<voice::VoiceProvider>>
 
 /// The command that starts a configured provider.
 fn command_for(entry: &pushos_config::model::ProviderEntry) -> Option<AgentCommand> {
-    let command = match &entry.program {
-        Some(program) => AgentCommand::new(program.as_str(), entry.args.clone()),
-        None => AgentCommand::known(&entry.id)?,
+    let command = if let Some(program) = &entry.program {
+        AgentCommand::new(program.as_str(), entry.args.clone())
+    } else {
+        // The adapters PushOS knows are fetched by `npx`, into a cache PushOS
+        // keeps small rather than the operator's own, which npm never trims.
+        let known = AgentCommand::known(&entry.id)?;
+        match pushos_config::paths::default_state_directory() {
+            Some(state) => known.with_npm_cache(state.join("agent-adapters")),
+            None => known,
+        }
     };
 
     Some(entry.env.iter().fold(command, |command, (name, value)| {

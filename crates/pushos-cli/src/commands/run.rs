@@ -87,12 +87,14 @@ pub(crate) async fn execute(requested: Option<&Path>, fake: bool) -> Result<(), 
 async fn serve_hardware(running: &RunningRuntime, shutdown: &Shutdown) {
     let mut backoff = Backoff::new();
     let mut announced = false;
+    let mut last_claim_failure: Option<String> = None;
 
     while !shutdown.is_cancelled() {
         match Push2Device::connect(PortRole::User) {
             Ok((device, input)) => {
                 backoff.reset();
                 announced = false;
+                last_claim_failure = None;
                 let output: Arc<dyn PushOutput> = Arc::new(device);
 
                 match PushRenderer::new() {
@@ -119,7 +121,13 @@ async fn serve_hardware(running: &RunningRuntime, shutdown: &Shutdown) {
                 wait(&mut backoff, shutdown).await;
             }
             Err(error) => {
-                warn!(%error, "could not take the Push 2");
+                // Retried every few seconds for as long as, say, another
+                // application holds it. The same reason is said once.
+                let reason = error.to_string();
+                if last_claim_failure.as_deref() != Some(reason.as_str()) {
+                    warn!(%error, "could not take the Push 2; trying again quietly");
+                    last_claim_failure = Some(reason);
+                }
                 wait(&mut backoff, shutdown).await;
             }
         }
@@ -159,6 +167,11 @@ fn build_runtime(
         worktree_root,
     );
     let context: Arc<dyn pushos_domain::ports::WorkspaceContext> = Arc::clone(&workspaces) as _;
+
+    // The trees agents worked in last time are free now, and the clean ones go.
+    // In the background: it runs git once per tree, and nothing waits on it.
+    let tidying = Arc::clone(&workspaces);
+    tokio::spawn(async move { tidying.tidy().await });
 
     // Agent and terminal activity is reported from the thread reading a
     // program's output, so each arrives on its own stream rather than through

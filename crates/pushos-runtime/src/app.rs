@@ -402,16 +402,22 @@ impl Runtime {
             let mut events = self.bus.subscribe();
             let audit = shutdown.clone();
             shutdown.spawn(async move {
+                // Every event is recorded, so a store that has stopped taking
+                // them would otherwise say so once per press.
+                let mut failing = false;
                 loop {
                     tokio::select! {
                         biased;
                         () = audit.cancelled() => break,
                         envelope = events.recv() => {
                             let Some(envelope) = envelope else { break };
-                            if let Err(error) =
-                                storage.record_event(EventRecord::from_envelope(&envelope))
-                            {
-                                warn!(%error, "could not record an event");
+                            match storage.record_event(EventRecord::from_envelope(&envelope)) {
+                                Ok(()) => failing = false,
+                                Err(error) => {
+                                    if !std::mem::replace(&mut failing, true) {
+                                        warn!(%error, "could not record events; saying so again once it can");
+                                    }
+                                }
                             }
                         }
                     }

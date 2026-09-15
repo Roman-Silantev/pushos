@@ -134,10 +134,26 @@ mod tests {
         ShortcutsCli::with_scratch(Arc::new(processes.clone()), scratch)
     }
 
-    fn scratch_dir() -> PathBuf {
+    /// A directory for one test, removed when the test ends.
+    struct Scratch(PathBuf);
+
+    impl std::ops::Deref for Scratch {
+        type Target = std::path::Path;
+        fn deref(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).ok();
+        }
+    }
+
+    fn scratch_dir() -> Scratch {
         let path = std::env::temp_dir().join(format!("pushos-test-{}", ExecutionId::generate()));
         std::fs::create_dir_all(&path).expect("the temporary directory is writable");
-        path
+        Scratch(path)
     }
 
     #[tokio::test]
@@ -166,7 +182,7 @@ mod tests {
         let spec = &processes.spawned()[0];
         assert_eq!(spec.args[2], "--input-path");
         let staged = PathBuf::from(&spec.args[3]);
-        assert!(staged.starts_with(&scratch));
+        assert!(staged.starts_with(&*scratch));
         assert!(!staged.exists(), "staged input must not be left behind");
     }
 

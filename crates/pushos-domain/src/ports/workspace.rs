@@ -161,13 +161,27 @@ pub trait Repository: Send + Sync + std::fmt::Debug {
     /// Every working tree the repository has.
     async fn worktrees(&self, root: &std::path::Path) -> Result<Vec<Worktree>, RepositoryError>;
 
-    /// Adds a working tree on a new branch.
+    /// Adds a working tree on a branch, creating the branch if it is new.
+    ///
+    /// An existing branch is checked out rather than refused: it is where a
+    /// role's committed work was left when its last tree was removed.
     async fn add_worktree(
         &self,
         root: &std::path::Path,
         path: &std::path::Path,
         branch: &str,
     ) -> Result<Worktree, RepositoryError>;
+
+    /// Removes a working tree that holds nothing uncommitted.
+    ///
+    /// `Ok(false)` when it was kept because it has changes or new files nobody
+    /// committed; those are never removed. Its branch goes too, but only when
+    /// everything on it is already merged, so committed work keeps its branch.
+    async fn remove_worktree(
+        &self,
+        root: &std::path::Path,
+        tree: &Worktree,
+    ) -> Result<bool, RepositoryError>;
 }
 
 /// Why a repository operation failed.

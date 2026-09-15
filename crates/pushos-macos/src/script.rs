@@ -72,12 +72,23 @@ impl ScriptRunner {
     ///
     /// Returns the script's trimmed standard output.
     pub async fn run(&self, script: &str, arguments: &[String]) -> Result<String, ActionError> {
+        self.run_capturing(script, arguments, ProcessSpec::DEFAULT_CAPTURE)
+            .await
+    }
+
+    /// Runs a script whose output is the answer, keeping up to `bytes` of it.
+    pub async fn run_capturing(
+        &self,
+        script: &str,
+        arguments: &[String],
+        bytes: usize,
+    ) -> Result<String, ActionError> {
         let mut args = vec!["-e".to_owned(), script.to_owned()];
         args.extend(arguments.iter().cloned());
 
         let outcome = self
             .processes
-            .run(&ProcessSpec::new(OSASCRIPT, args))
+            .run(&ProcessSpec::new(OSASCRIPT, args).capturing(bytes))
             .await?;
         Self::interpret(&outcome)
     }

@@ -5,6 +5,7 @@
 mod cli;
 mod commands;
 mod host;
+mod logging;
 mod presets;
 
 use clap::Parser;
@@ -30,7 +31,7 @@ async fn main() -> std::process::ExitCode {
             command: HookCommand::Permission { .. }
         }
     ) {
-        install_logging(cli.log.filter());
+        logging::install(cli.log.filter());
     }
 
     let outcome = match cli.command {
@@ -101,31 +102,4 @@ fn run_pack(command: PackCommand, config: Option<&std::path::Path>) -> Result<()
             commands::pack::set_state(config, &pack, PackState::Disabled)
         }
     }
-}
-
-/// Sets up logging, letting `RUST_LOG` override the chosen level.
-///
-/// `RUST_LOG` takes a level, or a level and per-module levels, such as
-/// `info,pushos_push2=debug`. A value that does not read as one is ignored in
-/// favour of the default rather than silencing everything.
-fn install_logging(default: &str) {
-    use tracing_subscriber::filter::Targets;
-    use tracing_subscriber::layer::SubscriberExt as _;
-    use tracing_subscriber::util::SubscriberInitExt as _;
-
-    let filter = std::env::var("RUST_LOG")
-        .ok()
-        .and_then(|written| written.parse::<Targets>().ok())
-        .or_else(|| default.parse::<Targets>().ok())
-        .unwrap_or_default();
-
-    tracing_subscriber::registry()
-        .with(
-            tracing_subscriber::fmt::layer()
-                .with_target(false)
-                .with_ansi(std::io::IsTerminal::is_terminal(&std::io::stderr()))
-                .with_writer(std::io::stderr),
-        )
-        .with(filter)
-        .init();
 }

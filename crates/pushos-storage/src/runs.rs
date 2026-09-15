@@ -364,7 +364,7 @@ mod against_a_real_database {
                     .expect("ordered")
                     < Duration::from_secs(1)
         );
-        std::fs::remove_file(&path).ok();
+        forget(&path);
     }
 
     #[tokio::test]
@@ -381,7 +381,7 @@ mod against_a_real_database {
         storage.record(&run).await.expect("it is updated");
 
         assert!(storage.unfinished().await.expect("it reads").is_empty());
-        std::fs::remove_file(&path).ok();
+        forget(&path);
     }
 
     #[tokio::test]
@@ -400,7 +400,7 @@ mod against_a_real_database {
         assert_eq!(unfinished.len(), 1);
         assert_eq!(unfinished[0].at, NodeId::new("build"));
         assert_eq!(unfinished[0].steps, 1);
-        std::fs::remove_file(&path).ok();
+        forget(&path);
     }
 
     #[tokio::test]
@@ -426,7 +426,7 @@ mod against_a_real_database {
 
         storage.forget(&run.id).await.expect("forgotten");
         assert!(storage.unfinished().await.expect("it reads").is_empty());
-        std::fs::remove_file(&path).ok();
+        forget(&path);
     }
 
     #[tokio::test]
@@ -455,6 +455,15 @@ mod against_a_real_database {
                 .and_then(|kept| kept.last_page),
             Some(PageId::new("development"))
         );
-        std::fs::remove_file(&path).ok();
+        forget(&path);
+    }
+
+    /// Removes a test database and the files SQLite keeps beside it.
+    fn forget(path: &std::path::Path) {
+        for suffix in ["", "-wal", "-shm"] {
+            let mut file = path.as_os_str().to_owned();
+            file.push(suffix);
+            std::fs::remove_file(file).ok();
+        }
     }
 }

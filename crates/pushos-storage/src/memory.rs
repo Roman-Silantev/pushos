@@ -70,7 +70,7 @@ mod tests {
         storage.remember(&workspace, &memory).await;
 
         assert_eq!(storage.recall(&workspace).await, Some(memory));
-        std::fs::remove_file(&path).ok();
+        forget(&path);
     }
 
     #[tokio::test]
@@ -79,7 +79,7 @@ mod tests {
         let writer = StorageWriter::open(&path).expect("a fresh database opens");
 
         assert_eq!(writer.handle().recall(&WorkspaceId::new("new")).await, None);
-        std::fs::remove_file(&path).ok();
+        forget(&path);
     }
 
     #[tokio::test]
@@ -115,6 +115,15 @@ mod tests {
                 .and_then(|kept| kept.last_page),
             Some(PageId::new("music"))
         );
-        std::fs::remove_file(&path).ok();
+        forget(&path);
+    }
+
+    /// Removes a test database and the files SQLite keeps beside it.
+    fn forget(path: &std::path::Path) {
+        for suffix in ["", "-wal", "-shm"] {
+            let mut file = path.as_os_str().to_owned();
+            file.push(suffix);
+            std::fs::remove_file(file).ok();
+        }
     }
 }

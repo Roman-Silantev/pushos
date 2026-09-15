@@ -79,6 +79,8 @@ pub struct FakeRepository {
     trees: Arc<Mutex<Vec<Worktree>>>,
     is_repository: Arc<Mutex<bool>>,
     fail_with: Arc<Mutex<Option<ErrorClass>>>,
+    /// Trees holding work nobody committed.
+    uncommitted: Arc<Mutex<Vec<PathBuf>>>,
 }
 
 impl FakeRepository {
@@ -91,6 +93,7 @@ impl FakeRepository {
                 is_main: true,
             }])),
             is_repository: Arc::new(Mutex::new(true)),
+            uncommitted: Arc::new(Mutex::new(Vec::new())),
             fail_with: Arc::new(Mutex::new(None)),
         }
     }
@@ -122,6 +125,11 @@ impl FakeRepository {
             .iter()
             .filter(|tree| !tree.is_main)
             .count()
+    }
+
+    /// Marks a tree as holding uncommitted work, which is never removed.
+    pub fn leave_work_in(&self, path: impl Into<PathBuf>) {
+        lock(&self.uncommitted).push(path.into());
     }
 
     /// Makes every subsequent call fail with the given classification.
@@ -166,6 +174,19 @@ impl Repository for FakeRepository {
         };
         lock(&self.trees).push(tree.clone());
         Ok(tree)
+    }
+
+    async fn remove_worktree(
+        &self,
+        _root: &Path,
+        tree: &Worktree,
+    ) -> Result<bool, RepositoryError> {
+        self.check()?;
+        if tree.is_main || lock(&self.uncommitted).contains(&tree.path) {
+            return Ok(false);
+        }
+        lock(&self.trees).retain(|held| held.path != tree.path);
+        Ok(true)
     }
 }
 

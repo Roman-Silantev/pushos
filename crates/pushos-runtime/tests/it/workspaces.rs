@@ -99,7 +99,11 @@ fn store(text: &str) -> Arc<ConfigStore> {
     ));
     std::fs::create_dir_all(&directory).expect("the temporary directory is writable");
     std::fs::write(directory.join("pushos.toml"), text).expect("writable");
-    Arc::new(ConfigStore::load(&directory).expect("the configuration is valid"))
+    let store = ConfigStore::load(&directory).expect("the configuration is valid");
+    // Read into memory now, so the directory is not needed and is not left in
+    // the temporary directory after every run.
+    std::fs::remove_dir_all(&directory).ok();
+    Arc::new(store)
 }
 
 fn pad(index: u8) -> PadIndex {

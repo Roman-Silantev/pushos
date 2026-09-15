@@ -15,6 +15,7 @@ mod command;
 mod launcher;
 mod limits;
 pub mod mapping;
+pub mod npm_cache;
 mod session;
 
 pub use backend::AcpBackend;

@@ -99,10 +99,20 @@ impl Repository for GitRepository {
         branch: &str,
     ) -> Result<Worktree, RepositoryError> {
         let target = path.display().to_string();
-        // A new branch every time, so this never collides with one the operator
-        // already has and never has to guess what to do when it does.
-        self.run(root, &["worktree", "add", "-b", branch, &target])
-            .await?;
+        let reference = format!("refs/heads/{branch}");
+        // A branch left from a tree removed earlier still holds what that role
+        // committed, so it is picked up again rather than refused.
+        if self
+            .run(root, &["rev-parse", "--verify", "--quiet", &reference])
+            .await
+            .is_ok()
+        {
+            self.run(root, &["worktree", "add", &target, branch])
+                .await?;
+        } else {
+            self.run(root, &["worktree", "add", "-b", branch, &target])
+                .await?;
+        }
 
         debug!(root = %root.display(), path = %target, branch, "added a working tree");
         Ok(Worktree {
@@ -110,6 +120,50 @@ impl Repository for GitRepository {
             branch: Some(branch.to_owned()),
             is_main: false,
         })
+    }
+
+    async fn remove_worktree(&self, root: &Path, tree: &Worktree) -> Result<bool, RepositoryError> {
+        if tree.is_main {
+            return Ok(false);
+        }
+        match self.uncommitted(&tree.path).await {
+            Some(true) => return Ok(false),
+            Some(false) => {
+                // Without `--force`: git checks again, and refuses anything
+                // that changed since.
+                let target = tree.path.display().to_string();
+                self.run(root, &["worktree", "remove", &target]).await?;
+            }
+            // Already deleted by hand; git only needs to forget it.
+            None => {
+                self.run(root, &["worktree", "prune"]).await?;
+            }
+        }
+        if let Some(branch) = &tree.branch {
+            // `-d`, never `-D`: refused unless everything on it is merged.
+            let _ = self.run(root, &["branch", "-d", branch]).await;
+        }
+        debug!(root = %root.display(), path = %tree.path.display(), "removed a working tree");
+        Ok(true)
+    }
+}
+
+impl GitRepository {
+    /// Whether a working tree holds anything uncommitted: changed files, or new
+    /// ones git is not told to ignore. Build output that is ignored does not
+    /// count; it is what removing a tree is meant to clear.
+    ///
+    /// `None` when the tree's directory is gone.
+    async fn uncommitted(&self, tree: &Path) -> Option<bool> {
+        if !tree.is_dir() {
+            return None;
+        }
+        match self.run(tree, &["status", "--porcelain"]).await {
+            Ok(status) => Some(!status.trim().is_empty()),
+            // Unreadable is treated as holding work: nothing is removed on a
+            // guess.
+            Err(_) => Some(true),
+        }
     }
 }
 
@@ -230,10 +284,23 @@ detached
         assert_eq!(spawned[0].args[1], "/tmp/project");
     }
 
+    /// A fake git that answers whether a branch exists as it is told.
+    fn git_where_branch(exists: bool) -> (GitRepository, FakeProcesses) {
+        let processes = FakeProcesses::new();
+        processes.reply_with(move |spec| {
+            let checking = spec.args.iter().any(|arg| arg == "--verify");
+            pushos_domain::ports::ProcessOutcome {
+                exit_code: Some(i32::from(checking && !exists)),
+                stdout_tail: String::new(),
+                stderr_tail: String::new(),
+            }
+        });
+        (GitRepository::new(Arc::new(processes.clone())), processes)
+    }
+
     #[tokio::test]
     async fn adding_a_tree_creates_the_branch_it_was_given() {
-        let processes = FakeProcesses::new();
-        let git = GitRepository::new(Arc::new(processes.clone()));
+        let (git, processes) = git_where_branch(false);
 
         let tree = git
             .add_worktree(
@@ -246,10 +313,130 @@ detached
 
         assert_eq!(tree.branch.as_deref(), Some("pushos/one"));
         assert!(!tree.is_main);
-        let args = &processes.spawned()[0].args;
+        let args = &processes.spawned()[1].args;
         assert!(args.contains(&"-b".to_owned()), "{args:?}");
         assert!(args.contains(&"pushos/one".to_owned()), "{args:?}");
         assert!(args.contains(&"/tmp/trees/one".to_owned()), "{args:?}");
+    }
+
+    #[tokio::test]
+    async fn a_branch_left_by_a_removed_tree_is_picked_up_again_rather_than_refused() {
+        // Its tree was removed and its commits kept; asking git to create it
+        // again would fail, and starting over would hide that work.
+        let (git, processes) = git_where_branch(true);
+        git.add_worktree(
+            Path::new("/tmp/project"),
+            Path::new("/tmp/trees/one"),
+            "pushos/one",
+        )
+        .await
+        .expect("added");
+
+        let args = &processes.spawned()[1].args;
+        assert!(!args.contains(&"-b".to_owned()), "{args:?}");
+        assert_eq!(&args[args.len() - 2..], ["/tmp/trees/one", "pushos/one"]);
+    }
+
+    #[tokio::test]
+    async fn a_tree_whose_directory_is_gone_is_only_forgotten() {
+        let processes = FakeProcesses::new();
+        let git = GitRepository::new(Arc::new(processes.clone()));
+        let gone = Worktree {
+            path: PathBuf::from("/definitely/not/a/tree"),
+            branch: Some("pushos/one".to_owned()),
+            is_main: false,
+        };
+
+        assert!(
+            git.remove_worktree(Path::new("/tmp/project"), &gone)
+                .await
+                .expect("ok")
+        );
+        let spawned = processes.spawned();
+        assert!(
+            spawned[0].args.contains(&"prune".to_owned()),
+            "{:?}",
+            spawned[0].args
+        );
+        assert!(
+            !spawned
+                .iter()
+                .any(|spec| spec.args.contains(&"-D".to_owned())),
+            "a branch is never deleted by force"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_repository_itself_is_never_removed() {
+        let processes = FakeProcesses::new();
+        let git = GitRepository::new(Arc::new(processes.clone()));
+        let main = Worktree {
+            path: PathBuf::from("/tmp/project"),
+            branch: Some("main".to_owned()),
+            is_main: true,
+        };
+        assert!(
+            !git.remove_worktree(Path::new("/tmp/project"), &main)
+                .await
+                .expect("ok")
+        );
+        assert!(processes.spawned().is_empty());
+    }
+
+    /// Against a real git, in a repository made for the test.
+    #[tokio::test]
+    async fn a_real_tree_goes_with_its_build_output_and_one_with_uncommitted_work_stays() {
+        let root = std::env::temp_dir().join(format!("pushos-worktrees-{}", std::process::id()));
+        let repository = root.join("repository");
+        std::fs::create_dir_all(&repository).expect("writable");
+        let sh = |script: &str| {
+            std::process::Command::new("/bin/sh")
+                .arg("-c")
+                .arg(script)
+                .current_dir(&repository)
+                .output()
+                .expect("runs")
+        };
+        let made = sh(
+            "git init -q && printf 'target/\\n' > .gitignore && echo a > a.txt \
+             && git add . && git -c user.email=t@t -c user.name=t commit -qm init",
+        );
+        if !made.status.success() {
+            eprintln!("git is not usable here; skipping");
+            std::fs::remove_dir_all(&root).ok();
+            return;
+        }
+
+        let git = GitRepository::new(Arc::new(pushos_macos::SystemProcessRunner::new()));
+        let clean = git
+            .add_worktree(&repository, &root.join("clean"), "pushos/clean")
+            .await
+            .expect("added");
+        std::fs::create_dir_all(root.join("clean/target")).expect("writable");
+        std::fs::write(root.join("clean/target/build"), vec![0_u8; 1024]).expect("writable");
+
+        let working = git
+            .add_worktree(&repository, &root.join("working"), "pushos/working")
+            .await
+            .expect("added");
+        std::fs::write(root.join("working/a.txt"), "changed").expect("writable");
+
+        assert!(git.remove_worktree(&repository, &clean).await.expect("ok"));
+        assert!(
+            !root.join("clean").exists(),
+            "the tree and its build output went"
+        );
+        assert!(
+            !git.remove_worktree(&repository, &working)
+                .await
+                .expect("ok")
+        );
+        assert!(
+            root.join("working/a.txt").exists(),
+            "uncommitted work stayed"
+        );
+
+        std::fs::remove_dir_all(&root).ok();
     }
 
     #[tokio::test]

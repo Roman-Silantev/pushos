@@ -133,6 +133,16 @@ impl AgentBackend for AcpBackend {
             "starting an agent"
         );
 
+        // Before the adapter is fetched again, so a new release never lands on
+        // top of every release before it.
+        if let Some(cache) = self.command.env.get(crate::npm_cache::NPM_CACHE) {
+            let cache = std::path::PathBuf::from(cache);
+            let _ = tokio::task::spawn_blocking(move || {
+                crate::npm_cache::keep_under(&cache, crate::npm_cache::CAP)
+            })
+            .await;
+        }
+
         let running = session::launch(
             session::Launch {
                 command: self.command.clone(),

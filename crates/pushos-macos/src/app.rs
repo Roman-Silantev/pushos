@@ -16,6 +16,10 @@ use std::path::{Path, PathBuf};
 /// The app's identity to macOS: its permissions, its login item, its logs.
 pub const BUNDLE_IDENTIFIER: &str = "dev.pushos.app";
 
+/// Tells the app which file its standard error is appended to, so it can keep
+/// that file under a size.
+pub const LOG_FILE_VARIABLE: &str = "PUSHOS_LOG_FILE";
+
 /// The login agent's name to `launchd`.
 pub const AGENT_LABEL: &str = "dev.pushos.agent";
 
@@ -190,11 +194,14 @@ impl LoginAgent {
 	<string>{log}</string>
 	<key>EnvironmentVariables</key>
 	<dict>
+		<key>{log_variable}</key>
+		<string>{log}</string>
 {environment}	</dict>
 </dict>
 </plist>
 "#,
             label = AGENT_LABEL,
+            log_variable = LOG_FILE_VARIABLE,
             bundle = BUNDLE_IDENTIFIER,
             executable = escape(&self.executable.to_string_lossy()),
             config = escape(&self.config.to_string_lossy()),
@@ -313,6 +320,15 @@ mod tests {
         assert!(plist.contains("<string>/Users/someone/.config/pushos</string>"));
         assert!(plist.contains("<string>run</string>"));
         assert!(plist.contains("<key>PATH</key>"));
+    }
+
+    #[test]
+    fn the_app_is_told_which_file_its_log_goes_to_so_it_can_keep_it_small() {
+        let plist = agent().plist();
+        assert!(lints(&plist), "plutil rejects it:\n{plist}");
+        assert!(plist.contains(&format!(
+            "<key>{LOG_FILE_VARIABLE}</key>\n\t\t<string>/Users/someone/Library/Logs/PushOS/pushos.log</string>"
+        )));
     }
 
     #[test]
