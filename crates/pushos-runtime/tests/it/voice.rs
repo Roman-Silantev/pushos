@@ -11,7 +11,6 @@ use std::time::{Duration, Instant};
 use pushos_actions::providers::voice::VoiceProvider;
 use pushos_config::{ConfigFile, ConfigStore, RuntimeConfig};
 use pushos_domain::controls::{ButtonId, ControlId};
-use pushos_domain::ids::ExecutionId;
 use pushos_domain::input::{ControlEvent, InputPhase};
 use pushos_domain::ports::PushOutput;
 use pushos_domain::voice::Listening;
@@ -66,14 +65,13 @@ struct Harness {
     transcriber: Arc<FakeTranscriber>,
     listener: Arc<VoiceListener>,
     shutdown: Shutdown,
-    root: std::path::PathBuf,
+    /// Held only so it is removed when the harness is, however a test ends.
+    _root: crate::scratch::Scratch,
 }
 
 impl Harness {
     async fn start() -> Self {
-        let root = std::env::temp_dir().join(format!("pushos-voice-{}", ExecutionId::generate()));
-        std::fs::create_dir_all(&root).expect("the temporary directory is writable");
-        std::fs::write(root.join("pushos.toml"), CONFIG).expect("writable");
+        let root = crate::scratch::Scratch::holding_config("voice", CONFIG);
 
         let parsed: ConfigFile = toml::from_str(CONFIG).expect("the test configuration parses");
         let built = RuntimeConfig::build(&parsed).expect("the test configuration is valid");
@@ -87,7 +85,7 @@ impl Harness {
             .map(|settings| settings.commands.clone())
             .unwrap_or_default();
 
-        let config = Arc::new(ConfigStore::load(&root).expect("the configuration is valid"));
+        let config = Arc::new(ConfigStore::load(root.path()).expect("the configuration is valid"));
 
         let microphone = Arc::new(FakeMicrophone::new());
         let transcriber = Arc::new(FakeTranscriber::new());
@@ -114,7 +112,7 @@ impl Harness {
             transcriber,
             listener,
             shutdown,
-            root,
+            _root: root,
         }
     }
 
@@ -143,7 +141,6 @@ impl Harness {
     async fn stop(self) {
         self.running.stop().await;
         self.shutdown.stop().await;
-        std::fs::remove_dir_all(&self.root).ok();
     }
 }
 

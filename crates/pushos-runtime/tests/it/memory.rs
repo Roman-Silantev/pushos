@@ -11,7 +11,7 @@ use std::time::{Duration, Instant};
 use pushos_actions::providers::memory::MemoryProvider;
 use pushos_config::{ConfigFile, ConfigStore, RuntimeConfig};
 use pushos_domain::controls::PadIndex;
-use pushos_domain::ids::{ExecutionId, SourceId};
+use pushos_domain::ids::SourceId;
 use pushos_domain::memory::Search;
 use pushos_domain::ports::MemoryStore;
 use pushos_domain::ports::{NoteIndex, PushOutput, Source};
@@ -78,7 +78,8 @@ struct Harness {
     agent: Arc<RecordingProvider>,
     shutdown: Shutdown,
     notes: PathBuf,
-    root: PathBuf,
+    /// Held only so it is removed when the harness is, however a test ends.
+    _root: crate::scratch::Scratch,
     _writer: StorageWriter,
 }
 
@@ -89,18 +90,18 @@ impl Harness {
 
     /// Starts with notes already in the directory, as an operator would have.
     async fn start_with(config_text: &str, existing: &[(&str, &str)]) -> Self {
-        let root = std::env::temp_dir().join(format!("pushos-mem-{}", ExecutionId::generate()));
+        let root = crate::scratch::Scratch::new("mem");
         let notes = root.join("notes");
         std::fs::create_dir_all(&notes).expect("the temporary directory is writable");
         for (name, text) in existing {
             std::fs::write(notes.join(name), text).expect("writable");
         }
-        std::fs::write(root.join("pushos.toml"), config_text).expect("writable");
+        root.write_config(config_text);
 
         let parsed: ConfigFile =
             toml::from_str(config_text).expect("the test configuration parses");
         RuntimeConfig::build(&parsed).expect("the test configuration is valid");
-        let config = Arc::new(ConfigStore::load(&root).expect("the configuration is valid"));
+        let config = Arc::new(ConfigStore::load(root.path()).expect("the configuration is valid"));
 
         let writer = StorageWriter::in_memory().expect("an in-memory database always opens");
         let index: Arc<dyn NoteIndex> = Arc::new(writer.handle());
@@ -137,7 +138,7 @@ impl Harness {
             agent,
             shutdown,
             notes,
-            root,
+            _root: root,
             _writer: writer,
         }
     }
@@ -194,7 +195,6 @@ impl Harness {
     async fn stop(self) {
         self.running.stop().await;
         self.shutdown.stop().await;
-        std::fs::remove_dir_all(&self.root).ok();
     }
 }
 

@@ -12,7 +12,6 @@ use pushos_api::protocol::{FailureKind, Request, Response};
 use pushos_api::{ControlClient, ControlServer};
 use pushos_config::{BindingAddress, BindingSpec, ConfigStore};
 use pushos_domain::gesture::Gesture;
-use pushos_domain::ids::ExecutionId;
 use pushos_domain::ports::PushOutput;
 use pushos_runtime::{Runtime, Shutdown};
 use pushos_testkit::{FakePush, RecordingProvider};
@@ -40,8 +39,8 @@ label = "One"
 /// A running PushOS with a control socket, and a client already connected.
 struct Harness {
     client: ControlClient,
-    directory: PathBuf,
-    socket: PathBuf,
+    directory: crate::scratch::Scratch,
+    socket: crate::scratch::SocketPath,
     provider: RecordingProvider,
     shutdown: Shutdown,
     finished: tokio::task::JoinHandle<()>,
@@ -49,16 +48,12 @@ struct Harness {
 
 impl Harness {
     async fn start() -> Self {
-        let directory =
-            std::env::temp_dir().join(format!("pushos-control-{}", ExecutionId::generate()));
-        std::fs::create_dir_all(&directory).expect("the temporary directory is writable");
-        std::fs::write(directory.join("pushos.toml"), CONFIG).expect("writable");
+        let directory = crate::scratch::Scratch::holding_config("control", CONFIG);
 
-        let config = Arc::new(ConfigStore::load(&directory).expect("the configuration is valid"));
-        // A Unix socket path is length-limited, and the system temporary
-        // directory is long on macOS, so the socket goes somewhere short.
-        let socket = short_socket();
-        let server = ControlServer::bind(&socket).expect("the socket binds");
+        let config =
+            Arc::new(ConfigStore::load(directory.path()).expect("the configuration is valid"));
+        let socket = crate::scratch::SocketPath::new();
+        let server = ControlServer::bind(&*socket).expect("the socket binds");
 
         let provider = RecordingProvider::new("test", ["one", "two"]);
         let shutdown = Shutdown::new();
@@ -105,19 +100,7 @@ impl Harness {
     async fn stop(self) {
         self.shutdown.stop().await;
         let _ = tokio::time::timeout(Duration::from_secs(5), self.finished).await;
-        std::fs::remove_dir_all(&self.directory).ok();
-        std::fs::remove_file(&self.socket).ok();
     }
-}
-
-/// A socket path short enough for the kernel's fixed-size address field.
-///
-/// Takes the tail of the identifier rather than the head: these ids are time
-/// ordered, so tests running in the same millisecond share a prefix and would
-/// collide on the same socket.
-fn short_socket() -> PathBuf {
-    let id = ExecutionId::generate().to_string().replace('-', "");
-    PathBuf::from(format!("/tmp/pos-{}.sock", &id[id.len() - 12..]))
 }
 
 async fn connect(socket: &std::path::Path) -> ControlClient {
@@ -504,7 +487,7 @@ async fn the_socket_is_not_readable_by_anyone_else() {
 #[tokio::test]
 async fn the_socket_file_is_cleaned_up_so_a_stale_one_never_misleads_a_client() {
     let harness = Harness::start().await;
-    let socket = harness.socket.clone();
+    let socket = harness.socket.to_path_buf();
     assert!(socket.exists());
 
     harness.stop().await;
@@ -513,14 +496,11 @@ async fn the_socket_file_is_cleaned_up_so_a_stale_one_never_misleads_a_client() 
 
 #[tokio::test]
 async fn a_stale_socket_from_a_previous_run_does_not_stop_pushos_starting() {
-    let socket = short_socket();
-    std::fs::write(&socket, "not really a socket").expect("writable");
+    let socket = crate::scratch::SocketPath::new();
+    std::fs::write(&*socket, "not really a socket").expect("writable");
 
-    let server = ControlServer::bind(&socket).expect("a stale file should be replaced");
-    assert_eq!(server.path(), socket);
-
-    drop(server);
-    std::fs::remove_file(&socket).ok();
+    let server = ControlServer::bind(&*socket).expect("a stale file should be replaced");
+    assert_eq!(server.path(), &*socket);
 }
 
 // --- The store ---------------------------------------------------------------

@@ -72,31 +72,6 @@ action = "test.one"
 "#;
 
 /// A configuration directory a test can rewrite while PushOS is running.
-struct ConfigDirectory(std::path::PathBuf);
-
-impl ConfigDirectory {
-    fn new(text: &str) -> Self {
-        let path = std::env::temp_dir().join(format!(
-            "pushos-e2e-{}",
-            pushos_domain::ids::ExecutionId::generate()
-        ));
-        std::fs::create_dir_all(&path).expect("the temporary directory is writable");
-        let directory = Self(path);
-        directory.write(text);
-        directory
-    }
-
-    fn write(&self, text: &str) {
-        std::fs::write(self.0.join("pushos.toml"), text).expect("writable");
-    }
-}
-
-impl Drop for ConfigDirectory {
-    fn drop(&mut self) {
-        std::fs::remove_dir_all(&self.0).ok();
-    }
-}
-
 fn store(text: &str) -> Arc<ConfigStore> {
     let parsed: ConfigFile = toml::from_str(text).expect("the test configuration parses");
     let config = RuntimeConfig::build(&parsed).expect("the test configuration is valid");
@@ -462,8 +437,8 @@ async fn every_event_from_one_gesture_shares_a_correlation() {
 /// it started with.
 #[tokio::test]
 async fn reloading_configuration_changes_what_the_running_surface_does() {
-    let directory = ConfigDirectory::new(CONFIG);
-    let config = Arc::new(ConfigStore::load(&directory.0).expect("valid"));
+    let directory = crate::scratch::Scratch::holding_config("e2e", CONFIG);
+    let config = Arc::new(ConfigStore::load(directory.path()).expect("valid"));
 
     let (surface, input) = FakePush::new();
     let provider = RecordingProvider::new("test", ["one", "two"]);
@@ -497,7 +472,7 @@ async fn reloading_configuration_changes_what_the_running_surface_does() {
     assert_eq!(provider.calls()[0].selector.to_string(), "test.one");
 
     // Rebind it, and reload.
-    directory.write(&CONFIG.replace("action = \"test.one\"", "action = \"test.two\""));
+    directory.write_config(&CONFIG.replace("action = \"test.one\"", "action = \"test.two\""));
     config.reload().expect("the new configuration is valid");
 
     let at = Instant::now();

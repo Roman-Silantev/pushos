@@ -11,5 +11,6 @@ mod control_socket;
 mod end_to_end;
 mod memory;
 mod reconnect;
+mod scratch;
 mod voice;
 mod workspaces;
