@@ -272,6 +272,7 @@ mod tests {
             workspace: None,
             cwd: std::path::PathBuf::from("/tmp"),
             objective: String::new(),
+            permissions: None,
         }
     }
 

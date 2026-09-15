@@ -387,6 +387,33 @@ typed into a shell rather than run in its place, so when the agent exits you are
 left in the same folder instead of losing the window. To watch one from VS Code,
 run `tmux attach -t client-1` in its terminal.
 
+### What a role's agent may do
+
+A role can say what the agent filling it may do, and PushOS holds it to that:
+
+```toml
+[[agents]]
+id = "markets"
+name = "Markets"
+objective = "Watch the markets and report what moved. Research only."
+permissions = ["filesystem.read", "network"]
+```
+
+That agent can read and look things up, and cannot run a command, change a
+file, commit or push. It is held there in three places:
+
+- **When it starts.** A Claude agent is started without the tools the role does
+  not allow, and cannot be switched into the mode that asks about nothing. A
+  Codex agent that may not write starts read-only.
+- **When it asks.** A request to do something the role does not allow is
+  refused on the spot, without asking you, and the display says so.
+- **Everything else** it asks about still comes to you.
+
+Leave `permissions` out and the role narrows nothing, so the agent works with
+its own settings. List nothing, `permissions = []`, and it may do nothing any
+permission describes. Git is enforced per command for Claude: a role with
+`shell.execute` but not `git.push` still cannot push.
+
 Two rules the configuration enforces, both so that you can predict what a pad
 does by reading the file:
 

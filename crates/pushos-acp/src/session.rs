@@ -11,20 +11,21 @@ use std::time::Duration;
 
 use agent_client_protocol::schema::ProtocolVersion;
 use agent_client_protocol::schema::v1::{
-    ContentBlock, InitializeRequest, NewSessionRequest, PromptRequest, RequestPermissionOutcome,
-    RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
-    SessionNotification, TextContent,
+    ContentBlock, InitializeRequest, NewSessionRequest, PermissionOption, PermissionOptionKind,
+    PromptRequest, RequestPermissionOutcome, RequestPermissionRequest, RequestPermissionResponse,
+    SelectedPermissionOutcome, SessionNotification, SetSessionModeRequest, TextContent,
 };
 use agent_client_protocol::{AcpAgent, Agent, Client, ConnectionTo};
 use pushos_domain::agent::AgentState;
 use pushos_domain::ids::SessionId;
+use pushos_domain::permissions::PermissionSet;
 use pushos_domain::ports::{AgentEvent, AgentObserver, ApprovalId, ApprovalOption, StopReason};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{debug, info, warn};
 
 use crate::command::SessionCommand;
 use crate::launcher::AgentCommand;
-use crate::mapping;
+use crate::{limits, mapping};
 
 /// How long a permission question waits for the operator before it is refused.
 ///
@@ -86,15 +87,29 @@ pub(crate) fn deliver_answer(pending: &PendingAnswers, request: &ApprovalId, opt
     }
 }
 
+/// What to start, and within what limits.
+#[derive(Clone, Debug)]
+pub(crate) struct Launch {
+    /// The program that speaks the protocol.
+    pub(crate) command: AgentCommand,
+    /// Which provider it is, which decides what it can be told at the start.
+    pub(crate) provider: String,
+    /// What PushOS calls the session.
+    pub(crate) session: SessionId,
+    /// Where it works.
+    pub(crate) cwd: std::path::PathBuf,
+    /// The role's standing instruction.
+    pub(crate) objective: String,
+    /// What the role allows its agent to do with tools. `None` narrows nothing.
+    pub(crate) permissions: Option<PermissionSet>,
+}
+
 /// Starts an agent process and drives it until it is told to stop.
 ///
 /// Returns once the process is up and a session has been opened, so a caller
 /// knows the agent is real before anything is bound to it.
 pub(crate) async fn launch(
-    command: AgentCommand,
-    session: SessionId,
-    cwd: std::path::PathBuf,
-    objective: String,
+    launch: Launch,
     observer: Arc<dyn AgentObserver>,
 ) -> Result<RunningSession, String> {
     let (commands, inbox) = mpsc::channel(COMMAND_CAPACITY);
@@ -106,9 +121,7 @@ pub(crate) async fn launch(
         pending: Arc::clone(&pending),
     };
 
-    tokio::spawn(run(
-        command, session, cwd, objective, observer, inbox, pending, ready,
-    ));
+    tokio::spawn(run(launch, observer, inbox, pending, ready));
 
     // Waiting for the session to open, rather than returning optimistically,
     // means a provider that is not installed fails where the operator can see
@@ -119,18 +132,15 @@ pub(crate) async fn launch(
     Ok(running)
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn run(
-    command: AgentCommand,
-    session: SessionId,
-    cwd: std::path::PathBuf,
-    objective: String,
+    launch: Launch,
     observer: Arc<dyn AgentObserver>,
     mut inbox: mpsc::Receiver<SessionCommand>,
     pending: PendingAnswers,
     ready: oneshot::Sender<Result<(), String>>,
 ) {
-    let agent = match build_agent(&command) {
+    let session = launch.session.clone();
+    let agent = match build_agent(&launch.command) {
         Ok(agent) => agent,
         Err(error) => {
             let _ = ready.send(Err(error));
@@ -152,6 +162,7 @@ async fn run(
         session: session.clone(),
         observer: Arc::clone(&observer),
         pending,
+        permissions: launch.permissions.clone(),
     };
 
     let outcome = Client
@@ -177,14 +188,9 @@ async fn run(
             agent_client_protocol::on_receive_request!(),
         )
         .connect_with(agent, move |connection: ConnectionTo<Agent>| {
-            let session = session.clone();
+            let launch = launch.clone();
             let observer = Arc::clone(&observer);
-            async move {
-                serve(
-                    connection, session, cwd, objective, observer, &mut inbox, ready,
-                )
-                .await
-            }
+            async move { serve(connection, launch, observer, &mut inbox, ready).await }
         })
         .await;
 
@@ -196,13 +202,20 @@ async fn run(
 /// Opens the session, then carries out commands until told to stop.
 async fn serve(
     connection: ConnectionTo<Agent>,
-    session: SessionId,
-    cwd: std::path::PathBuf,
-    objective: String,
+    launch: Launch,
     observer: Arc<dyn AgentObserver>,
     inbox: &mut mpsc::Receiver<SessionCommand>,
     ready: oneshot::Sender<Result<(), String>>,
 ) -> agent_client_protocol::Result<()> {
+    let Launch {
+        provider,
+        session,
+        cwd,
+        objective,
+        permissions,
+        ..
+    } = launch;
+
     if let Err(error) = connection
         .send_request(InitializeRequest::new(ProtocolVersion::V1))
         .block_task()
@@ -212,11 +225,11 @@ async fn serve(
         return Err(error);
     }
 
-    let opened = match connection
-        .send_request(NewSessionRequest::new(cwd))
-        .block_task()
-        .await
-    {
+    let mut request = NewSessionRequest::new(cwd);
+    request.meta = permissions
+        .as_ref()
+        .and_then(|permissions| limits::session_meta(&provider, permissions));
+    let opened = match connection.send_request(request).block_task().await {
         Ok(opened) => opened,
         Err(error) => {
             let _ = ready.send(Err(format!("the agent would not open a session: {error}")));
@@ -226,6 +239,25 @@ async fn serve(
 
     let wire_session = opened.session_id;
     info!(%session, "agent session opened");
+
+    // Before anything is asked of it, so not one turn runs in a mode the role
+    // does not allow. An agent that will not switch still has its questions
+    // refused one by one.
+    if let (Some(permissions), Some(modes)) = (&permissions, &opened.modes)
+        && let Some(mode) = limits::read_only_mode(modes, permissions)
+    {
+        match connection
+            .send_request(SetSessionModeRequest::new(
+                wire_session.clone(),
+                mode.clone(),
+            ))
+            .block_task()
+            .await
+        {
+            Ok(_) => info!(%session, %mode, "working read-only, as its role allows"),
+            Err(error) => warn!(%session, %mode, %error, "the agent would not work read-only"),
+        }
+    }
     let _ = ready.send(Ok(()));
     observer.observe(
         &session,
@@ -321,6 +353,8 @@ struct PermissionHandler {
     session: SessionId,
     observer: Arc<dyn AgentObserver>,
     pending: PendingAnswers,
+    /// What the role allows. A question about anything else is refused here.
+    permissions: Option<PermissionSet>,
 }
 
 impl PermissionHandler {
@@ -329,6 +363,18 @@ impl PermissionHandler {
         request: RequestPermissionRequest,
         responder: agent_client_protocol::Responder<RequestPermissionResponse>,
     ) -> agent_client_protocol::Result<()> {
+        let title = request
+            .tool_call
+            .fields
+            .title
+            .clone()
+            .unwrap_or_else(|| "allow this?".to_owned());
+
+        let used = limits::tool_use(request.tool_call.fields.kind.unwrap_or_default());
+        if !used.allowed_by(self.permissions.as_ref()) {
+            return self.refuse(&request, &title, responder);
+        }
+
         let id = format!("{}-{}", self.session, request.tool_call.tool_call_id);
         let options: Vec<ApprovalOption> = request
             .options
@@ -353,12 +399,7 @@ impl PermissionHandler {
             &self.session,
             AgentEvent::AskedPermission {
                 request: ApprovalId(id.clone()),
-                question: request
-                    .tool_call
-                    .fields
-                    .title
-                    .clone()
-                    .unwrap_or_else(|| "allow this?".to_owned()),
+                question: title,
                 options: options.clone(),
             },
         );
@@ -390,6 +431,49 @@ impl PermissionHandler {
     }
 }
 
+impl PermissionHandler {
+    /// Refuses, on the role's behalf, something it does not allow.
+    ///
+    /// Once rather than for good, so the answer is about this role and not a
+    /// rule the agent remembers elsewhere. Said where the operator can see it,
+    /// because an agent that stops short of a step should be seen to have
+    /// been stopped.
+    fn refuse(
+        &self,
+        request: &RequestPermissionRequest,
+        title: &str,
+        responder: agent_client_protocol::Responder<RequestPermissionResponse>,
+    ) -> agent_client_protocol::Result<()> {
+        info!(session = %self.session, tool = title, "refused: the role does not allow it");
+        self.observer.observe(
+            &self.session,
+            AgentEvent::Said {
+                text: format!("Refused, not allowed for this role: {title}"),
+            },
+        );
+
+        let outcome = refusal(&request.options);
+        responder.respond(RequestPermissionResponse::new(outcome))
+    }
+}
+
+/// The answer that refuses, once rather than for good where the agent offers
+/// the choice. Withdrawing the question is the refusal of last resort.
+fn refusal(options: &[PermissionOption]) -> RequestPermissionOutcome {
+    let offered = |wanted: PermissionOptionKind| {
+        options
+            .iter()
+            .find(|option| option.kind == wanted)
+            .map(|option| option.option_id.clone())
+    };
+    match offered(PermissionOptionKind::RejectOnce)
+        .or_else(|| offered(PermissionOptionKind::RejectAlways))
+    {
+        Some(option) => RequestPermissionOutcome::Selected(SelectedPermissionOutcome::new(option)),
+        None => RequestPermissionOutcome::Cancelled,
+    }
+}
+
 fn build_agent(command: &AgentCommand) -> Result<AcpAgent, String> {
     if !command.is_runnable() {
         return Err("the provider has no program to run".to_owned());
@@ -403,4 +487,48 @@ fn build_agent(command: &AgentCommand) -> Result<AcpAgent, String> {
         config = config.env(name, value);
     }
     Ok(AcpAgent::new(config))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn option(id: &str, kind: PermissionOptionKind) -> PermissionOption {
+        PermissionOption::new(id.to_owned(), id.to_owned(), kind)
+    }
+
+    fn chosen(outcome: &RequestPermissionOutcome) -> Option<String> {
+        match outcome {
+            RequestPermissionOutcome::Selected(selected) => Some(selected.option_id.to_string()),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn a_refusal_on_a_roles_behalf_is_for_this_once_when_the_agent_offers_that() {
+        let options = [
+            option("allow", PermissionOptionKind::AllowOnce),
+            option("never", PermissionOptionKind::RejectAlways),
+            option("not-now", PermissionOptionKind::RejectOnce),
+        ];
+        assert_eq!(chosen(&refusal(&options)).as_deref(), Some("not-now"));
+    }
+
+    #[test]
+    fn a_refusal_takes_the_only_rejection_there_is() {
+        let options = [
+            option("allow", PermissionOptionKind::AllowAlways),
+            option("never", PermissionOptionKind::RejectAlways),
+        ];
+        assert_eq!(chosen(&refusal(&options)).as_deref(), Some("never"));
+    }
+
+    #[test]
+    fn an_agent_offering_no_way_to_refuse_has_its_question_withdrawn() {
+        let options = [option("allow", PermissionOptionKind::AllowOnce)];
+        assert!(matches!(
+            refusal(&options),
+            RequestPermissionOutcome::Cancelled
+        ));
+    }
 }

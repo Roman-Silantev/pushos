@@ -9,3 +9,5 @@
 id = "reviewer"
 name = "Reviewer"
 objective = "Read the diff and say what is wrong with it, briefly and specifically"
+# Reads the diff, which takes running git, and changes nothing.
+permissions = ["filesystem.read", "shell.execute"]

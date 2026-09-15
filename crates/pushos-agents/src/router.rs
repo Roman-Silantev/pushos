@@ -106,6 +106,8 @@ pub struct StartRequest {
     pub workspace: Option<WorkspaceId>,
     /// The role's standing instruction.
     pub objective: String,
+    /// What the role allows its agent to do with tools. `None` narrows nothing.
+    pub permissions: Option<pushos_domain::permissions::PermissionSet>,
 }
 
 /// Why a target could not be resolved.
@@ -231,6 +233,7 @@ impl AgentRouter {
             agent: agent.clone(),
             workspace: workspace.cloned(),
             objective: definition.objective.clone(),
+            permissions: definition.permissions.clone(),
         })))
     }
 }

@@ -134,10 +134,14 @@ impl AgentBackend for AcpBackend {
         );
 
         let running = session::launch(
-            self.command.clone(),
-            id.clone(),
-            request.cwd,
-            request.objective,
+            session::Launch {
+                command: self.command.clone(),
+                provider: self.provider.to_string(),
+                session: id.clone(),
+                cwd: request.cwd,
+                objective: request.objective,
+                permissions: request.permissions,
+            },
             Arc::clone(&self.observer),
         )
         .await

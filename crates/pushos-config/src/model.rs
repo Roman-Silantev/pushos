@@ -352,12 +352,14 @@ pub struct AgentEntry {
     /// Which providers may fill it, best first. Empty accepts any.
     #[serde(default)]
     pub preferred: Vec<String>,
-    /// What this role is allowed to do.
+    /// What this role's agent is allowed to do with its tools.
     ///
     /// Applied on top of what the provider itself permits: the stricter of the
-    /// two wins, so a role can narrow a provider but never widen it.
+    /// two wins, so a role can narrow a provider but never widen it. Left out,
+    /// the role narrows nothing; an empty list allows nothing a permission
+    /// describes.
     #[serde(default)]
-    pub permissions: Vec<Permission>,
+    pub permissions: Option<Vec<Permission>>,
 }
 
 /// One workflow: a graph of steps that runs itself.

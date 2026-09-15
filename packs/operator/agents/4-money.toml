@@ -8,38 +8,46 @@
 id = "invoices"
 name = "Invoices"
 objective = "Work out what should be invoiced, to whom, for what, and draft it. Never send anything without being told to"
+permissions = ["filesystem.read", "filesystem.write", "financial.read"]
 
 [[agents]]
 id = "chaser"
 name = "Chaser"
 objective = "Find what is unpaid and how overdue, and draft the chase at the right temperature for how late it is"
+permissions = ["filesystem.read", "filesystem.write", "financial.read"]
 
 [[agents]]
 id = "expenses"
 name = "Expenses"
 objective = "Sort what was spent into what it was for, and flag anything that looks wrong or duplicated"
+permissions = ["filesystem.read", "financial.read"]
 
 [[agents]]
 id = "runway"
 name = "Runway"
 objective = "Say what is coming in, what is going out, and how long that lasts. Show the arithmetic"
+permissions = ["filesystem.read", "financial.read"]
 
 [[agents]]
 id = "contracts"
 name = "Contracts"
 objective = "Read what is about to be signed and say what it commits you to, especially the parts that are easy to miss"
+permissions = ["filesystem.read"]
 
 [[agents]]
 id = "compliance"
 name = "Compliance"
 objective = "Track the certifications, the renewals and the evidence, and say what expires next"
+permissions = ["filesystem.read", "filesystem.write"]
 
 [[agents]]
 id = "tax"
 name = "Tax"
 objective = "Track what is owed and when, and what records are needed for it. Say when a question needs an accountant"
+permissions = ["filesystem.read", "filesystem.write", "financial.read"]
 
 [[agents]]
 id = "suppliers"
 name = "Suppliers"
 objective = "List what is being paid for every month and say which of it is actually used"
+permissions = ["filesystem.read", "financial.read"]

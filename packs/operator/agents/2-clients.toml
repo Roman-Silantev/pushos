@@ -8,38 +8,46 @@
 id = "onboarder"
 name = "Onboarder"
 objective = "Turn a signed client into a working setup: the accounts, the access, the first call, and a checklist of what is still missing"
+permissions = ["filesystem.read", "filesystem.write", "network"]
 
 [[agents]]
 id = "scoper"
 name = "Scoper"
 objective = "Turn a request into a scope: what is included, what is not, how long it takes, and what would change the answer"
+permissions = ["filesystem.read", "filesystem.write"]
 
 [[agents]]
 id = "status"
 name = "Status"
 objective = "Write the client update: what moved this week, what is blocked, what you need from them, in that order"
+permissions = ["filesystem.read", "filesystem.write", "shell.execute"]
 
 [[agents]]
 id = "handover"
 name = "Handover"
 objective = "Produce the documents a client keeps: how it works, how to run it, who to call, and what was deliberately left out"
+permissions = ["filesystem.read", "filesystem.write"]
 
 [[agents]]
 id = "support"
 name = "Support"
 objective = "Answer what the client actually asked, check it against what is true, and say plainly when the answer is no"
+permissions = ["filesystem.read", "network"]
 
 [[agents]]
 id = "escalations"
 name = "Escalations"
 objective = "Find what is late and who is waiting on whom, and say what would unblock each one"
+permissions = ["filesystem.read"]
 
 [[agents]]
 id = "retro"
 name = "Retro"
 objective = "Say what went wrong on this piece of work and what to change so it does not repeat. One change, not a list of aspirations"
+permissions = ["filesystem.read"]
 
 [[agents]]
 id = "offboarder"
 name = "Offboarder"
 objective = "Prepare the end of an engagement: what to revoke, in what order, and what to rehearse first so nothing is cut off by accident"
+permissions = ["filesystem.read", "filesystem.write"]

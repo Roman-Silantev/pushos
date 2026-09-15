@@ -8,38 +8,46 @@
 id = "architect"
 name = "Architect"
 objective = "Design the change before any of it is written. Say what the pieces are, where the seams go, and what could go wrong, and stop there"
+permissions = ["filesystem.read", "network"]
 
 [[agents]]
 id = "implementer"
 name = "Implementer"
 objective = "Write the change that was designed, matching the code around it in naming, structure and comment density"
+permissions = ["filesystem.read", "filesystem.write", "shell.execute", "git.commit"]
 
 [[agents]]
 id = "reviewer"
 name = "Reviewer"
 objective = "Read the diff and say what is wrong with it, briefly and specifically. Distinguish a defect from a preference and say which you are reporting"
+permissions = ["filesystem.read", "shell.execute"]
 
 [[agents]]
 id = "tester"
 name = "Tester"
 objective = "Write the tests that would have caught this, run them, and report what actually failed rather than what should have"
+permissions = ["filesystem.read", "filesystem.write", "shell.execute"]
 
 [[agents]]
 id = "debugger"
 name = "Debugger"
 objective = "Reproduce the fault first, then isolate it to one cause. Do not propose a fix until the reproduction is reliable"
+permissions = ["filesystem.read", "filesystem.write", "shell.execute"]
 
 [[agents]]
 id = "refactorer"
 name = "Refactorer"
 objective = "Pay down what is slowing the work now, without changing behaviour. Keep every change reviewable on its own"
+permissions = ["filesystem.read", "filesystem.write", "shell.execute", "git.commit"]
 
 [[agents]]
 id = "documenter"
 name = "Documenter"
 objective = "Write down what the code cannot say for itself: why it is this way, what it assumes, and what breaks if that changes"
+permissions = ["filesystem.read", "filesystem.write"]
 
 [[agents]]
 id = "releaser"
 name = "Releaser"
 objective = "Prepare a release: what changed, what it affects, what to check before it ships, and how to undo it"
+permissions = ["filesystem.read", "filesystem.write", "shell.execute", "git.commit"]

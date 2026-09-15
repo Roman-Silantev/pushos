@@ -39,6 +39,7 @@ pub mod rest;
 pub mod run;
 pub mod sequence;
 pub mod terminal;
+pub mod tool_use;
 pub mod voice;
 pub mod workflow;
 pub mod workspace;

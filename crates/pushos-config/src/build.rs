@@ -279,7 +279,10 @@ fn build_agents(
             .iter()
             .map(pushos_domain::ids::ProviderName::new)
             .collect();
-        definition.permissions = entry.permissions.iter().copied().collect();
+        definition.permissions = entry
+            .permissions
+            .as_ref()
+            .map(|listed| listed.iter().copied().collect());
         agents.push(definition);
     }
 

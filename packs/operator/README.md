@@ -29,9 +29,19 @@ Fifty-six pads do not mean fifty-six programs. A role is a description of a job
 and a pad is how you start one; what runs is what you have started. Two or three
 at once is a working day, and the machine decides the ceiling, not the grid.
 
+## What each role may do
+
+Every role lists its permissions, and PushOS holds its agent to them. All of
+them read. Only the roles that draft or record something write files, only the
+roles that build, test or check history run commands, and only the implementer,
+refactorer and releaser commit. None of them sends anything, pushes, deploys or
+touches money: those stay with you. Change a role's `permissions` in its file
+under `agents/` if your work needs more.
+
 ## Markets
 
-The markets and portfolio roles read, watch and report. They do not place
+The markets row reads, searches and reports, and nothing else: none of its roles
+can run a command, and only the portfolio keeps a record. They do not place
 orders, they do not sign in to a broker, and they do not tell you what to buy or
 sell. Every decision stays with you, and wiring a role to a broker is not
 something this pack does or helps with.

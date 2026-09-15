@@ -13,6 +13,7 @@
 mod backend;
 mod command;
 mod launcher;
+mod limits;
 pub mod mapping;
 mod session;
 

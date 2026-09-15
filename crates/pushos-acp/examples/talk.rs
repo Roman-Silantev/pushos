@@ -69,6 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             workspace: None,
             cwd: std::env::current_dir()?,
             objective: String::new(),
+            permissions: None,
         })
         .await?;
     println!("session {} opened", handle.id);

@@ -61,6 +61,9 @@ pub struct SessionRequest {
     pub cwd: std::path::PathBuf,
     /// The role's standing instruction.
     pub objective: String,
+    /// What the role allows its agent to do with tools. `None` narrows
+    /// nothing. See [`AgentDefinition::permissions`](crate::agent::AgentDefinition::permissions).
+    pub permissions: Option<crate::permissions::PermissionSet>,
 }
 
 /// A session the provider has opened.

@@ -154,6 +154,7 @@ impl AgentSupervisor {
                         workspace: workspace.clone(),
                         cwd,
                         objective: start.objective,
+                        permissions: start.permissions,
                     })
                     .await?;
                 let session = {

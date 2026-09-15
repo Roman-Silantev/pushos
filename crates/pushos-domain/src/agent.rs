@@ -139,22 +139,25 @@ pub struct AgentDefinition {
     pub objective: String,
     /// Which providers may take this role, best first.
     pub preferred: Vec<ProviderName>,
-    /// What this role is allowed to do.
+    /// What this role's agent is allowed to do with its tools, when the role
+    /// says.
     ///
     /// Applied on top of whatever the provider itself permits: the stricter of
     /// the two wins, so a role can narrow a provider but never widen it.
-    pub permissions: PermissionSet,
+    /// `None` narrows nothing and leaves the provider's own settings in charge;
+    /// an empty list allows nothing any permission describes.
+    pub permissions: Option<PermissionSet>,
 }
 
 impl AgentDefinition {
-    /// Builds a definition with no permissions granted.
+    /// Builds a definition that narrows nothing its provider permits.
     pub fn new(id: impl Into<AgentId>, name: impl Into<String>) -> Self {
         Self {
             id: id.into(),
             name: name.into(),
             objective: String::new(),
             preferred: Vec::new(),
-            permissions: PermissionSet::empty(),
+            permissions: None,
         }
     }
 

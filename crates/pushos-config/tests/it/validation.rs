@@ -419,8 +419,19 @@ fn agent_roles_and_providers_build() {
         .expect("the builder is declared");
     assert_eq!(builder.name, "Builder");
     assert!(builder.objective.contains("Implement"));
-    assert!(builder.permissions.allows(Permission::ShellExecute));
-    assert!(!builder.permissions.allows(Permission::DeployProduction));
+    let permissions = builder
+        .permissions
+        .as_ref()
+        .expect("the builder lists its permissions");
+    assert!(permissions.allows(Permission::ShellExecute));
+    assert!(!permissions.allows(Permission::DeployProduction));
+    let reviewer = config
+        .agent(&pushos_domain::ids::AgentId::new("reviewer"))
+        .expect("the reviewer is declared");
+    assert_eq!(
+        reviewer.permissions, None,
+        "a role that lists nothing narrows nothing"
+    );
 }
 
 #[test]
@@ -539,16 +550,14 @@ fn a_role_is_granted_nothing_it_did_not_ask_for() {
     let reader = config
         .agent(&pushos_domain::ids::AgentId::new("reader"))
         .expect("declared");
-    assert!(reader.permissions.allows(Permission::FilesystemRead));
+    let permissions = reader.permissions.as_ref().expect("listed");
+    assert!(permissions.allows(Permission::FilesystemRead));
     for denied in [
         Permission::ShellExecute,
         Permission::GitPush,
         Permission::FilesystemWrite,
     ] {
-        assert!(
-            !reader.permissions.allows(denied),
-            "{denied:?} was not asked for"
-        );
+        assert!(!permissions.allows(denied), "{denied:?} was not asked for");
     }
 }
 

@@ -21,7 +21,8 @@ permissions = ["shell.execute"]
 # What it would use and works without. Most of these roles read far more than
 # they write, and several never leave the machine at all. `financial.read` is
 # here for the markets row and `financial.write` deliberately is not: nothing in
-# this pack places an order, and there is nothing in PushOS that could.
+# this pack places an order, and there is nothing in PushOS that could. Each
+# role also lists what its own agent may do, in its file under `agents/`.
 optional_permissions = ["filesystem.read", "network", "financial.read"]
 
 # Agent providers it expects to be able to start. A role names no provider, so

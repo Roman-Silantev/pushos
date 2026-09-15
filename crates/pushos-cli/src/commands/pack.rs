@@ -485,6 +485,86 @@ mod tests {
     }
 
     #[test]
+    fn every_role_a_shipped_pack_brings_says_what_its_agent_may_do_and_nothing_irreversible() {
+        // A role that lists nothing leaves its agent to its own settings, which
+        // for a pack of fifty-six roles running from pads is too much to leave
+        // to chance. And no role a pack ships sends, pays, pushes or deploys:
+        // those stay with the operator.
+        for path in shipped() {
+            let scratch = Scratch::new();
+            let pack = read(&path).expect("a shipped pack");
+            Library::at(&scratch.0)
+                .install(&path, &pack.requires.permissions, false)
+                .expect("installs");
+            let config = RuntimeConfig::build(&pushos_config::load(&scratch.0).expect("readable"))
+                .expect("valid");
+
+            for role in &config.agents {
+                let permissions = role.permissions.as_ref().unwrap_or_else(|| {
+                    panic!(
+                        "`{}` in `{}` does not say what its agent may do",
+                        role.id, pack.id
+                    )
+                });
+                for permission in permissions.iter() {
+                    assert!(
+                        !permission.is_irreversible(),
+                        "`{}` in `{}` may `{permission}`, which is the operator's to do",
+                        role.id,
+                        pack.id
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_markets_row_researches_and_never_runs_anything() {
+        // The row watches money, so it is held to what its description promises:
+        // research and briefings only. Only the portfolio keeps a record.
+        let scratch = Scratch::new();
+        let path = shipped()
+            .into_iter()
+            .find(|path| path.ends_with("operator"))
+            .expect("the operator pack ships");
+        let pack = read(&path).expect("a shipped pack");
+        Library::at(&scratch.0)
+            .install(&path, &pack.requires.permissions, false)
+            .expect("installs");
+        let config = RuntimeConfig::build(&pushos_config::load(&scratch.0).expect("readable"))
+            .expect("valid");
+
+        for id in [
+            "markets",
+            "portfolio",
+            "earnings",
+            "macro",
+            "competitors",
+            "industry",
+            "diligence",
+            "analyst",
+        ] {
+            let role = config
+                .agent(&pushos_domain::ids::AgentId::new(id))
+                .unwrap_or_else(|| panic!("`{id}` is in the markets row"));
+            let permissions = role.permissions.as_ref().expect("listed");
+            assert!(
+                !permissions.allows(Permission::ShellExecute),
+                "`{id}` runs commands"
+            );
+            assert!(
+                !permissions.allows(Permission::FinancialWrite),
+                "`{id}` moves money"
+            );
+            assert_eq!(
+                permissions.allows(Permission::FilesystemWrite),
+                id == "portfolio",
+                "`{id}` writing files"
+            );
+        }
+    }
+
+    #[test]
     fn every_shipped_pack_asks_for_exactly_what_its_bindings_need() {
         // Both halves of one promise. Asking for less means a pad that fails
         // under a finger; asking for more teaches the operator to skim.

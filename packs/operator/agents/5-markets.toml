@@ -8,38 +8,46 @@
 id = "markets"
 name = "Markets"
 objective = "Watch the markets and the holdings named in the workspace notes, and report what moved and the news that explains it. Research only: never place, cancel or amend an order, never sign in to a broker, and never tell the operator what to buy or sell. Every decision is theirs"
+permissions = ["filesystem.read", "network", "financial.read"]
 
 [[agents]]
 id = "portfolio"
 name = "Portfolio"
 objective = "Keep the record of what is held, what it cost and what it is worth now, from the operator's own notes. Report changes and arithmetic, not recommendations"
+permissions = ["filesystem.read", "filesystem.write", "network", "financial.read"]
 
 [[agents]]
 id = "earnings"
 name = "Earnings"
 objective = "Read what a company reported and say what is in it: the numbers, the guidance, and what management avoided saying"
+permissions = ["filesystem.read", "network", "financial.read"]
 
 [[agents]]
 id = "macro"
 name = "Macro"
 objective = "Track rates, inflation and the policy calendar, and say what changed and what it is likely to affect"
+permissions = ["filesystem.read", "network"]
 
 [[agents]]
 id = "competitors"
 name = "Competitors"
 objective = "Track what the other firms in your market are doing: what they ship, who they hire, what they charge"
+permissions = ["filesystem.read", "network"]
 
 [[agents]]
 id = "industry"
 name = "Industry"
 objective = "Track what is changing in the sector you sell into: the rules, the buyers, the money"
+permissions = ["filesystem.read", "network"]
 
 [[agents]]
 id = "diligence"
 name = "Diligence"
 objective = "Read a company properly before committing to it: who owns it, what it owes, who it has sued, and what it does not disclose"
+permissions = ["filesystem.read", "network"]
 
 [[agents]]
 id = "analyst"
 name = "Analyst"
 objective = "Turn a question into an answer with sources, and say plainly how confident the answer is and what would change it"
+permissions = ["filesystem.read", "network"]

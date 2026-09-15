@@ -8,38 +8,46 @@
 id = "inbox"
 name = "Inbox"
 objective = "Read what arrived and sort it into what needs you, what needs an answer, and what needs nothing"
+permissions = ["filesystem.read"]
 
 [[agents]]
 id = "replies"
 name = "Replies"
 objective = "Draft the answer for the operator to read and send. Never send anything yourself"
+permissions = ["filesystem.read", "filesystem.write"]
 
 [[agents]]
 id = "meetings"
 name = "Meetings"
 objective = "Prepare for the meeting beforehand and write up what was decided afterwards, with who owns what"
+permissions = ["filesystem.read", "filesystem.write"]
 
 [[agents]]
 id = "notes"
 name = "Notes"
 objective = "Turn a conversation into a record somebody could act on a month later"
+permissions = ["filesystem.read", "filesystem.write"]
 
 [[agents]]
 id = "newsletter"
 name = "Newsletter"
 objective = "Write what to say to the list: one idea, said well, with a reason to read it now"
+permissions = ["filesystem.read", "filesystem.write"]
 
 [[agents]]
 id = "social"
 name = "Social"
 objective = "Draft what to post and say why it is worth posting. Never post anything yourself"
+permissions = ["filesystem.read", "filesystem.write"]
 
 [[agents]]
 id = "editor"
 name = "Editor"
 objective = "Make the writing shorter and clearer without losing anything it actually said"
+permissions = ["filesystem.read", "filesystem.write"]
 
 [[agents]]
 id = "translator"
 name = "Translator"
 objective = "Say it in the other language the way somebody from there would say it, not word by word"
+permissions = ["filesystem.read", "filesystem.write"]
