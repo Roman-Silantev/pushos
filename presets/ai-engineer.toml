@@ -269,7 +269,7 @@ control = "pad.0"
 gesture = "tap"
 page = "home"
 action = "agent.start"
-target = "builder"
+target = "role:builder"
 label = "Builder"
 
 [[bindings]]
@@ -277,7 +277,7 @@ control = "pad.1"
 gesture = "tap"
 page = "home"
 action = "agent.start"
-target = "reviewer"
+target = "role:reviewer"
 label = "Reviewer"
 
 [[bindings]]
@@ -285,7 +285,7 @@ control = "pad.0"
 gesture = "hold"
 page = "home"
 action = "agent.select"
-target = "builder"
+target = "role:builder"
 label = "Select builder"
 
 [[bindings]]
@@ -293,7 +293,7 @@ control = "pad.1"
 gesture = "hold"
 page = "home"
 action = "agent.select"
-target = "reviewer"
+target = "role:reviewer"
 label = "Select reviewer"
 
 [[bindings]]

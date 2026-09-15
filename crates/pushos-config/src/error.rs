@@ -181,6 +181,27 @@ pub enum Problem {
         provider: String,
     },
 
+    /// A binding names what it acts on in a form PushOS cannot read.
+    ///
+    /// Caught here rather than when the control is pressed, which is the
+    /// expensive way to find out that a pad does nothing.
+    #[error("binding {index}: {reason}")]
+    UnreadableTarget {
+        /// Which binding, counting from one.
+        index: usize,
+        /// What is wrong, and the forms that would be read.
+        reason: String,
+    },
+
+    /// A binding names a role that is not declared.
+    #[error("binding {index}: role `{role}` is not declared")]
+    UnknownRole {
+        /// Which binding, counting from one.
+        index: usize,
+        /// The role that was referenced.
+        role: String,
+    },
+
     /// A binding is scoped to a project that is not declared.
     #[error("binding {index}: workspace `{workspace}` is not declared")]
     UnknownBindingWorkspace {

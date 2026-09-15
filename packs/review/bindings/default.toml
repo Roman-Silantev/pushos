@@ -6,7 +6,7 @@ control = "pad.48"
 gesture = "tap"
 page = "review"
 action = "agent.start"
-target = "reviewer"
+target = "role:reviewer"
 label = "Reviewer"
 
 [[bindings]]
@@ -14,7 +14,7 @@ control = "pad.48"
 gesture = "hold"
 page = "review"
 action = "agent.select"
-target = "reviewer"
+target = "role:reviewer"
 label = "Select reviewer"
 
 [[bindings]]

@@ -558,6 +558,11 @@ fn bindings_can_name_a_role_as_their_target() {
         r#"{AGENTS}
         {PAGES}
 
+        [[workspaces]]
+        id = "sydclaw"
+        name = "Sydclaw"
+        root = "/tmp/sydclaw"
+
         [[bindings]]
         control = "pad.16"
         gesture = "hold"
@@ -1341,6 +1346,126 @@ fn a_surface_that_would_sleep_before_it_dims_is_refused() {
         found
             .iter()
             .any(|problem| matches!(problem, Problem::SurfaceSleepsBeforeDimming { .. })),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_role_named_without_saying_it_is_a_role_is_refused_when_the_file_is_read() {
+    // Every pad in a shipped pack was once written this way, and each one did
+    // nothing when pressed. The file is the place to find that out.
+    let found = problems(
+        r#"
+        [[agents]]
+        id = "architect"
+        name = "Architect"
+
+        [[bindings]]
+        control = "pad.0"
+        gesture = "tap"
+        action = "agent.start"
+        target = "architect"
+        "#,
+    );
+    assert!(
+        found.iter().any(|problem| matches!(
+            problem,
+            Problem::UnreadableTarget { reason, .. } if reason.contains("role:builder")
+        )),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_role_nothing_declares_is_refused() {
+    let found = problems(
+        r#"
+        [[bindings]]
+        control = "pad.0"
+        gesture = "tap"
+        action = "agent.start"
+        target = "role:nobody"
+        "#,
+    );
+    assert!(
+        found.iter().any(|problem| matches!(
+            problem,
+            Problem::UnknownRole { role, .. } if role == "nobody"
+        )),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_declared_role_and_every_form_of_session_target_are_read() {
+    build(
+        r#"
+        [[agents]]
+        id = "architect"
+        name = "Architect"
+
+        [[bindings]]
+        control = "pad.0"
+        gesture = "tap"
+        action = "agent.start"
+        target = "role:architect"
+
+        [[bindings]]
+        control = "pad.1"
+        gesture = "tap"
+        action = "agent.approve"
+
+        [[bindings]]
+        control = "pad.2"
+        gesture = "tap"
+        action = "session.show"
+        target = "slot:1"
+
+        [[bindings]]
+        control = "pad.3"
+        gesture = "tap"
+        action = "session.focus"
+        target = "name:client-1"
+        "#,
+    );
+}
+
+#[test]
+fn a_session_target_that_cannot_be_read_is_refused() {
+    let found = problems(
+        r#"
+        [[bindings]]
+        control = "pad.0"
+        gesture = "tap"
+        action = "session.show"
+        target = "slot:9"
+        "#,
+    );
+    assert!(
+        found
+            .iter()
+            .any(|problem| matches!(problem, Problem::UnreadableTarget { .. })),
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_role_in_a_project_nothing_declares_is_refused() {
+    let found = problems(&format!(
+        r#"{AGENTS}
+
+        [[bindings]]
+        control = "pad.0"
+        gesture = "tap"
+        action = "agent.start"
+        target = "workspace:nowhere/role:builder"
+        "#
+    ));
+    assert!(
+        found.iter().any(|problem| matches!(
+            problem,
+            Problem::UnknownBindingWorkspace { workspace, .. } if workspace == "nowhere"
+        )),
         "{found:?}"
     );
 }

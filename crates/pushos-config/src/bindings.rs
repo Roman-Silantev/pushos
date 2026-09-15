@@ -3,6 +3,8 @@
 use std::collections::{HashMap, HashSet};
 
 use pushos_domain::action::{ActionDefinition, ActionSelector, Params};
+use pushos_domain::agent::AgentTarget;
+use pushos_domain::attached::AttachedTarget;
 use pushos_domain::binding::{Binding, BindingScope};
 
 use crate::error::Problem;
@@ -16,6 +18,7 @@ pub(crate) fn build(
 ) -> Vec<Binding> {
     let mut bindings = Vec::with_capacity(file.bindings.len());
     let mut seen_ids: HashMap<String, usize> = HashMap::new();
+    let roles: HashSet<&str> = file.agents.iter().map(|agent| agent.id.as_str()).collect();
 
     for (position, entry) in file.bindings.iter().enumerate() {
         let index = position + 1;
@@ -48,18 +51,95 @@ pub(crate) fn build(
             continue;
         };
 
+        let params = build_params(entry);
+        let target = Targets {
+            roles: &roles,
+            workspaces,
+        };
+        if !target.readable(&selector, &params, index, problems) {
+            continue;
+        }
+
         bindings.push(Binding {
             id: identity.into(),
             control,
             gesture,
             scope,
-            action: ActionDefinition::new(selector, build_params(entry)),
+            action: ActionDefinition::new(selector, params),
             priority: entry.priority,
             label: entry.label.clone(),
         });
     }
 
     bindings
+}
+
+/// What a binding's target may name.
+struct Targets<'a> {
+    roles: &'a HashSet<&'a str>,
+    workspaces: &'a HashSet<String>,
+}
+
+impl Targets<'_> {
+    /// Whether a binding's target can be read, and names something declared.
+    ///
+    /// Only for the namespaces whose targets have a form of their own. A
+    /// target PushOS cannot read, or a role nothing declares, would otherwise
+    /// be found by pressing the control and watching nothing happen.
+    fn readable(
+        &self,
+        selector: &ActionSelector,
+        params: &Params,
+        index: usize,
+        problems: &mut Vec<Problem>,
+    ) -> bool {
+        let Some(written) = params.text("target") else {
+            return true;
+        };
+        match selector.provider.as_str() {
+            "agent" => match written.parse::<AgentTarget>() {
+                Ok(AgentTarget::Role { agent, workspace }) => {
+                    let mut known = true;
+                    if !self.roles.contains(agent.as_str()) {
+                        problems.push(Problem::UnknownRole {
+                            index,
+                            role: agent.to_string(),
+                        });
+                        known = false;
+                    }
+                    if let Some(workspace) = workspace
+                        && !self.workspaces.contains(workspace.as_str())
+                    {
+                        problems.push(Problem::UnknownBindingWorkspace {
+                            index,
+                            workspace: workspace.to_string(),
+                        });
+                        known = false;
+                    }
+                    known
+                }
+                Ok(_) => true,
+                Err(error) => {
+                    problems.push(Problem::UnreadableTarget {
+                        index,
+                        reason: error.to_string(),
+                    });
+                    false
+                }
+            },
+            "session" => match written.parse::<AttachedTarget>() {
+                Ok(_) => true,
+                Err(error) => {
+                    problems.push(Problem::UnreadableTarget {
+                        index,
+                        reason: error.to_string(),
+                    });
+                    false
+                }
+            },
+            _ => true,
+        }
+    }
 }
 
 /// Merges the `target` shorthand into the parameter map.
