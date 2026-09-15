@@ -599,7 +599,7 @@ Built and tested:
 | Every session | tmux, Terminal and Claude Code's own session list merged into one; a tmux session per pad |
 | Answers from the Push | Claude Code and Codex put their permission questions to the Push first |
 | Role limits | Every agent held to what its role allows, at start, by mode and at each question |
-| Footprint | A 4.8 MB program, and a build directory that stays under a gigabyte |
+| Footprint | A 4.9 MB program, and a build directory that stays under a gigabyte |
 
 `SPEC.md` and `AGENT_PACKS_SPEC.md` hold the full plan.
 
