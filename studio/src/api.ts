@@ -146,6 +146,35 @@ export interface TestReport {
   message?: string;
 }
 
+/** Whether a pack is installed here. */
+export type PackAvailability = "available" | "installed" | "disabled";
+
+/** One pack on offer. */
+export interface PackEntry {
+  id: string;
+  name: string;
+  version: string;
+  summary: string;
+  author?: string;
+  state: PackAvailability;
+  /** What to pass back to review or install it. */
+  source: string;
+}
+
+/** What installing a pack would add, and what it would ask for. */
+export interface PackReview {
+  pack: PackEntry;
+  /** What it would contribute to the surface, in words. */
+  adds: string;
+  /** Capabilities it needs that are not granted yet: the list to show a person. */
+  granting: string[];
+  /** Capabilities it needs that are already granted. */
+  already: string[];
+  missing_providers: string[];
+  /** Why it would not install here. Empty means it would. */
+  problems: string[];
+}
+
 /** What a command reports when PushOS cannot be reached or refuses. */
 export interface StudioError {
   message: string;
@@ -184,6 +213,10 @@ const live = {
   workspaces: () => invoke<{ workspaces: WorkspaceInfo[] }>("workspaces"),
   addPage: (spec: PageSpec) => invoke<EditReport>("add_page", { spec }),
   removePage: (page: string) => invoke<EditReport>("remove_page", { page }),
+  packs: () => invoke<{ packs: PackEntry[] }>("packs"),
+  reviewPack: (pack: string) => invoke<PackReview>("review_pack", { pack }),
+  installPack: (pack: string, granting: string[]) =>
+    invoke<EditReport>("install_pack", { pack, granting }),
 };
 
 /** What Studio talks to. */

@@ -6,11 +6,12 @@
 //! or hold its configuration open.
 
 use pushos_api::protocol::{
-    BindingList, EditReport, Request, Response, SessionList, StatusReport, TestReport, Vocabulary,
-    WorkspaceList,
+    BindingList, EditReport, PackList, PackReview, Request, Response, SessionList, StatusReport,
+    TestReport, Vocabulary, WorkspaceList,
 };
 use pushos_api::{ClientError, ControlClient};
 use pushos_config::{BindingAddress, BindingSpec, PageSpec};
+use pushos_domain::permissions::Permission;
 use serde::Serialize;
 
 /// What a command reports when it cannot reach PushOS or is refused.
@@ -158,6 +159,36 @@ async fn test(address: BindingAddress) -> Result<TestReport, StudioError> {
     }
 }
 
+/// Every pack on offer, and which are installed.
+#[tauri::command]
+async fn packs() -> Result<PackList, StudioError> {
+    match ask(Request::Packs).await? {
+        Response::Packs(list) => Ok(list),
+        Response::Failed(failure) => Err(ClientError::Refused(failure).into()),
+        other => Err(StudioError::unexpected(&other)),
+    }
+}
+
+/// What installing a pack would add, and what it would ask for.
+#[tauri::command]
+async fn review_pack(pack: String) -> Result<PackReview, StudioError> {
+    match ask(Request::ReviewPack { pack }).await? {
+        Response::PackReview(review) => Ok(*review),
+        Response::Failed(failure) => Err(ClientError::Refused(failure).into()),
+        other => Err(StudioError::unexpected(&other)),
+    }
+}
+
+/// Installs a pack, granting exactly what its review showed the operator.
+#[tauri::command]
+async fn install_pack(pack: String, granting: Vec<Permission>) -> Result<EditReport, StudioError> {
+    match ask(Request::InstallPack { pack, granting }).await? {
+        Response::Edited(report) => Ok(report),
+        Response::Failed(failure) => Err(ClientError::Refused(failure).into()),
+        other => Err(StudioError::unexpected(&other)),
+    }
+}
+
 /// Starts Studio.
 ///
 /// # Panics
@@ -179,7 +210,10 @@ pub fn run() {
             sessions,
             workspaces,
             add_page,
-            remove_page
+            remove_page,
+            packs,
+            review_pack,
+            install_pack
         ])
         // A window that shows nothing is the hardest kind of failure to report,
         // because there is nowhere on screen to report it. Recording what the

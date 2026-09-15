@@ -12,6 +12,8 @@ import {
   describeSurface,
   type EditReport,
   kindName,
+  type PackEntry,
+  type PackReview,
   type PageSpec,
   type SessionInfo,
   type StatusReport,
@@ -20,6 +22,7 @@ import {
 } from "./api";
 import { usePreview } from "./bridge";
 import { renderInspector } from "./ui/inspector";
+import { renderStore } from "./ui/store";
 import { element, renderSurface } from "./ui/surface";
 
 /** Everything on screen. */
@@ -42,6 +45,14 @@ interface State {
   /** What is running now. Refreshed on its own, because it changes while the
    *  rest of the screen is being edited. */
   sessions: SessionInfo[];
+  /** Whether the surface or the store fills the main area. */
+  view: "surface" | "store";
+  /** The packs on offer, read when the store is opened. */
+  packs: PackEntry[];
+  /** The pack being looked at closely. */
+  review: PackReview | null;
+  /** The pack whose review or install is under way. */
+  busy: string | null;
 }
 
 interface Notice {
@@ -62,6 +73,10 @@ const state: State = {
   removing: null,
   adding: false,
   sessions: [],
+  view: "surface",
+  packs: [],
+  review: null,
+  busy: null,
 };
 
 const root = document.querySelector<HTMLElement>("#studio");
@@ -214,6 +229,55 @@ function test(address: BindingAddress): void {
   })();
 }
 
+/** Opens the store, reading what is on offer. */
+function openStore(): void {
+  state.view = "store";
+  draw();
+  void loadPacks();
+}
+
+async function loadPacks(): Promise<void> {
+  try {
+    state.packs = (await (await client()).packs()).packs;
+  } catch (error) {
+    const failure = describeError(error);
+    state.notice = { text: failure.message, detail: failure.problems, tone: "bad" };
+  }
+  draw();
+}
+
+/** Reads what installing a pack would mean, before offering to. */
+function reviewPack(pack: PackEntry): void {
+  state.busy = pack.id;
+  draw();
+  void (async () => {
+    try {
+      state.review = await (await client()).reviewPack(pack.source);
+    } catch (error) {
+      const failure = describeError(error);
+      state.notice = { text: failure.message, detail: failure.problems, tone: "bad" };
+    }
+    state.busy = null;
+    draw();
+  })();
+}
+
+/** Installs a pack, agreeing to exactly what its review showed. */
+function installPack(review: PackReview): void {
+  state.busy = review.pack.id;
+  draw();
+  void (async () => {
+    await edit(
+      (report) =>
+        `Installed ${review.pack.name} — ${report.binding_count} bindings, ${report.page_count} pages in force`,
+      async () => (await client()).installPack(review.pack.source, review.granting),
+    );
+    state.busy = null;
+    state.review = null;
+    await loadPacks();
+  })();
+}
+
 /** Puts the editing panel away. */
 function closeInspector(): void {
   if (state.selected === null) return;
@@ -236,6 +300,24 @@ function draw(): void {
   body.append(sidebar(state.vocabulary));
 
   const main = element("div", "main");
+  if (state.view === "store") {
+    main.append(
+      renderStore(
+        { packs: state.packs, review: state.review, busy: state.busy },
+        {
+          review: reviewPack,
+          install: installPack,
+          close: () => {
+            state.review = null;
+            draw();
+          },
+        },
+      ),
+    );
+    body.append(main);
+    root.append(body);
+    return;
+  }
   main.append(
     renderSurface(
       {
@@ -328,6 +410,7 @@ function disconnected(): HTMLElement {
 
 function sidebar(vocabulary: Vocabulary): HTMLElement {
   const aside = element("aside", "sidebar");
+  aside.append(views());
 
   if (state.workspaces.length > 0) aside.append(projects());
 
@@ -374,6 +457,32 @@ function sidebar(vocabulary: Vocabulary): HTMLElement {
 
   aside.append(runningPanel());
   return aside;
+}
+
+/** The switch between editing the surface and browsing the store. */
+function views(): HTMLElement {
+  const nav = element("nav", "views");
+  const choices: { view: State["view"]; caption: string; open: () => void }[] = [
+    {
+      view: "surface",
+      caption: "Surface",
+      open: () => {
+        state.view = "surface";
+        draw();
+      },
+    },
+    { view: "store", caption: "Store", open: openStore },
+  ];
+  for (const choice of choices) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `view${state.view === choice.view ? " current" : ""}`;
+    button.setAttribute("aria-pressed", String(state.view === choice.view));
+    button.textContent = choice.caption;
+    button.addEventListener("click", choice.open);
+    nav.append(button);
+  }
+  return nav;
 }
 
 /**
@@ -628,6 +737,11 @@ window.addEventListener("keydown", (event) => {
   if (event.key !== "Escape" || event.defaultPrevented) return;
 
   // Escape backs out of whatever is open, innermost first.
+  if (state.review !== null) {
+    state.review = null;
+    draw();
+    return;
+  }
   if (state.removing !== null || state.adding) {
     state.removing = null;
     state.adding = false;

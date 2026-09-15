@@ -14,6 +14,9 @@ take the surface down.
 - Assigns an action, a target and a caption, and saves
 - Runs a binding once so you can see what it does before committing to it
 - Removes a binding
+- A store of the packs PushOS ships, and any beside your configuration: each one
+  reviewed before it is offered, showing what it adds, what it asks to be
+  allowed and why it would not install here, then installed with exactly that
 
 Everything on screen comes from PushOS. Studio hard-codes no list of actions,
 gestures or controls, so it cannot offer something that will not work.

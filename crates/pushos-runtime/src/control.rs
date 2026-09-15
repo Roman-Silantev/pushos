@@ -141,6 +141,23 @@ impl RuntimeControl {
             found.push(entry(&pack, PackAvailability::Available, &source));
         }
 
+        // And the packs PushOS ships with, so there is something on offer
+        // before the operator has put anything beside the configuration. One
+        // they have put there themselves, or installed, is the one offered.
+        let cache = pushos_packs::cache_directory();
+        for shipped in pushos_packs::SHIPPED {
+            let Ok(source) = shipped.written_to(&cache) else {
+                continue;
+            };
+            let Ok(pack) = pushos_packs::read(&source) else {
+                continue;
+            };
+            if found.iter().any(|held| held.id == pack.id.as_str()) {
+                continue;
+            }
+            found.push(entry(&pack, PackAvailability::Available, &source));
+        }
+
         found.sort_by(|left, right| left.id.cmp(&right.id));
         found
     }

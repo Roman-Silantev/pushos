@@ -11,6 +11,8 @@
 import type {
   BindingSpec,
   EditReport,
+  PackEntry,
+  PackReview,
   SessionInfo,
   StatusReport,
   TestReport,
@@ -224,6 +226,36 @@ const workspaces: WorkspaceInfo[] = [
   },
 ];
 
+const packs: PackEntry[] = [
+  {
+    id: "operator",
+    name: "Operator Pack",
+    version: "1.0.0",
+    summary: "Fifty-six roles across seven rows of the pad grid.",
+    author: "PushOS",
+    state: "available",
+    source: "operator",
+  },
+  {
+    id: "review",
+    name: "Review",
+    version: "1.0.0",
+    summary: "A reviewer, and a workflow that plans, builds and reviews.",
+    author: "PushOS",
+    state: "installed",
+    source: "review",
+  },
+];
+
+const operatorReview: PackReview = {
+  pack: packs[0] as PackEntry,
+  adds: "56 agents, 1 page, 113 bindings",
+  granting: [],
+  already: ["shell.execute"],
+  missing_providers: [],
+  problems: [],
+};
+
 const refused = () => {
   throw {
     message: "Studio is showing sample data; there is nothing to change.",
@@ -245,4 +277,7 @@ export const preview = {
     Promise.resolve({ workspaces }),
   addPage: (): Promise<EditReport> => refused(),
   removePage: (): Promise<EditReport> => refused(),
+  packs: (): Promise<{ packs: PackEntry[] }> => Promise.resolve({ packs }),
+  reviewPack: (): Promise<PackReview> => Promise.resolve(operatorReview),
+  installPack: (): Promise<EditReport> => refused(),
 };

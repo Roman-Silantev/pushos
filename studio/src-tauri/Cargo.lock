@@ -2528,6 +2528,7 @@ version = "0.1.0"
 dependencies = [
  "pushos-api",
  "pushos-config",
+ "pushos-domain",
  "serde",
  "serde_json",
  "tauri",

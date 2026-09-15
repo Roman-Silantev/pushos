@@ -708,3 +708,38 @@ async fn a_pack_that_is_not_there_is_not_found_rather_than_guessed_at() {
     assert_eq!(failure.kind, FailureKind::NotFound);
     harness.stop().await;
 }
+
+#[tokio::test]
+async fn the_packs_pushos_ships_are_on_offer_before_anything_is_put_beside_it() {
+    // A store with nothing in it until the operator finds a pack directory is
+    // a store nobody opens twice.
+    let mut harness = Harness::start().await;
+
+    let Response::Packs(listing) = harness.client.send(&Request::Packs).await.expect("ok") else {
+        panic!("expected a listing");
+    };
+    for shipped in ["operator", "review"] {
+        let pack = listing
+            .packs
+            .iter()
+            .find(|pack| pack.id == shipped)
+            .unwrap_or_else(|| panic!("`{shipped}` ships with PushOS"));
+        assert_eq!(
+            pack.state,
+            pushos_api::protocol::PackAvailability::Available
+        );
+    }
+
+    let Response::PackReview(review) = harness
+        .client
+        .send(&Request::ReviewPack {
+            pack: "operator".to_owned(),
+        })
+        .await
+        .expect("answered")
+    else {
+        panic!("expected a review");
+    };
+    assert!(review.problems.is_empty(), "{:?}", review.problems);
+    harness.stop().await;
+}

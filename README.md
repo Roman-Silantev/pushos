@@ -197,8 +197,10 @@ permissions again after the next one.
 
 ### PushOS Studio
 
-Studio is the app for seeing and changing what every control does. PushOS runs
-without it, and closing it does not stop PushOS. Building it needs Node.js as
+Studio is the app for seeing and changing what every control does, and its store
+installs the packs PushOS ships, such as the Operator Pack, after showing what
+each one adds and asks for. PushOS runs without it, and closing it does not stop
+PushOS. Building it needs Node.js as
 well as Rust:
 
 ```bash

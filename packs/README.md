@@ -1,56 +1,105 @@
-# Operator Pack
+# Packs
 
-Fifty-six roles, one to a pad, laid out so a hand learns where each one lives.
+A pack is a directory of ordinary PushOS configuration with a manifest on the
+front. Installing one copies it in; removing one deletes what was copied and
+nothing else. There is no package database and no lock file: what is installed
+is what is in `packs/` under your configuration directory, which you can list
+with `ls` and read with any editor.
 
-```text
-row 1   Build       architect  implementer  reviewer  tester  debugger  refactorer  documenter  releaser
-row 2   Clients     onboarder  scoper  status  handover  support  escalations  retro  offboarder
-row 3   Growth      prospector  outreach  follow up  proposal  pricing  pipeline  case study  partners
-row 4   Money       invoices  chaser  expenses  runway  contracts  compliance  tax  suppliers
-row 5   Markets     markets  portfolio  earnings  macro  competitors  industry  diligence  analyst
-row 6   Comms       inbox  replies  meetings  notes  newsletter  social  editor  translator
-row 7   Mine        day  week  learning  reading  health  home  travel  journal
-row 8               left for whatever is already running here
-```
-
-Tap starts a role. Hold selects it without starting it, so the encoders and the
-row under the screen act on it.
-
-## The bottom row
-
-Nothing in this pack binds pads 56 to 63. That row belongs to the terminals you
-already have open, which the `sessions` preset puts there and PushOS watches
-without having started them. Install both and the grid reads as one thing: the
-work you can start above, the work already running below.
-
-## A role is not a process
-
-Fifty-six pads do not mean fifty-six programs. A role is a description of a job
-and a pad is how you start one; what runs is what you have started. Two or three
-at once is a working day, and the machine decides the ceiling, not the grid.
-
-## Markets
-
-The markets and portfolio roles read, watch and report. They do not place
-orders, they do not sign in to a broker, and they do not tell you what to buy or
-sell. Every decision stays with you, and wiring a role to a broker is not
-something this pack does or helps with.
-
-The health role is the same shape: it keeps the record you gave it and reports
-what changed. It does not diagnose and it does not advise on treatment.
-
-## Installing
-
-Drop it in `available/` next to your configuration and it shows up in
-`pushos pack list` and in Studio, without being loaded. Or install it straight
-from here:
+The packs in this directory ship inside PushOS, so PushOS Studio's store offers
+them with nothing to download: open **Store**, review one, and install it. A pack
+you put in `available/` next to your configuration is offered there too. From
+the command line:
 
 ```bash
-pushos pack show packs/operator      # what it is, and what it would change here
-pushos pack install packs/operator   # after you have read that
+pushos pack show packs/review      # what it is, and what it would change here
+pushos pack install packs/review   # after you have read that
+pushos pack list                   # what is installed
+pushos pack disable review         # keep it, stop loading it
+pushos pack remove review          # delete what was copied in
 ```
 
-Installing tells you the one line to add to reach the page. A pack is not
-allowed to bind a control outside its own pages, because installing something
-should not change what a surface you already built does, so opening the page is
-the one thing you add yourself.
+## What installing means
+
+Nothing is written until you have seen the review. It says what the pack adds,
+what capabilities it is asking for, which of those you already allow, and
+whether it would install cleanly at all.
+
+```text
+Code Review Pack 1.0.0 (review)
+  A reviewer who reads what was written, a page to watch them from, and a
+  workflow that builds, tests and asks before anything ships.
+
+adds:
+  1 agent
+  1 workflow
+  1 page
+  7 bindings
+
+would grant:
+  + shell.execute
+  ? filesystem.read (optional; the pack works without it)
+
+it would install here
+```
+
+A `!` rather than a `+` marks something PushOS cannot undo, such as deploying
+to production or sending something outside the machine. Those are worth reading
+twice.
+
+**A pack cannot grant itself anything.** That is enforced, not promised: a pack
+whose own files contain a permissions section is refused, and so is one that
+arrives carrying the file PushOS writes grants into. What a pack may do is what
+you agreed to, and the grant is written to `00-granted.toml` inside the
+installed pack so you can see where it came from. Delete that file and the
+grant is withdrawn; the pack stays installed.
+
+## Shape
+
+```text
+review/
+├── pack.toml            the manifest: what it is and what it asks for
+├── README.md
+├── agents/              roles
+├── workflows/           work that runs itself
+├── pages/               what the controls mean
+└── bindings/            what the pads do
+```
+
+Every `.toml` under the pack except the manifest is loaded as configuration, at
+any depth. The directory names are a convention for people, not a rule PushOS
+enforces.
+
+Packs load before your own files, so where a setting can only have one value,
+what you wrote wins. A pack is a starting point you were offered, not something
+that overrules you.
+
+## What a shipped pack promises
+
+Each of these is a test, run against the providers PushOS actually ships.
+
+- **It installs onto a plain configuration**, which also proves it makes no
+  ambiguous binding and names no page or control that does not exist.
+- **It asks for exactly what its bindings need.** Asking for less means a pad
+  that fails under a finger; asking for more teaches you to skim the review.
+- **It stays on its own pages.** A pack binding a control globally would change
+  what a surface you already set up does, which is not what installing means.
+- **Removing it takes only its own things**, including the grant.
+- **Every role says what its agent may do**, and none of them sends, pushes,
+  deploys or moves money.
+- **It is compiled in.** Every file of every pack here ships inside PushOS, and a
+  file added to a pack without being added to the build fails a test.
+
+## Writing one
+
+Start by copying `review/`. The manifest needs an `id`, a `name` and a
+`version`; everything else is optional. Declare what you need under
+`[requires]`, put your configuration in the directories above, and check it
+with `pushos pack show <directory>` before you install it anywhere.
+
+Three things worth knowing. Scope your bindings to a page your pack declares, so
+installing cannot change what an existing control means. Do not give agent roles
+a `preferred` provider list: a pack should not decide which vendor fills a role.
+Say what you expect under `[requires] providers` instead, and PushOS shows that
+at install. And give every role a `permissions` list naming what its agent may
+do, and nothing more.

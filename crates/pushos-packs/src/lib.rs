@@ -17,7 +17,9 @@ mod error;
 mod library;
 mod manifest;
 mod review;
+mod shipped;
 
 pub use error::PackError;
 pub use library::{GRANT_FILE, Library, check, install, installed, read, remove, set_state};
 pub use review::Review;
+pub use shipped::{SHIPPED, ShippedFile, ShippedPack, cache_directory};
