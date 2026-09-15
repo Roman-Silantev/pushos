@@ -501,6 +501,25 @@ every light and the screen out whenever it stops being able to look after them:
   Mac that wakes in the night to fetch mail does not light the desk; touch it to
   brighten it.
 
+### What it keeps
+
+Left running for months, PushOS takes no more room than it did after a week.
+Everything it writes down or holds on to has a limit:
+
+| What | Kept |
+| --- | --- |
+| Its log | Two files of at most 5 MB each: the current one and one before it |
+| The record of presses and events | The newest 50,000, from the last 30 days |
+| Finished workflow runs | The newest 500 on disk, from the last 90 days, and 3 of each workflow in memory |
+| A role's working tree | Removed when the role is done with it, with whatever was built in it, unless git shows work nobody committed; that is never removed |
+| Agent adapter downloads | Cleared before an agent starts once they pass 768 MB; what is installed stays |
+| A recording | One minute, more than either speech engine reads |
+| Finished agents and terminals | The last few, for the display |
+
+Running, it uses about 7 MB of memory. Watching Terminal reads each tab's
+screen rather than its whole scrollback, and Claude Code is only asked about
+its sessions when one of them has changed, or once a minute.
+
 ## Architecture
 
 ```
@@ -599,7 +618,7 @@ Built and tested:
 | Every session | tmux, Terminal and Claude Code's own session list merged into one; a tmux session per pad |
 | Answers from the Push | Claude Code and Codex put their permission questions to the Push first |
 | Role limits | Every agent held to what its role allows, at start, by mode and at each question |
-| Footprint | A 4.9 MB program, and a build directory that stays under a gigabyte |
+| Footprint | A 5 MB program using about 7 MB of memory, with a limit on everything it keeps, and a build directory that stays under a gigabyte |
 
 `SPEC.md` and `AGENT_PACKS_SPEC.md` hold the full plan.
 

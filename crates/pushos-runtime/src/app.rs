@@ -485,7 +485,7 @@ impl Runtime {
             sessions: watched_sessions,
             bank: watched_bank,
             questions: watched_questions,
-            listening: self.voice.map(|provider| provider.listener().watch()),
+            voice: self.voice,
             power: self.power,
             bus: self.bus,
         }
@@ -519,8 +519,8 @@ pub struct RunningRuntime {
     view: watch::Sender<SurfaceView>,
     watching: watch::Receiver<SurfaceView>,
     lines: watch::Receiver<crate::actors::Progress>,
-    /// Whether the microphone is on, when voice is configured.
-    listening: Option<watch::Receiver<pushos_domain::voice::Listening>>,
+    /// Push to talk, when voice is configured.
+    voice: Option<Arc<pushos_actions::providers::voice::VoiceProvider>>,
     power: Option<watch::Receiver<pushos_domain::rest::MachinePower>>,
     /// The sessions PushOS did not start, when any are watched.
     sessions: Option<watch::Receiver<Vec<pushos_domain::attached::Attached>>>,
@@ -571,8 +571,8 @@ impl RunningRuntime {
 
         // A surface plugged in mid-phrase shows that PushOS is listening,
         // rather than waiting for the operator to let go and press again.
-        let pipeline = match &self.listening {
-            Some(listening) => pipeline.hearing(listening.clone()),
+        let pipeline = match &self.voice {
+            Some(voice) => pipeline.hearing(voice.listener().watch()),
             None => pipeline,
         };
 
@@ -612,6 +612,17 @@ impl RunningRuntime {
         // and leaves the display in a state someone chose.
         attached.stop().await;
         let _ = rendering.await;
+
+        // A control held down when the surface went away is never let go, and
+        // the microphone would stay on, keeping what it hears, until the next
+        // press. Stopped, and what was heard thrown away: half a phrase is not
+        // something to act on.
+        if let Some(listener) = self.voice.as_ref().map(|voice| voice.listener())
+            && listener.state() == pushos_domain::voice::Listening::Recording
+        {
+            listener.cancel().await;
+            info!("stopped listening: the Push 2 went away while a control was held");
+        }
     }
 
     /// The event bus, for components that want to observe the runtime.

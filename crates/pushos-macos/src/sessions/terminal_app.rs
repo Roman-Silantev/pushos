@@ -31,13 +31,40 @@ const FIELD: char = '\u{1f}';
 /// Separates one tab from the next.
 const RECORD: char = '\u{1e}';
 
+/// Keeps the last `most` characters of a screen, past its blank rows.
+///
+/// A tab's screen, not its history: the history is everything the tab has
+/// shown since it opened, which Terminal would copy out whole on every look
+/// only for all but its last lines to be thrown away. A tab an agent has run
+/// in all day holds megabytes of it. The screen is a few thousand characters
+/// however long the tab has been open, ending in the rows below the last line
+/// written, which are skipped.
+macro_rules! tail_handler {
+    () => {
+        r#"on tail(shown, most)
+  set ending to count of shown
+  repeat while ending > 0
+    set c to character ending of shown
+    if c is not linefeed and c is not return and c is not space then exit repeat
+    set ending to ending - 1
+  end repeat
+  if ending is 0 then return ""
+  if ending > most then return text (ending - most + 1) thru ending of shown
+  return text 1 thru ending of shown
+end tail
+"#
+    };
+}
+
 /// Lists every tab, with what it is called and the last of what is on it.
 ///
 /// One script for all of them rather than one per tab: asking costs a
 /// subprocess and this runs every few seconds, so eight windows must not mean
 /// nine processes. Nothing is asked of Terminal when it is not running, because
 /// asking would start it, and an operator who quit it wants it quit.
-const DISCOVER: &str = r#"on run argv
+const DISCOVER: &str = concat!(
+    tail_handler!(),
+    r#"on run argv
   set most to (item 1 of argv) as integer
   if application "Terminal" is not running then return ""
   set out to ""
@@ -47,12 +74,7 @@ const DISCOVER: &str = r#"on run argv
         try
           set seen to ""
           try
-            set h to history of t
-            if (count of h) > most then
-              set seen to text -most thru -1 of h
-            else
-              set seen to h
-            end if
+            set seen to my tail(contents of t, most)
           end try
           set out to out & ((tty of t) as text) & (ASCII character 31) & ((custom title of t) as text) & (ASCII character 31) & seen & (ASCII character 30)
         end try
@@ -60,7 +82,8 @@ const DISCOVER: &str = r#"on run argv
     end repeat
   end tell
   return out
-end run"#;
+end run"#
+);
 
 /// How much of each screen to read while looking at what is open.
 ///
@@ -85,22 +108,23 @@ const LISTING: usize = 1024 * 1024;
 const DEVICE_PREFIX: &str = "/dev/";
 
 /// Returns the tail of what one tab has on screen.
-const READ: &str = r#"on run argv
+const READ: &str = concat!(
+    tail_handler!(),
+    r#"on run argv
   set wanted to item 1 of argv
   set most to (item 2 of argv) as integer
   tell application "Terminal"
     repeat with w in windows
       repeat with t in tabs of w
         if ((tty of t) as text) is wanted then
-          set h to history of t
-          if (count of h) > most then return text -most thru -1 of h
-          return h
+          return my tail(contents of t, most)
         end if
       end repeat
     end repeat
   end tell
   return ""
-end run"#;
+end run"#
+);
 
 /// Types into one tab.
 const SEND: &str = r#"on run argv
@@ -415,6 +439,62 @@ mod tests {
         let found: Vec<Tab> = reply.split(RECORD).filter_map(parse).collect();
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].title, "fine");
+    }
+
+    /// Runs the tail handler on its own, without Terminal.
+    fn tail_of(screen: &str, most: usize) -> String {
+        let script = concat!(
+            tail_handler!(),
+            "on run argv\n  return tail(item 1 of argv, (item 2 of argv) as integer)\nend run"
+        );
+        let output = std::process::Command::new("/usr/bin/osascript")
+            .args(["-e", script, screen, &most.to_string()])
+            .output()
+            .expect("osascript runs");
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        String::from_utf8(output.stdout)
+            .expect("text")
+            .trim_end_matches('\n')
+            .to_owned()
+    }
+
+    #[test]
+    fn a_screen_is_read_from_its_last_written_line_and_not_its_history() {
+        assert!(!DISCOVER.contains("history") && !READ.contains("history"));
+        assert!(DISCOVER.contains("my tail(contents of t, most)"));
+
+        assert_eq!(tail_of("one\ntwo\n> \n\n\n   \n", 5), "two\n>");
+        assert_eq!(tail_of("short\n\n", 220), "short");
+        assert_eq!(tail_of("\n\n\n", 220), "", "a blank screen is nothing");
+    }
+
+    #[test]
+    fn every_script_compiles() {
+        // A script is text until it runs, and a slip in one is otherwise found
+        // by an operator pressing a pad. Compiling reads Terminal's dictionary
+        // without starting it.
+        let scratch = std::env::temp_dir().join(format!(
+            "pushos-terminal-scripts-{}.scpt",
+            std::process::id()
+        ));
+        for script in [DISCOVER, READ, SEND, PRESS, FOCUS, OPEN] {
+            let output = std::process::Command::new("/usr/bin/osacompile")
+                .arg("-o")
+                .arg(&scratch)
+                .args(["-e", script])
+                .output()
+                .expect("osacompile runs");
+            assert!(
+                output.status.success(),
+                "{}\n{script}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+        }
+        std::fs::remove_file(&scratch).ok();
     }
 
     #[test]

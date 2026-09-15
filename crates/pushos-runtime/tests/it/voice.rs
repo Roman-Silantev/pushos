@@ -301,3 +301,33 @@ async fn the_surface_says_it_is_listening_while_the_control_is_down() {
     );
     harness.stop().await;
 }
+
+#[tokio::test]
+async fn unplugging_the_push_while_a_control_is_held_turns_the_microphone_off() {
+    // The release never arrives, so nothing else would stop it: the orange dot
+    // would stay on, and what it heard would pile up, until the next press.
+    let harness = Harness::start().await;
+    harness.microphone.will_hear(speech(Duration::from_secs(1)));
+    harness.transcriber.will_say("go back");
+
+    harness
+        .with_surface(|surface| async move {
+            surface
+                .inject(ControlEvent::new(
+                    ControlId::Button(ButtonId::Select),
+                    InputPhase::Down { velocity: 127 },
+                    Instant::now(),
+                ))
+                .await;
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        })
+        .await;
+
+    assert_eq!(harness.listener.state(), Listening::Idle);
+    assert_eq!(harness.microphone.discards(), 1);
+    assert!(
+        harness.transcriber.heard().is_empty(),
+        "half a phrase is not acted on"
+    );
+    harness.stop().await;
+}

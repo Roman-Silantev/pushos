@@ -21,6 +21,7 @@
 mod catalogue;
 mod engine;
 mod forgetful;
+mod recent;
 
 pub use catalogue::WorkflowCatalogue;
 pub use engine::{RunObserver, SilentObserver, WorkflowEngine, WorkflowError};

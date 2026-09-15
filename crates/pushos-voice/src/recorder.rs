@@ -18,6 +18,15 @@ use pushos_domain::error::ErrorClass;
 use pushos_domain::ports::{Microphone, Recording, SAMPLE_RATE, VoiceError};
 use tracing::{debug, warn};
 
+/// The most of one recording kept, in seconds.
+///
+/// More than either engine reads: Whisper looks at thirty seconds and Apple's
+/// recogniser at about a minute. A control held for longer, or a release that
+/// never arrived because the Push was unplugged mid-phrase, would otherwise
+/// keep every sample the device produces, tens of megabytes a minute, for as
+/// long as nothing lets go.
+const LONGEST_SECONDS: usize = 60;
+
 /// The operator's microphone, through `CoreAudio`.
 #[derive(Debug)]
 pub struct CoreAudioMicrophone {
@@ -160,6 +169,9 @@ impl Session {
         // frequencies folding back down as noise.
         let every = (rate as usize / SAMPLE_RATE as usize).max(1);
 
+        let most = (rate as usize)
+            .saturating_mul(channels)
+            .saturating_mul(LONGEST_SECONDS);
         let heard = Arc::new(Mutex::new(Vec::<f32>::new()));
         let writing = Arc::clone(&heard);
 
@@ -168,7 +180,7 @@ impl Session {
                 config.config(),
                 move |samples: &[f32], _| {
                     if let Ok(mut kept) = writing.lock() {
-                        kept.extend_from_slice(samples);
+                        keep(&mut kept, samples, most);
                     }
                 },
                 |error| warn!(%error, "the microphone stopped"),
@@ -200,6 +212,15 @@ impl Session {
 
         resample(&raw, self.channels, self.every)
     }
+}
+
+/// Adds what the device just heard, up to `most` samples in all.
+///
+/// The start is kept and the rest dropped, the way a transcriber that reads
+/// only so far would drop it.
+fn keep(kept: &mut Vec<f32>, samples: &[f32], most: usize) {
+    let room = most.saturating_sub(kept.len());
+    kept.extend_from_slice(&samples[..samples.len().min(room)]);
 }
 
 /// Mixes to mono and brings the rate down to [`SAMPLE_RATE`].
@@ -261,6 +282,15 @@ fn classify(why: &str) -> VoiceError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_recording_stops_growing_at_its_longest_and_keeps_its_start() {
+        let mut kept = Vec::new();
+        keep(&mut kept, &[1.0, 2.0, 3.0], 5);
+        keep(&mut kept, &[4.0, 5.0, 6.0], 5);
+        keep(&mut kept, &[7.0], 5);
+        assert_eq!(kept, [1.0, 2.0, 3.0, 4.0, 5.0]);
+    }
 
     #[test]
     fn two_channels_become_one_by_averaging_them() {

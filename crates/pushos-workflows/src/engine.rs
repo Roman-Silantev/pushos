@@ -614,7 +614,13 @@ impl WorkflowEngine {
 
     /// Writes a run down and tells whoever is watching.
     async fn remember(&self, run: &Run) {
-        self.runs.lock().await.insert(run.id, run.clone());
+        {
+            let mut runs = self.runs.lock().await;
+            runs.insert(run.id, run.clone());
+            if !run.is_live() {
+                crate::recent::forget_stale(&mut runs, &run.workflow);
+            }
+        }
         if let Err(error) = self.store.record(run).await {
             warn!(%error, run = %run.id, "a workflow run was not written down");
         }
