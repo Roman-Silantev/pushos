@@ -8,9 +8,12 @@
 //! A pad that stands for something with a state of its own shows that state
 //! instead. Eight pads for eight coding sessions, all the same colour, tell an
 //! operator nothing they did not already know; the one that is stuck on a
-//! question needs to be the one that looks different.
+//! question needs to be the one that looks different. The same goes for a pad
+//! that starts a role: while its agent works, waits or has failed, the pad says
+//! which.
 
 use pushos_config::RuntimeConfig;
+use pushos_domain::agent::{AgentState, AgentTarget};
 use pushos_domain::attached::{Activity, Attached, AttachedTarget};
 use pushos_domain::binding::BindingKey;
 use pushos_domain::color::{LedState, StatusColor};
@@ -18,6 +21,8 @@ use pushos_domain::context::SurfaceContext;
 use pushos_domain::controls::{ControlId, PadIndex};
 use pushos_domain::gesture::Gesture;
 use pushos_ui::LedPlan;
+
+use super::RoleActivity;
 
 /// The gestures a control can carry that make it worth lighting.
 ///
@@ -31,22 +36,32 @@ const ADVERTISED: [Gesture; 5] = [
     Gesture::ShiftHold,
 ];
 
+/// Everything with a state of its own that a light can stand for.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Showing<'a> {
+    /// The sessions PushOS did not start, in the order they were found.
+    pub(crate) sessions: &'a [Attached],
+    /// Where the bank of eight in view starts.
+    pub(crate) from: usize,
+    /// What each role's agent is doing, most recent session first.
+    pub(crate) roles: &'a [RoleActivity],
+}
+
 /// Builds the light plan for the current surface.
 pub(crate) fn plan_showing(
     config: &RuntimeConfig,
     context: &SurfaceContext,
-    sessions: &[Attached],
-    from: usize,
+    showing: &Showing<'_>,
 ) -> LedPlan {
     let mut plan = LedPlan::new();
 
     for pad in PadIndex::all() {
         let control = ControlId::Pad(pad);
-        plan.set(control, light_for(config, context, control, sessions, from));
+        plan.set(control, light_for(config, context, control, showing));
     }
 
     for control in ControlId::all().filter(|control| matches!(control, ControlId::Button(_))) {
-        plan.set(control, light_for(config, context, control, sessions, from));
+        plan.set(control, light_for(config, context, control, showing));
     }
 
     plan
@@ -54,6 +69,9 @@ pub(crate) fn plan_showing(
 
 /// The namespace whose bindings stand for a session rather than an instruction.
 const SESSIONS: &str = "session";
+
+/// The namespace whose bindings name a role.
+const AGENTS: &str = "agent";
 
 /// What a control stands for, as far as sessions go.
 enum StandsFor {
@@ -108,22 +126,62 @@ fn session_on(
     })
 }
 
+/// What the agent filling the role a control names is doing.
+///
+/// Read from the binding, like a session's: a pad that starts `role:markets`
+/// already says which role it is. The project is the binding's own when it
+/// names one, and the one in effect otherwise, which is how the pad resolves
+/// the role when it is pressed.
+fn role_on(
+    config: &RuntimeConfig,
+    context: &SurfaceContext,
+    control: ControlId,
+    roles: &[RoleActivity],
+) -> Option<AgentState> {
+    let target: AgentTarget = ADVERTISED
+        .iter()
+        .flat_map(|gesture| {
+            config
+                .bindings
+                .candidates(BindingKey::new(control, *gesture))
+        })
+        .find(|binding| {
+            binding.scope.applies_to(context) && binding.action.selector.provider.as_str() == AGENTS
+        })
+        .and_then(|binding| binding.action.params.text("target"))
+        .and_then(|written| written.parse().ok())?;
+
+    let AgentTarget::Role { agent, workspace } = target else {
+        return None;
+    };
+    let workspace = workspace.or_else(|| context.workspace.clone());
+    RoleActivity::state_of(roles, &agent, workspace.as_ref())
+}
+
 fn light_for(
     config: &RuntimeConfig,
     context: &SurfaceContext,
     control: ControlId,
-    sessions: &[Attached],
-    from: usize,
+    showing: &Showing<'_>,
 ) -> LedState {
     // What a session is doing outranks the fact that a pad is bound: the pad
     // being bound is what the operator already knows. A session at rest, or a
     // slot with no session in it, is dark rather than glowing as merely bound,
     // so the lights that are on are the ones worth looking at.
-    match session_on(config, context, control, sessions, from) {
+    match session_on(config, context, control, showing.sessions, showing.from) {
         StandsFor::Session(activity) if activity.is_resting() => return LedState::OFF,
         StandsFor::Session(activity) => return LedState::from_status(activity.status_color()),
         StandsFor::Absent => return LedState::OFF,
         StandsFor::Nothing => {}
+    }
+
+    // A role's pad lights for what is worth looking at: working, waiting on
+    // the operator, or failed. A role with nothing happening keeps the glow of
+    // any bound pad, so fifty-six roles at rest are not fifty-six colours.
+    if let Some(state) = role_on(config, context, control, showing.roles)
+        && (state.is_busy() || state.needs_operator() || state == AgentState::Failed)
+    {
+        return LedState::from_status(state.status_color());
     }
 
     let bound = ADVERTISED.iter().any(|gesture| {
@@ -178,7 +236,7 @@ mod tests {
             "#
         ));
 
-        let plan = plan_showing(&config, &SurfaceContext::empty(), &[], 0);
+        let plan = plan_showing(&config, &SurfaceContext::empty(), &Showing::default());
         let lit: Vec<_> = plan
             .states()
             .iter()
@@ -201,8 +259,16 @@ mod tests {
             "#
         ));
 
-        let on_home = plan_showing(&config, &SurfaceContext::empty().on_page("home"), &[], 0);
-        let on_music = plan_showing(&config, &SurfaceContext::empty().on_page("music"), &[], 0);
+        let on_home = plan_showing(
+            &config,
+            &SurfaceContext::empty().on_page("home"),
+            &Showing::default(),
+        );
+        let on_music = plan_showing(
+            &config,
+            &SurfaceContext::empty().on_page("music"),
+            &Showing::default(),
+        );
 
         assert_eq!(
             on_home
@@ -233,7 +299,7 @@ mod tests {
             "#
         ));
 
-        let plan = plan_showing(&config, &SurfaceContext::empty(), &[], 0);
+        let plan = plan_showing(&config, &SurfaceContext::empty(), &Showing::default());
         assert!(
             plan.states()
                 .iter()
@@ -243,7 +309,11 @@ mod tests {
 
     #[test]
     fn a_plan_covers_every_pad_and_button_and_nothing_else() {
-        let plan = plan_showing(&config(PAGES), &SurfaceContext::empty(), &[], 0);
+        let plan = plan_showing(
+            &config(PAGES),
+            &SurfaceContext::empty(),
+            &Showing::default(),
+        );
         assert!(
             plan.states()
                 .iter()
@@ -272,8 +342,16 @@ mod tests {
             "#
         ));
 
-        let on_home = plan_showing(&config, &SurfaceContext::empty().on_page("home"), &[], 0);
-        let on_music = plan_showing(&config, &SurfaceContext::empty().on_page("music"), &[], 0);
+        let on_home = plan_showing(
+            &config,
+            &SurfaceContext::empty().on_page("home"),
+            &Showing::default(),
+        );
+        let on_music = plan_showing(
+            &config,
+            &SurfaceContext::empty().on_page("music"),
+            &Showing::default(),
+        );
 
         let changes = on_music.changes_from(&on_home);
         assert_eq!(changes.len(), 1, "only pad 1 differs between the two pages");
@@ -321,7 +399,15 @@ mod tests {
         // and who is wanted, not every session for being there.
         let config = config(SESSION_PADS);
         for resting in [Activity::Ready, Activity::Quiet] {
-            let plan = plan_showing(&config, &SurfaceContext::empty(), &[doing(resting)], 0);
+            let plan = plan_showing(
+                &config,
+                &SurfaceContext::empty(),
+                &Showing {
+                    sessions: &[doing(resting)],
+                    from: 0,
+                    roles: &[],
+                },
+            );
             assert_eq!(light(&plan, pad(56)), LedState::OFF, "{resting:?}");
         }
     }
@@ -334,7 +420,15 @@ mod tests {
             Activity::NeedsDecision,
             Activity::Drafting,
         ] {
-            let plan = plan_showing(&config, &SurfaceContext::empty(), &[doing(busy)], 0);
+            let plan = plan_showing(
+                &config,
+                &SurfaceContext::empty(),
+                &Showing {
+                    sessions: &[doing(busy)],
+                    from: 0,
+                    roles: &[],
+                },
+            );
             assert_eq!(
                 light(&plan, pad(56)),
                 LedState::from_status(busy.status_color()),
@@ -350,8 +444,11 @@ mod tests {
         let plan = plan_showing(
             &config,
             &SurfaceContext::empty(),
-            &[doing(Activity::Working)],
-            0,
+            &Showing {
+                sessions: &[doing(Activity::Working)],
+                from: 0,
+                roles: &[],
+            },
         );
         assert_eq!(light(&plan, pad(57)), LedState::OFF);
     }
@@ -359,10 +456,117 @@ mod tests {
     #[test]
     fn a_control_that_is_not_a_sessions_still_glows_to_say_it_does_something() {
         let config = config(SESSION_PADS);
-        let plan = plan_showing(&config, &SurfaceContext::empty(), &[], 0);
+        let plan = plan_showing(&config, &SurfaceContext::empty(), &Showing::default());
         assert_eq!(
             light(&plan, pad(0)),
             LedState::from_status(StatusColor::Idle)
+        );
+    }
+
+    const ROLE_PADS: &str = r#"
+        [[agents]]
+        id = "markets"
+        name = "Markets"
+
+        [[agents]]
+        id = "analyst"
+        name = "Analyst"
+
+        [[bindings]]
+        control = "pad.32"
+        gesture = "tap"
+        action = "agent.start"
+        target = "role:markets"
+
+        [[bindings]]
+        control = "pad.32"
+        gesture = "hold"
+        action = "agent.select"
+        target = "role:markets"
+
+        [[bindings]]
+        control = "pad.33"
+        gesture = "tap"
+        action = "agent.start"
+        target = "role:analyst"
+    "#;
+
+    fn role(agent: &str, state: AgentState) -> RoleActivity {
+        RoleActivity {
+            agent: pushos_domain::ids::AgentId::new(agent),
+            workspace: None,
+            state,
+        }
+    }
+
+    fn showing_roles(config: &RuntimeConfig, roles: &[RoleActivity]) -> LedPlan {
+        plan_showing(
+            config,
+            &SurfaceContext::empty(),
+            &Showing {
+                roles,
+                ..Showing::default()
+            },
+        )
+    }
+
+    #[test]
+    fn a_role_whose_agent_is_working_or_waiting_says_so_on_its_pad() {
+        let config = config(ROLE_PADS);
+        for state in [
+            AgentState::Starting,
+            AgentState::Working,
+            AgentState::WaitingApproval,
+            AgentState::WaitingInput,
+            AgentState::Failed,
+        ] {
+            let plan = showing_roles(&config, &[role("markets", state)]);
+            assert_eq!(
+                light(&plan, pad(32)),
+                LedState::from_status(state.status_color()),
+                "{state:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_role_waiting_on_the_operator_is_a_light_that_wants_a_person() {
+        // Which is what keeps it lit, and wakes the surface, when nothing else is.
+        let config = config(ROLE_PADS);
+        let plan = showing_roles(&config, &[role("markets", AgentState::WaitingApproval)]);
+        assert!(light(&plan, pad(32)).wants_a_person());
+    }
+
+    #[test]
+    fn a_role_with_nothing_happening_glows_like_any_bound_pad() {
+        // Fifty-six roles at rest are not fifty-six colours.
+        let config = config(ROLE_PADS);
+        let bound = LedState::from_status(StatusColor::Idle);
+        for state in [
+            AgentState::Sleeping,
+            AgentState::Completed,
+            AgentState::Cancelled,
+            AgentState::Offline,
+        ] {
+            let plan = showing_roles(&config, &[role("markets", state)]);
+            assert_eq!(light(&plan, pad(32)), bound, "{state:?}");
+        }
+        let never_started = showing_roles(&config, &[]);
+        assert_eq!(light(&never_started, pad(32)), bound);
+    }
+
+    #[test]
+    fn each_role_pad_shows_its_own_role() {
+        let config = config(ROLE_PADS);
+        let plan = showing_roles(&config, &[role("analyst", AgentState::Working)]);
+        assert_eq!(
+            light(&plan, pad(33)),
+            LedState::from_status(StatusColor::Working)
+        );
+        assert_eq!(
+            light(&plan, pad(32)),
+            LedState::from_status(StatusColor::Idle),
+            "the markets pad is not the analyst's"
         );
     }
 }

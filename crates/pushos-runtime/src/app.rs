@@ -300,7 +300,7 @@ impl Runtime {
         // Created once, for the life of the process. A surface publishes into
         // the view; with none attached it holds the waiting screen.
         let (view, watching) = watch::channel(SurfaceView::waiting());
-        let (refresh, lines) = watch::channel(Vec::new());
+        let (refresh, lines) = watch::channel(crate::actors::Progress::default());
 
         let mut publisher = SessionPublisher::new(refresh);
         let mut sources: Vec<Arc<dyn pushos_api::SessionSource>> = Vec::new();
@@ -473,7 +473,7 @@ pub struct RunningRuntime {
     workspaces: Option<Arc<pushos_workspaces::WorkspaceManager>>,
     view: watch::Sender<SurfaceView>,
     watching: watch::Receiver<SurfaceView>,
-    lines: watch::Receiver<Vec<pushos_ui::SessionLine>>,
+    lines: watch::Receiver<crate::actors::Progress>,
     /// Whether the microphone is on, when voice is configured.
     listening: Option<watch::Receiver<pushos_domain::voice::Listening>>,
     power: Option<watch::Receiver<pushos_domain::rest::MachinePower>>,

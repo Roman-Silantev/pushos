@@ -101,14 +101,16 @@ pub struct InputTask {
     /// The latest list is the only one that matters, and a pipeline built for
     /// a surface that has just been plugged in needs the current one rather
     /// than a queue of everything it missed.
-    sessions: watch::Receiver<Vec<pushos_ui::SessionLine>>,
+    sessions: watch::Receiver<super::Progress>,
+    /// What each role's agent is doing, as last published.
+    roles: Vec<super::RoleActivity>,
     gestures: Vec<GestureEvent>,
     /// Whether anyone is using the surface, for a board left on all day.
     rest: RestClock,
 }
 
 /// Tells the input pipeline what the sessions are doing.
-pub(crate) type SessionRefresh = watch::Sender<Vec<pushos_ui::SessionLine>>;
+pub(crate) type SessionRefresh = watch::Sender<super::Progress>;
 
 impl std::fmt::Debug for InputTask {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -124,14 +126,14 @@ impl InputTask {
     /// The view and the session lines are given rather than created, because
     /// they outlive any one surface: a Push 2 unplugged and plugged back in
     /// gets a new pipeline, and everything it is meant to show is still there.
-    pub fn new(
+    pub(crate) fn new(
         input: Box<dyn PushInput>,
         surface_kind: SurfacePresence,
         dispatcher: Arc<ActionDispatcher>,
         config: Arc<ConfigStore>,
         bus: EventBus,
         view: watch::Sender<SurfaceView>,
-        sessions: watch::Receiver<Vec<pushos_ui::SessionLine>>,
+        sessions: watch::Receiver<super::Progress>,
     ) -> Self {
         let current = config.current();
         let surface = SurfaceState::new(Arc::clone(&current));
@@ -156,6 +158,7 @@ impl InputTask {
             bus,
             view,
             sessions,
+            roles: Vec::new(),
             gestures: Vec::with_capacity(4),
         }
     }
@@ -205,8 +208,9 @@ impl InputTask {
         // empty display until the next thing happens.
         self.follow_project();
         self.follow_listening();
-        let lines = self.sessions.borrow_and_update().clone();
-        self.surface.set_sessions(lines);
+        let progress = self.sessions.borrow_and_update().clone();
+        self.surface.set_sessions(progress.lines);
+        self.roles = progress.roles;
         self.publish();
         self.bus.publish(EventEnvelope::root(
             EventSource::Push,
@@ -253,8 +257,9 @@ impl InputTask {
                 }
 
                 () = wait_for_sessions(&mut self.sessions) => {
-                    let lines = self.sessions.borrow_and_update().clone();
-                    self.surface.set_sessions(lines);
+                    let progress = self.sessions.borrow_and_update().clone();
+                    self.surface.set_sessions(progress.lines);
+                    self.roles = progress.roles;
                     self.publish();
                 }
 
@@ -506,7 +511,7 @@ impl InputTask {
             .map(|held| held.borrow().clone())
             .unwrap_or_default();
         let from = self.bank.as_ref().map_or(0, |bank| *bank.borrow());
-        let mut view = build_view(&self.surface, &sessions, from);
+        let mut view = build_view(&self.surface, &sessions, from, &self.roles);
 
         // Looked at here because this is where every change to the lights
         // passes. Something newly asking for a person wakes the surface in the
@@ -524,6 +529,7 @@ fn build_view(
     surface: &SurfaceState,
     sessions: &[pushos_domain::attached::Attached],
     from: usize,
+    roles: &[super::RoleActivity],
 ) -> SurfaceView {
     let context = surface.context(false);
     let rest = pushos_domain::rest::Rest::Awake;
@@ -531,8 +537,11 @@ fn build_view(
         leds: Arc::new(leds::plan_showing(
             surface.config(),
             &context,
-            sessions,
-            from,
+            &leds::Showing {
+                sessions,
+                from,
+                roles,
+            },
         )),
         snapshot: Arc::new(surface.snapshot()),
         context,
@@ -558,7 +567,7 @@ async fn wait_for_project(
 /// has: the publisher was dropped because there was nothing for it to watch.
 /// Returning from that immediately, as `changed` does, would spin this loop at
 /// the speed of the processor and starve every arm below it.
-async fn wait_for_sessions(sessions: &mut watch::Receiver<Vec<pushos_ui::SessionLine>>) {
+async fn wait_for_sessions(sessions: &mut watch::Receiver<super::Progress>) {
     if sessions.changed().await.is_err() {
         std::future::pending::<()>().await;
     }

@@ -99,20 +99,30 @@ impl SessionPublisher {
     pub(crate) fn publish(&self) {
         let publisher = self.clone();
         tokio::spawn(async move {
-            let _ = publisher.refresh.send(publisher.lines().await);
+            let _ = publisher.refresh.send(publisher.progress().await);
         });
     }
 
-    /// What the display should show right now.
-    async fn lines(&self) -> Vec<SessionLine> {
+    /// What the display and the role pads should show right now.
+    async fn progress(&self) -> super::Progress {
+        let mut roles = Vec::new();
         let mut lines = Vec::new();
 
         if let Some(agents) = &self.agents {
             let sessions = agents.sessions().await;
             let selected = agents.selected().await.map(|session| session.id);
             lines.extend(super::agent_lines(&sessions, selected.as_ref()));
+            roles = super::RoleActivity::of(&sessions);
         }
 
+        super::Progress {
+            lines: self.lines(lines).await,
+            roles,
+        }
+    }
+
+    /// What the display should show right now, after the agents' own lines.
+    async fn lines(&self, mut lines: Vec<SessionLine>) -> Vec<SessionLine> {
         if let Some(terminals) = &self.terminals {
             lines.extend(super::terminal_lines(&terminals.summaries().await));
         }

@@ -16,6 +16,11 @@ row 8               left for whatever is already running here
 Tap starts a role. Hold selects it without starting it, so the encoders and the
 row under the screen act on it.
 
+A role's pad shows what its agent is doing: pulsing while it works, blinking
+amber while it waits for you, blinking red if it failed. A role with nothing
+happening glows like any other pad, so the lights that change are the ones worth
+looking at, and one waiting for you stays lit when the surface goes dark.
+
 ## The bottom row
 
 Nothing in this pack binds pads 56 to 63. That row belongs to the terminals you
