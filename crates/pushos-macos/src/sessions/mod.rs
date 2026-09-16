@@ -182,7 +182,28 @@ impl MacSessions {
             },
         };
 
-        vec![terminal, tmux, claude]
+        let codex = match self.codex.program() {
+            None => SourceReport {
+                source: CODEX,
+                usable: false,
+                detail: "not installed; its threads cannot be put on pads".to_owned(),
+            },
+            Some(program) => {
+                let threads = self.codex.threads().await;
+                SourceReport {
+                    source: CODEX,
+                    usable: true,
+                    detail: format!(
+                        "{} thread(s), {} of them loaded, using {}",
+                        threads.len(),
+                        threads.iter().filter(|thread| thread.loaded).count(),
+                        program.display()
+                    ),
+                }
+            }
+        };
+
+        vec![terminal, tmux, claude, codex]
     }
 
     /// How to reach a session, looking again if it was not in the last look.
