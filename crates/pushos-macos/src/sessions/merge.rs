@@ -33,6 +33,11 @@ pub(super) enum Route {
         /// Where it works.
         directory: std::path::PathBuf,
     },
+    /// Through the one server holding every Codex thread.
+    Thread {
+        /// What Codex calls the thread.
+        id: String,
+    },
     /// Not at all: PushOS can see it and has no way in.
     Nowhere { application: Option<String> },
 }

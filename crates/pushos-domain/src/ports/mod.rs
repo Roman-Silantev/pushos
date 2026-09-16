@@ -21,7 +21,9 @@ pub use agent::{
     AgentBackend, AgentCapabilities, AgentError, AgentEvent, AgentObserver, ApprovalId,
     ApprovalOption, SessionHandle, SessionRequest, StopReason,
 };
-pub use attached::{AttachError, AttachedSessions, Keeper, Key, OpenSession, Opened, UnknownKey};
+pub use attached::{
+    AttachError, AttachedSessions, Keeper, Key, OpenSession, Opened, UnknownKeeper, UnknownKey,
+};
 pub use clock::{Clock, SystemClock};
 pub use memory::{MemoryError, MemoryStore, NoteIndex, Source};
 pub use memory_pressure::{MemoryPressure, Pressure, RoomToSpare};

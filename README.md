@@ -450,6 +450,38 @@ Which pad holds which session is written down in `seats.json` beside the
 database, so a pad comes back to its own session after a restart rather than
 starting another.
 
+#### Which agent keeps the seat
+
+`keeper` says who holds the session when PushOS is not looking at it, and the
+three are genuinely different things:
+
+| `keeper` | What holds it | What it costs while live |
+| --- | --- | --- |
+| `terminal` | tmux, with a screen you can take over | a program, ~310 MB for an agent |
+| `claude` | Claude Code's supervisor, one process per session | ~440 MB each, 0 when put away |
+| `codex` | One Codex app server holding every thread | ~20 MB for the server and a thread in it |
+
+Codex is the one that scales. Its app server keeps many threads in a single
+process, so a seat costs tens of megabytes rather than hundreds, and the server
+unloads a thread by itself a minute after PushOS stops following it. Measured
+here: a server holding a thread is around 20 MB in total. That is what makes a
+surface where most pads are working at once affordable.
+
+```toml
+[[bindings]]
+control = "pad.57"
+gesture = "tap"
+action = "session.open"
+label = "Scraper"
+params = { name = "scraper", cwd = "~/Work/scraper", keeper = "codex", work = "make the retry logic testable" }
+```
+
+A Codex seat names its thread after the seat, so `codex resume`, the Codex
+dashboard and PushOS all call it the same thing. Opening a window onto one runs
+`codex resume <thread>`; an instruction starts a turn in it; putting it away
+tells the server to stop holding it. PushOS shows only the threads its seats
+hold, not every thread Codex remembers.
+
 ### Answering from the Push
 
 Claude Code and Codex can ask the Push before they ask you in their own window.
@@ -576,6 +608,7 @@ Everything it writes down or holds on to has a limit:
 | Agent adapter downloads | Cleared before an agent starts once they pass 768 MB; what is installed stays |
 | A recording | One minute, more than either speech engine reads |
 | Sessions an agent keeps running | 20 at once by default, fewer while macOS says memory is short |
+| Codex threads on the surface | only the ones a pad holds, listed 200 at a time |
 | Finished agents and terminals | The last few, for the display |
 
 Running, it uses about 7 MB of memory. Watching Terminal reads each tab's

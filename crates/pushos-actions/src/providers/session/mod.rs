@@ -270,17 +270,17 @@ impl SessionProvider {
         // A session in a terminal is a program running for as long as it is
         // open. One a coding agent keeps costs nothing while it is not
         // working, which is what lets every pad have one.
-        let keeper = match params.text("keeper").unwrap_or("terminal").trim() {
-            "terminal" | "tmux" => Keeper::Terminal,
-            "agent" => Keeper::Agent,
-            other => {
-                return Err(ActionError::backend(
-                    format!("`{other}` is nobody who keeps sessions; use `terminal` or `agent`"),
+        let keeper: Keeper = params
+            .text("keeper")
+            .unwrap_or("terminal")
+            .parse()
+            .map_err(|unknown: pushos_domain::ports::UnknownKeeper| {
+                ActionError::backend(
+                    unknown.to_string(),
                     ErrorClass::Validation,
                     std::io::Error::other("unknown keeper"),
-                ));
-            }
-        };
+                )
+            })?;
         let request = OpenSession {
             name: name.to_owned(),
             directory: params.text("cwd").map(PathBuf::from),

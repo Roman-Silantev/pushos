@@ -16,6 +16,7 @@
 //! again.
 
 mod claude;
+mod codex;
 mod hosts;
 mod merge;
 mod programs;
@@ -38,6 +39,7 @@ use tokio::sync::Mutex;
 use tracing::warn;
 
 use self::claude::ClaudeCode;
+use self::codex::CodexThreads;
 use self::hosts::{Hosts, Whereabouts};
 use self::merge::{Route, Seen, merge};
 use self::seats::Seats;
@@ -56,6 +58,12 @@ const KEPT_PREFIX: &str = "kept:";
 /// What a session Claude Code keeps runs in, as an operator would look for it.
 const CLAUDE_CODE: &str = "Claude Code";
 
+/// What the identifier of a Codex thread begins with.
+const THREAD_PREFIX: &str = "thread:";
+
+/// What a Codex thread runs in, as an operator would look for it.
+const CODEX: &str = "Codex";
+
 /// Every coding session on this Mac that PushOS did not start.
 #[derive(Debug)]
 pub struct MacSessions {
@@ -65,6 +73,8 @@ pub struct MacSessions {
     claude: ClaudeCode,
     /// Starts, instructs and puts away the sessions Claude Code keeps.
     supervisor: Supervisor,
+    /// The threads Codex keeps, all of them in one server.
+    codex: CodexThreads,
     /// Which of those sessions each named seat is holding.
     seats: Seats,
     hosts: Hosts,
@@ -96,6 +106,7 @@ impl MacSessions {
             tmux: Tmux::new(Arc::clone(&processes)),
             claude: ClaudeCode::new(Arc::clone(&processes)),
             supervisor: Supervisor::new(Arc::clone(&processes)),
+            codex: CodexThreads::new(),
             seats: Seats::kept_in(None),
             hosts: Hosts::new(Arc::clone(&processes)),
             processes,
@@ -221,9 +232,6 @@ impl MacSessions {
     /// be asked for again, rather than a finished piece of work nobody meant
     /// to keep on the surface.
     async fn on_seats(&self, kept: Vec<supervised::Supervised>) -> Vec<(Attached, Route)> {
-        let existing: Vec<String> = kept.iter().map(|session| session.id.clone()).collect();
-        self.seats.keep_only(&existing).await;
-
         let mut on_surface = Vec::new();
         for session in kept {
             let seat = self.seats.seat_of(&session.id).await;
@@ -252,22 +260,46 @@ impl MacSessions {
         on_surface
     }
 
+    /// The Codex threads seats hold, as sessions on the surface.
+    ///
+    /// Only the ones a seat holds. Codex remembers every thread the operator
+    /// has ever had, and a surface showing all of them would be a list of
+    /// their history rather than of their pads.
+    async fn threads_on_seats(&self, threads: Vec<codex::Thread>) -> Vec<(Attached, Route)> {
+        let mut on_surface = Vec::new();
+        for thread in threads {
+            let Some(seat) = self.seats.seat_of(&thread.id).await else {
+                continue;
+            };
+            on_surface.push((
+                Attached::new(
+                    format!("{THREAD_PREFIX}{}", thread.id),
+                    thread.name,
+                    thread.activity,
+                    CODEX,
+                )
+                .dispatched()
+                .named(seat),
+                Route::Thread { id: thread.id },
+            ));
+        }
+        on_surface
+    }
+
     /// Finds the session a seat holds, or starts one for it.
     ///
     /// Finding rather than starting another, so one pad both starts a worker
     /// and comes back to it however many times it is pressed. One that was put
     /// away is found too: it is started again by being spoken to or opened.
     async fn take_a_seat(&self, request: &OpenSession) -> Result<Opened, AttachError> {
+        let codex = request.keeper == Keeper::CodexThreads;
+        let prefix = if codex { THREAD_PREFIX } else { KEPT_PREFIX };
+
         if let Some(held) = self.seats.holding(&request.name).await
-            && self
-                .claude
-                .kept()
-                .await
-                .iter()
-                .any(|session| session.id == held)
+            && self.still_there(&held, codex).await
         {
             return Ok(Opened {
-                id: AttachedId::new(format!("{KEPT_PREFIX}{held}")),
+                id: AttachedId::new(format!("{prefix}{held}")),
                 started: false,
             });
         }
@@ -286,12 +318,33 @@ impl MacSessions {
                 .unwrap_or_default(),
         };
 
-        let id = self.supervisor.start(&directory, work).await?;
+        let id = if codex {
+            self.codex.start(&directory, &request.name, work).await?
+        } else {
+            self.supervisor.start(&directory, work).await?
+        };
         self.seats.took(&request.name, &id).await;
         Ok(Opened {
-            id: AttachedId::new(format!("{KEPT_PREFIX}{id}")),
+            id: AttachedId::new(format!("{prefix}{id}")),
             started: true,
         })
+    }
+
+    /// Whether what a seat holds is still something its keeper knows about.
+    async fn still_there(&self, held: &str, codex: bool) -> bool {
+        if codex {
+            self.codex
+                .threads()
+                .await
+                .iter()
+                .any(|thread| thread.id == held)
+        } else {
+            self.claude
+                .kept()
+                .await
+                .iter()
+                .any(|session| session.id == held)
+        }
     }
 
     fn unreachable(session: &AttachedId, application: Option<&String>) -> AttachError {
@@ -305,11 +358,12 @@ impl MacSessions {
 #[async_trait]
 impl AttachedSessions for MacSessions {
     async fn discover(&self) -> Result<Vec<Attached>, AttachError> {
-        let (tabs, layout, claude, kept) = tokio::join!(
+        let (tabs, layout, claude, kept, threads) = tokio::join!(
             self.terminal.tabs(),
             self.tmux.look(),
             self.claude.sessions(),
-            self.claude.kept()
+            self.claude.kept(),
+            self.codex.threads()
         );
 
         // Each source on its own terms: Terminal refusing permission, or tmux
@@ -338,7 +392,16 @@ impl AttachedSessions for MacSessions {
             claude,
             whereabouts,
         });
+        // One book holds both kinds, so what still exists is worked out over
+        // both before anything is dropped from it.
+        let existing: Vec<String> = kept
+            .iter()
+            .map(|session| session.id.clone())
+            .chain(threads.iter().map(|thread| thread.id.clone()))
+            .collect();
+        self.seats.keep_only(&existing).await;
         merged.extend(self.on_seats(kept).await);
+        merged.extend(self.threads_on_seats(threads).await);
 
         // Terminal refusing is still worth an error when it leaves nothing to
         // show, because that is the one an operator can fix.
@@ -363,6 +426,7 @@ impl AttachedSessions for MacSessions {
             Route::Tab(device) => self.terminal.read(&device, most).await,
             Route::Pane { pane, .. } => self.tmux.read(&pane, most).await,
             Route::Kept { id, .. } => self.supervisor.read(&id, most).await,
+            Route::Thread { id } => self.codex.read(&id, most).await,
             Route::Nowhere { application } => Err(Self::unreachable(session, application.as_ref())),
         }
     }
@@ -382,6 +446,7 @@ impl AttachedSessions for MacSessions {
                     .instruct(&conversation, &directory, text)
                     .await
             }
+            Route::Thread { id } => self.codex.instruct(&id, text).await,
             Route::Nowhere { application } => Err(Self::unreachable(session, application.as_ref())),
         }
     }
@@ -391,7 +456,7 @@ impl AttachedSessions for MacSessions {
             Route::Tab(device) => self.terminal.press(&device, key).await,
             Route::Pane { pane, .. } => self.tmux.press(&pane, key).await,
             // There is no screen to press a key at: it takes instructions.
-            Route::Kept { .. } => Err(AttachError::unavailable(
+            Route::Kept { .. } | Route::Thread { .. } => Err(AttachError::unavailable(
                 "this session has no screen to press a key in; send it an instruction instead",
             )),
             Route::Nowhere { application } => Err(Self::unreachable(session, application.as_ref())),
@@ -439,6 +504,12 @@ impl AttachedSessions for MacSessions {
                 })?;
                 self.terminal.open_window(&command).await
             }
+            Route::Thread { id } => {
+                let command = self.codex.attach_command(&id).ok_or_else(|| {
+                    AttachError::unavailable("Codex is not installed, so it keeps no threads")
+                })?;
+                self.terminal.open_window(&command).await
+            }
             // Nothing to type into, but the operator can still be taken to it.
             Route::Nowhere {
                 application: Some(application),
@@ -450,7 +521,7 @@ impl AttachedSessions for MacSessions {
     async fn open(&self, request: &OpenSession) -> Result<Opened, AttachError> {
         let opened = match request.keeper {
             Keeper::Terminal => self.tmux.open(request).await?,
-            Keeper::Agent => self.take_a_seat(request).await?,
+            Keeper::ClaudeCode | Keeper::CodexThreads => self.take_a_seat(request).await?,
         };
         // Looked at again at once, so the session just started can be reached
         // by the action that asked for it without waiting for the next look.
@@ -459,13 +530,19 @@ impl AttachedSessions for MacSessions {
     }
 
     async fn put_away(&self, session: &AttachedId) -> Result<bool, AttachError> {
-        let Route::Kept { id, .. } = self.route(session).await? else {
+        match self.route(session).await? {
+            Route::Kept { id, .. } => {
+                self.supervisor.put_away(&id).await?;
+                Ok(true)
+            }
+            Route::Thread { id } => {
+                self.codex.put_away(&id).await?;
+                Ok(true)
+            }
             // A session in a terminal is a program somebody is looking at, and
             // stopping it would be closing their window.
-            return Ok(false);
-        };
-        self.supervisor.put_away(&id).await?;
-        Ok(true)
+            _ => Ok(false),
+        }
     }
 
     fn describe(&self) -> &'static str {

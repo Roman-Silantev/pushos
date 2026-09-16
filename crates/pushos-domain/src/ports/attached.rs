@@ -94,16 +94,63 @@ pub struct OpenSession {
 }
 
 /// Who keeps a session running when PushOS is not looking at it.
+///
+/// This is the difference between a pad that costs a program and a pad that
+/// costs nothing until it is used, so it is named rather than guessed.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Keeper {
     /// A terminal multiplexer, which keeps a screen the operator can take over
     /// at any time. Every session kept this way is a program running.
     #[default]
     Terminal,
-    /// The coding agent itself, which keeps the conversation and needs a
-    /// process only while it is working. One put away costs nothing until it
-    /// is asked for again.
-    Agent,
+    /// Claude Code's own supervisor: one process per session while it runs,
+    /// and none at all once it is put away, with the conversation kept.
+    ClaudeCode,
+    /// Codex's app server: one process for every thread it holds, which is
+    /// what makes dozens of them affordable. A thread that nobody is using is
+    /// unloaded by the server itself.
+    CodexThreads,
+}
+
+impl Keeper {
+    /// How it is written in configuration.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Terminal => "terminal",
+            Self::ClaudeCode => "claude",
+            Self::CodexThreads => "codex",
+        }
+    }
+
+    /// Whether the session's memory is given back when it is put away.
+    pub const fn puts_sessions_away(self) -> bool {
+        matches!(self, Self::ClaudeCode | Self::CodexThreads)
+    }
+}
+
+impl std::str::FromStr for Keeper {
+    type Err = UnknownKeeper;
+
+    fn from_str(written: &str) -> Result<Self, Self::Err> {
+        match written.trim() {
+            "terminal" | "tmux" => Ok(Self::Terminal),
+            // `agent` is what this was called when Claude Code was the only
+            // one, and still means it.
+            "claude" | "agent" => Ok(Self::ClaudeCode),
+            "codex" => Ok(Self::CodexThreads),
+            other => Err(UnknownKeeper {
+                written: other.to_owned(),
+            }),
+        }
+    }
+}
+
+/// Nobody keeps sessions by that name.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("`{written}` is nobody who keeps sessions; use `terminal`, `claude` or `codex`")]
+pub struct UnknownKeeper {
+    /// What was written.
+    pub written: String,
 }
 
 /// A session that was asked for.
