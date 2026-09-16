@@ -520,6 +520,7 @@ mod tests {
         let opened = tmux
             .open(&OpenSession {
                 name: "client-1".to_owned(),
+                keeper: pushos_domain::ports::Keeper::Terminal,
                 directory: None,
                 command: Some("claude".to_owned()),
             })
@@ -552,6 +553,7 @@ mod tests {
         let opened = tmux
             .open(&OpenSession {
                 name: "client-1".to_owned(),
+                keeper: pushos_domain::ports::Keeper::Terminal,
                 directory: Some(PathBuf::from("/work/client")),
                 command: Some("claude".to_owned()),
             })
@@ -589,6 +591,7 @@ mod tests {
             let refused = tmux
                 .open(&OpenSession {
                     name: bad.to_owned(),
+                    keeper: pushos_domain::ports::Keeper::Terminal,
                     directory: None,
                     command: None,
                 })
@@ -625,6 +628,7 @@ mod tests {
         }
         let request = OpenSession {
             name: "worker".to_owned(),
+            keeper: pushos_domain::ports::Keeper::Terminal,
             directory: Some(std::env::temp_dir()),
             command: Some("printf 'ready-%s\\n' pushos".to_owned()),
         };

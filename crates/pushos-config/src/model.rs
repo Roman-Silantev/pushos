@@ -148,6 +148,54 @@ impl RuntimeSection {
     }
 }
 
+/// How many sessions may run at once, and how long an idle one may stay.
+///
+/// What a pad holds is a session, not a process: the process is what costs
+/// memory, and a coding agent will give it back and start it again where it
+/// left off. These are the two numbers that decide when it does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SeatLimits {
+    /// The most that may be running at once. `None` for no limit.
+    pub most_live: Option<usize>,
+    /// How long one may sit idle before it is put away. `None` to leave idle
+    /// sessions alone.
+    pub put_away_after: Option<std::time::Duration>,
+}
+
+impl SeatLimits {
+    /// Twenty running at once, and twenty minutes of sitting idle.
+    ///
+    /// Twenty running is around six gigabytes on the machine this was measured
+    /// on, which leaves a sixteen-gigabyte Mac room to work.
+    pub const DEFAULT: Self = Self {
+        most_live: Some(20),
+        put_away_after: Some(std::time::Duration::from_mins(20)),
+    };
+}
+
+impl Default for SeatLimits {
+    fn default() -> Self {
+        Self::DEFAULT
+    }
+}
+
+impl From<&SessionSection> for SeatLimits {
+    fn from(section: &SessionSection) -> Self {
+        Self {
+            // Nought means no limit, which is a thing to ask for; absent means
+            // the default, which is not the same.
+            most_live: section
+                .most_live
+                .map_or(Self::DEFAULT.most_live, |most| (most > 0).then_some(most)),
+            put_away_after: section
+                .put_away_after_minutes
+                .map_or(Self::DEFAULT.put_away_after, |minutes| {
+                    (minutes > 0).then(|| std::time::Duration::from_secs(minutes * 60))
+                }),
+        }
+    }
+}
+
 /// The terminals the operator already had open.
 ///
 /// Off unless switched on. PushOS asks another application what is open, which
@@ -165,6 +213,23 @@ pub struct SessionSection {
     /// faster than an operator opens windows and slower than the display is
     /// redrawn.
     pub poll_ms: Option<u64>,
+    /// How many sessions a coding agent keeps may be running at once.
+    ///
+    /// Every running session holds its memory whether or not it is working:
+    /// measured on an M4, between a sixth and half a gigabyte each. Beyond
+    /// this many, the ones sitting idle longest are put away, which frees all
+    /// of it and keeps their conversations; an instruction or a window starts
+    /// one again where it left off. Nothing working, and nothing waiting on
+    /// the operator, is ever put away.
+    ///
+    /// Defaults to twenty. `0` means no limit, for a Mac with memory to spare.
+    pub most_live: Option<usize>,
+    /// How long a session may sit idle before it is put away, in minutes.
+    ///
+    /// Under the limit as well as over it: a pad nobody has used since this
+    /// morning need not hold half a gigabyte. Defaults to twenty minutes; `0`
+    /// keeps idle sessions running until the limit says otherwise.
+    pub put_away_after_minutes: Option<u64>,
 }
 
 impl SessionSection {
@@ -172,6 +237,12 @@ impl SessionSection {
         self.watch |= other.watch;
         if other.poll_ms.is_some() {
             self.poll_ms = other.poll_ms;
+        }
+        if other.most_live.is_some() {
+            self.most_live = other.most_live;
+        }
+        if other.put_away_after_minutes.is_some() {
+            self.put_away_after_minutes = other.put_away_after_minutes;
         }
     }
 }

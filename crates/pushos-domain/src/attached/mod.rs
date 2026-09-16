@@ -61,6 +61,14 @@ pub enum Reach {
     /// A session whose host offers no way in from outside, such as a coding
     /// agent in an editor's panel.
     Watching,
+    /// Give it an instruction, put it away, and open a window onto it.
+    ///
+    /// A session a coding agent keeps for PushOS without a terminal of its
+    /// own. There is no screen to type at, so keys mean nothing to it, but it
+    /// takes whole instructions, it can be put away to free the memory its
+    /// process holds, and a window can be opened onto it when the operator
+    /// wants to take over.
+    Dispatching,
 }
 
 impl Attached {
@@ -95,6 +103,23 @@ impl Attached {
         self
     }
 
+    /// The same session, kept for PushOS by an agent rather than a terminal.
+    #[must_use]
+    pub const fn dispatched(mut self) -> Self {
+        self.reach = Reach::Dispatching;
+        self
+    }
+
+    /// Whether it takes an instruction, whether or not it is running now.
+    pub const fn takes_instructions(&self) -> bool {
+        matches!(self.reach, Reach::Typing | Reach::Dispatching)
+    }
+
+    /// Whether its process can be stopped and its conversation kept.
+    pub const fn can_be_put_away(&self) -> bool {
+        matches!(self.reach, Reach::Dispatching)
+    }
+
     /// Whether PushOS can type into it.
     pub const fn can_type(&self) -> bool {
         matches!(self.reach, Reach::Typing)
@@ -126,7 +151,9 @@ impl Attached {
     /// which terminal it is on.
     pub fn detail(&self) -> &str {
         match (self.reach, &self.name) {
-            (Reach::Watching, _) => &self.host,
+            // Neither has a terminal of its own to name: where to go to reach
+            // it is the useful thing to say.
+            (Reach::Watching | Reach::Dispatching, _) => &self.host,
             (Reach::Typing, Some(name)) => {
                 let words = self.title_words();
                 if words.is_empty() || words == name {

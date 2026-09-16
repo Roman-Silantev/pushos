@@ -26,6 +26,8 @@ pub enum SessionCall {
     Focused(String),
     /// A session was asked for by name.
     Opened(OpenSession),
+    /// A session was put away, keeping its conversation.
+    PutAway(String),
 }
 
 /// Terminals that exist only in memory.
@@ -153,6 +155,16 @@ impl AttachedSessions for FakeAttached {
         Ok(self.open.lock().map_or_default(|open| open.clone()))
     }
 
+    async fn put_away(&self, session: &AttachedId) -> Result<bool, AttachError> {
+        self.check()?;
+        self.record(SessionCall::PutAway(session.to_string()));
+        let found = self
+            .open
+            .lock()
+            .map_or_default(|open| open.iter().find(|held| &held.id == session).cloned());
+        Ok(found.is_some_and(|held| held.can_be_put_away()))
+    }
+
     async fn read(&self, session: &AttachedId, _most: usize) -> Result<String, AttachError> {
         self.check()?;
         self.reachable(session)?;
@@ -246,6 +258,7 @@ mod tests {
         let fake = FakeAttached::new();
         let request = OpenSession {
             name: "client-1".to_owned(),
+            keeper: pushos_domain::ports::Keeper::Terminal,
             directory: None,
             command: Some("claude".to_owned()),
         };

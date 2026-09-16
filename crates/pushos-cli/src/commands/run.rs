@@ -203,6 +203,12 @@ fn build_runtime(
         runtime = runtime.with_workflows(Arc::clone(engine), run_updates);
     }
 
+    // So the number of sessions left running follows what the Mac can
+    // actually spare, not only what the configuration asked for.
+    runtime = runtime.with_memory_pressure(Arc::new(pushos_macos::MacMemoryPressure::new(
+        Arc::new(pushos_macos::SystemProcessRunner::new()),
+    )));
+
     // Push to talk. Built before the providers, because one of them is the
     // namespace that holds it, and after the rest, because what it hears is
     // carried out through the same dispatcher a finger uses.

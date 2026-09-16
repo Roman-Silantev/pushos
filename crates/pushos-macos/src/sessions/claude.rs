@@ -25,6 +25,7 @@ use tokio::time::Instant;
 use tracing::{debug, warn};
 
 use super::programs;
+use super::supervised::{self, Supervised};
 
 /// How long an unchanged answer is believed for.
 ///
@@ -48,12 +49,26 @@ pub(super) struct ClaudeSession {
     pub(super) activity: Activity,
 }
 
+/// Everything Claude Code said in one look.
+#[derive(Clone, Debug, Default)]
+pub(super) struct Look {
+    /// Sessions running in a terminal somewhere.
+    pub(super) interactive: Vec<ClaudeSession>,
+    /// Sessions Claude Code keeps itself, running or put away.
+    pub(super) kept: Vec<Supervised>,
+}
+
 /// Asks Claude Code about its sessions, and remembers the answer.
 #[derive(Debug)]
 pub(super) struct ClaudeCode {
     processes: Arc<dyn ProcessRunner>,
     /// Where Claude Code keeps a file for each running session.
     registry: Option<PathBuf>,
+    /// Where it writes down the sessions it is keeping itself, and what each
+    /// of them is doing. Looked at, never read: what they hold is Claude
+    /// Code's business, and their names and times are enough to tell that
+    /// something has changed.
+    kept: Vec<PathBuf>,
     /// Where Claude Code is, when that is already known. Looked for otherwise.
     program: Option<PathBuf>,
     remembered: Mutex<Remembered>,
@@ -63,9 +78,9 @@ pub(super) struct ClaudeCode {
 
 #[derive(Debug, Default)]
 struct Remembered {
-    /// The registry as it looked when the answer was given.
-    registry: Option<Vec<(String, SystemTime)>>,
-    sessions: Vec<ClaudeSession>,
+    /// The files as they looked when the answer was given.
+    files: Option<Vec<(String, SystemTime)>>,
+    look: Look,
     asked: Option<Instant>,
 }
 
@@ -75,6 +90,7 @@ impl ClaudeCode {
         Self {
             processes,
             registry: registry_directory(),
+            kept: kept_paths(),
             program: None,
             remembered: Mutex::new(Remembered::default()),
             complained: AtomicBool::new(false),
@@ -87,6 +103,7 @@ impl ClaudeCode {
         Self {
             program: Some(PathBuf::from(program)),
             registry: Some(registry.to_owned()),
+            kept: Vec::new(),
             ..Self::new(processes)
         }
     }
@@ -101,46 +118,65 @@ impl ClaudeCode {
     /// Never a failure: a Mac without Claude Code, or one where asking went
     /// wrong, simply has no sessions to add to what the terminals show.
     pub(super) async fn sessions(&self) -> Vec<ClaudeSession> {
-        let mut remembered = self.remembered.lock().await;
-        let registry = match &self.registry {
-            Some(directory) => snapshot(directory).await,
-            None => Vec::new(),
-        };
+        self.look().await.interactive
+    }
 
-        let unchanged = remembered.registry.as_ref() == Some(&registry)
+    /// Every session Claude Code is keeping for PushOS, running or put away.
+    pub(super) async fn kept(&self) -> Vec<Supervised> {
+        self.look().await.kept
+    }
+
+    /// What Claude Code last said, asking again only when something changed.
+    async fn look(&self) -> Look {
+        let mut remembered = self.remembered.lock().await;
+        let files = self.files().await;
+
+        let unchanged = remembered.files.as_ref() == Some(&files)
             && remembered
                 .asked
                 .is_some_and(|asked| asked.elapsed() < RECONCILE);
         if unchanged {
-            return remembered.sessions.clone();
+            return remembered.look.clone();
         }
 
         match self.ask().await {
-            Ok(sessions) => {
+            Ok(look) => {
                 self.complained.store(false, Ordering::Relaxed);
-                remembered.sessions = sessions;
+                remembered.look = look;
             }
             Err(reason) => {
                 if !self.complained.swap(true, Ordering::Relaxed) {
                     warn!(%reason, "cannot ask Claude Code what its sessions are doing");
                 }
-                remembered.sessions.clear();
+                remembered.look = Look::default();
             }
         }
-        remembered.registry = Some(registry);
+        remembered.files = Some(files);
         remembered.asked = Some(Instant::now());
-        remembered.sessions.clone()
+        remembered.look.clone()
     }
 
-    async fn ask(&self) -> Result<Vec<ClaudeSession>, String> {
+    /// The names and times of every file that changes when a session does.
+    async fn files(&self) -> Vec<(String, SystemTime)> {
+        let mut seen = Vec::new();
+        for directory in self.registry.iter().chain(self.kept.iter()) {
+            seen.extend(snapshot(directory).await);
+        }
+        seen.sort();
+        seen
+    }
+
+    async fn ask(&self) -> Result<Look, String> {
         let Some(program) = self.program() else {
             // Not installed is not worth a warning on every Mac without it.
             self.complained.store(true, Ordering::Relaxed);
-            return Ok(Vec::new());
+            return Ok(Look::default());
         };
+        // `--all` so a session that was put away is still listed: it costs
+        // nothing, it keeps its conversation, and its pad still stands for it.
         let spec = ProcessSpec::new(
             program.to_string_lossy(),
-            ["agents".to_owned(), "--json".to_owned()],
+            ["agents".to_owned(), "--json".to_owned(), "--all".to_owned()],
         )
         .within(PATIENCE)
         .capturing(1024 * 1024);
@@ -153,13 +189,28 @@ impl ClaudeCode {
         if !outcome.succeeded() {
             return Err(outcome.stderr_tail.trim().to_owned());
         }
-        let sessions = parse(&outcome.stdout_tail)?;
+        let look = parse(&outcome.stdout_tail)?;
         debug!(
-            sessions = sessions.len(),
+            sessions = look.interactive.len(),
+            kept = look.kept.len(),
             "Claude Code described its sessions"
         );
-        Ok(sessions)
+        Ok(look)
     }
+}
+
+/// Where Claude Code writes down what the sessions it keeps are doing.
+///
+/// One directory per session, and a roster of the ones running. Both are
+/// inside its configuration directory, beside the registry.
+fn kept_paths() -> Vec<PathBuf> {
+    let Some(sessions) = registry_directory() else {
+        return Vec::new();
+    };
+    let Some(configuration) = sessions.parent() else {
+        return Vec::new();
+    };
+    vec![configuration.join("jobs"), configuration.join("daemon")]
 }
 
 /// Where Claude Code keeps its per-session files: in its configuration
@@ -200,6 +251,8 @@ async fn snapshot(directory: &Path) -> Vec<(String, SystemTime)> {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct Listed {
+    kind: Option<String>,
+    cwd: Option<String>,
     pid: Option<u32>,
     session_id: Option<String>,
     id: Option<String>,
@@ -208,26 +261,53 @@ struct Listed {
     state: Option<String>,
 }
 
-/// Reads what `claude agents --json` printed.
-fn parse(text: &str) -> Result<Vec<ClaudeSession>, String> {
+/// Reads what `claude agents --json --all` printed.
+///
+/// The two kinds are different things to a pad and are kept apart here: one
+/// runs in somebody's terminal and can only be watched and typed at, the other
+/// Claude Code keeps for PushOS and can be put away and asked for again.
+fn parse(text: &str) -> Result<Look, String> {
     let listed: Vec<Listed> = serde_json::from_str(text)
         .map_err(|error| format!("Claude Code's session list did not parse: {error}"))?;
 
-    Ok(listed
-        .into_iter()
-        .filter_map(|entry| {
-            // Only a session whose process is alive has somewhere to be.
-            let pid = entry.pid?;
-            let activity = activity(entry.status.as_deref(), entry.state.as_deref())?;
-            let id = entry.session_id.or(entry.id)?;
-            Some(ClaudeSession {
-                pid,
-                name: entry.name.unwrap_or_else(|| id.clone()),
-                id,
-                activity,
-            })
-        })
-        .collect())
+    let mut look = Look::default();
+    for entry in listed {
+        if entry.kind.as_deref() == Some("background") {
+            if let Some(kept) = supervised_from(entry) {
+                look.kept.push(kept);
+            }
+            continue;
+        }
+        // Only a session whose process is alive has somewhere to be.
+        let Some(pid) = entry.pid else { continue };
+        let Some(activity) = activity(entry.status.as_deref(), entry.state.as_deref()) else {
+            continue;
+        };
+        let Some(id) = entry.session_id.or(entry.id) else {
+            continue;
+        };
+        look.interactive.push(ClaudeSession {
+            pid,
+            name: entry.name.unwrap_or_else(|| id.clone()),
+            id,
+            activity,
+        });
+    }
+    Ok(look)
+}
+
+/// One listed session Claude Code is keeping.
+fn supervised_from(entry: Listed) -> Option<Supervised> {
+    let id = entry.id?;
+    let running = entry.pid.is_some();
+    Some(Supervised {
+        activity: supervised::activity_of(entry.state.as_deref(), running),
+        name: entry.name.unwrap_or_else(|| id.clone()),
+        session: entry.session_id.unwrap_or_else(|| id.clone()),
+        directory: entry.cwd.map(PathBuf::from).unwrap_or_default(),
+        id,
+        running,
+    })
 }
 
 /// What a session's reported status means for a pad.
@@ -261,9 +341,10 @@ mod tests {
     ]"#;
 
     #[test]
-    fn the_list_becomes_the_sessions_that_are_running() {
-        let sessions = parse(LISTED).expect("parses");
-        let described: Vec<(u32, &str, Activity)> = sessions
+    fn the_list_becomes_the_sessions_running_in_somebody_s_terminal() {
+        let look = parse(LISTED).expect("parses");
+        let described: Vec<(u32, &str, Activity)> = look
+            .interactive
             .iter()
             .map(|session| (session.pid, session.name.as_str(), session.activity))
             .collect();
@@ -274,9 +355,27 @@ mod tests {
                 (1622, "one-b5", Activity::Ready),
                 (1929, "two-0a", Activity::Working),
                 (61989, "three-95", Activity::NeedsDecision),
-                (7001, "bg2", Activity::NeedsDecision),
             ],
-            "a finished background session is not running"
+            "a session Claude Code keeps is not one of these"
+        );
+    }
+
+    #[test]
+    fn the_sessions_claude_code_keeps_come_back_whether_or_not_they_are_running() {
+        let look = parse(LISTED).expect("parses");
+        let described: Vec<(&str, bool, Activity)> = look
+            .kept
+            .iter()
+            .map(|kept| (kept.id.as_str(), kept.running, kept.activity))
+            .collect();
+
+        assert_eq!(
+            described,
+            [
+                ("bg1", false, Activity::Quiet),
+                ("bg2", true, Activity::NeedsDecision),
+            ],
+            "one put away still belongs on a pad, and costs nothing"
         );
     }
 
@@ -307,7 +406,7 @@ mod tests {
         processes.reply_with(|_| FakeProcesses::printed(LISTED));
         let claude = ClaudeCode::at(Arc::new(processes.clone()), "/bin/claude", &directory);
 
-        assert_eq!(claude.sessions().await.len(), 4);
+        assert_eq!(claude.sessions().await.len(), 3);
         claude.sessions().await;
         claude.sessions().await;
         assert_eq!(
@@ -349,7 +448,7 @@ mod tests {
 
         let spawned = processes.spawned();
         assert_eq!(spawned[0].program, "/bin/claude");
-        assert_eq!(spawned[0].args, ["agents", "--json"]);
+        assert_eq!(spawned[0].args, ["agents", "--json", "--all"]);
         std::fs::remove_dir_all(directory).ok();
     }
 }

@@ -78,7 +78,7 @@ pub(crate) async fn install(
     };
     let plist = app::agent_plist_path(&home);
     write_atomically(&plist, &agent.plist())?;
-    launchctl(&["bootstrap", &domain()?, &plist.to_string_lossy()])?;
+    bootstrap(&plist)?;
 
     let started = wait_until_answering().await;
 
@@ -281,8 +281,49 @@ fn stop() -> Result<(), String> {
     if !is_loaded()? {
         return Ok(());
     }
-    launchctl(&["bootout", &format!("{}/{AGENT_LABEL}", domain()?)])
+    launchctl(&["bootout", &format!("{}/{AGENT_LABEL}", domain()?)])?;
+
+    // `bootout` returns before launchd has finished taking the service down,
+    // and registering one that is still going fails saying only "Input/output
+    // error". So this waits for it to be gone rather than leaving the next
+    // step to fail for a reason nobody could act on.
+    for _ in 0..GOING_LOOKS {
+        if !is_loaded()? {
+            return Ok(());
+        }
+        std::thread::sleep(GOING_PAUSE);
+    }
+    Ok(())
 }
+
+/// How many times to look for the old service to have gone.
+const GOING_LOOKS: usize = 20;
+
+/// How long between those looks: a second in all, where it normally goes at
+/// once.
+const GOING_PAUSE: Duration = Duration::from_millis(50);
+
+/// Registers the login agent, waiting out a `launchd` that is still busy.
+///
+/// Taking the old one down and putting the new one up are not as separate as
+/// they look: for a moment `launchd` knows about both, and says so with an
+/// error that names no cause.
+fn bootstrap(plist: &Path) -> Result<(), String> {
+    let mut last = String::new();
+    for attempt in 0..BOOTSTRAP_TRIES {
+        match launchctl(&["bootstrap", &domain()?, &plist.to_string_lossy()]) {
+            Ok(()) => return Ok(()),
+            Err(why) => last = why,
+        }
+        if attempt + 1 < BOOTSTRAP_TRIES {
+            std::thread::sleep(GOING_PAUSE * 4);
+        }
+    }
+    Err(last)
+}
+
+/// How many times registering is attempted before the error is the answer.
+const BOOTSTRAP_TRIES: usize = 4;
 
 /// Whether the login agent is registered with `launchd`.
 fn is_loaded() -> Result<bool, String> {

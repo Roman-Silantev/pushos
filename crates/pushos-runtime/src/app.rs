@@ -40,6 +40,8 @@ pub struct Runtime {
     workspaces: Option<Arc<pushos_workspaces::WorkspaceManager>>,
     workflows: Option<WorkflowWiring>,
     voice: Option<Arc<pushos_actions::providers::voice::VoiceProvider>>,
+    /// What the Mac says about its memory, when anything can ask it.
+    pressure: Option<Arc<dyn pushos_domain::ports::MemoryPressure>>,
     memory: Option<Arc<pushos_actions::providers::memory::MemoryProvider>>,
     sequences: Option<Arc<pushos_actions::providers::sequence::SequenceProvider>>,
     attached: Option<Arc<pushos_actions::providers::session::SessionProvider>>,
@@ -93,6 +95,7 @@ impl Runtime {
             workspaces: None,
             workflows: None,
             voice: None,
+            pressure: None,
             memory: None,
             sequences: None,
             attached: None,
@@ -174,6 +177,19 @@ impl Runtime {
         provider: Arc<pushos_actions::providers::voice::VoiceProvider>,
     ) -> Self {
         self.voice = Some(provider);
+        self
+    }
+
+    /// Lets PushOS ask the machine how it is doing for memory.
+    ///
+    /// Optional: without it, how many sessions may run at once is whatever the
+    /// configuration says, and nothing tightens that when the Mac is short.
+    #[must_use]
+    pub fn with_memory_pressure(
+        mut self,
+        pressure: Arc<dyn pushos_domain::ports::MemoryPressure>,
+    ) -> Self {
+        self.pressure = Some(pressure);
         self
     }
 
@@ -338,6 +354,23 @@ impl Runtime {
             let task = task
                 .every(self.config.current().session_poll)
                 .minding(watching.clone());
+
+            // A session a coding agent keeps holds its memory only while it is
+            // running, so how many run at once is PushOS's to decide. Without
+            // anything that can say how the Mac is doing for memory, the
+            // number the operator asked for is all there is to go on.
+            let keeping = crate::actors::SeatsTask::new(
+                provider.watcher(),
+                self.pressure
+                    .clone()
+                    .unwrap_or_else(|| Arc::new(pushos_domain::ports::RoomToSpare) as Arc<_>),
+                found.clone(),
+                {
+                    let limits = Arc::clone(&self.config);
+                    move || limits.current().seats
+                },
+            );
+            shutdown.spawn(keeping.run(shutdown.clone()));
             publisher = publisher.with_attached(found.clone(), provider.watch(), provider.banked());
             watched_sessions = Some(found.clone());
             watched_bank = Some(provider.banked());

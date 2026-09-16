@@ -54,6 +54,9 @@ pub struct RuntimeConfig {
     pub watch_sessions: bool,
     /// How often to ask what is open.
     pub session_poll: std::time::Duration,
+    /// How many sessions a coding agent keeps may run at once, and how long
+    /// one may sit idle before it is put away.
+    pub seats: crate::model::SeatLimits,
     /// Where agents work when a role does not name a workspace.
     pub workspace_root: Option<std::path::PathBuf>,
     /// The program a terminal runs when a binding does not name one.
@@ -122,6 +125,7 @@ impl RuntimeConfig {
                 .sessions
                 .poll_ms
                 .map_or(DEFAULT_SESSION_POLL, Duration::from_millis),
+            seats: crate::model::SeatLimits::from(&file.sessions),
             workspace_root: file
                 .runtime
                 .workspace_root
@@ -149,6 +153,7 @@ impl RuntimeConfig {
             voice: None,
             memory: None,
             watch_sessions: false,
+            seats: crate::model::SeatLimits::DEFAULT,
             session_poll: DEFAULT_SESSION_POLL,
             workspace_root: None,
             shell: None,

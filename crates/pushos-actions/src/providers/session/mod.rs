@@ -25,7 +25,7 @@ use pushos_domain::error::{ActionError, ErrorClass};
 use pushos_domain::ids::{ActionVerb, AttachedId, ProviderName};
 use pushos_domain::permissions::Permission;
 use pushos_domain::ports::{
-    ActionProvider, AttachError, AttachedSessions, Key, OpenSession, ProviderCapabilities,
+    ActionProvider, AttachError, AttachedSessions, Keeper, Key, OpenSession, ProviderCapabilities,
 };
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -267,10 +267,30 @@ impl SessionProvider {
                 std::io::Error::other("unusable session name"),
             ));
         }
+        // A session in a terminal is a program running for as long as it is
+        // open. One a coding agent keeps costs nothing while it is not
+        // working, which is what lets every pad have one.
+        let keeper = match params.text("keeper").unwrap_or("terminal").trim() {
+            "terminal" | "tmux" => Keeper::Terminal,
+            "agent" => Keeper::Agent,
+            other => {
+                return Err(ActionError::backend(
+                    format!("`{other}` is nobody who keeps sessions; use `terminal` or `agent`"),
+                    ErrorClass::Validation,
+                    std::io::Error::other("unknown keeper"),
+                ));
+            }
+        };
         let request = OpenSession {
             name: name.to_owned(),
             directory: params.text("cwd").map(PathBuf::from),
-            command: params.text("command").map(ToOwned::to_owned),
+            keeper,
+            // What to run, for a session in a terminal; what to work on, for
+            // one a coding agent keeps.
+            command: params
+                .text("command")
+                .or_else(|| params.text("work"))
+                .map(ToOwned::to_owned),
         };
 
         let opened = self
@@ -500,6 +520,7 @@ impl ActionProvider for SessionProvider {
                 "press",
                 "interrupt",
                 "open",
+                "put_away",
                 "approve",
                 "deny",
             ]
@@ -513,6 +534,9 @@ impl ActionProvider for SessionProvider {
         .verb_requiring(ActionVerb::new("interrupt"), [Permission::ShellExecute])
         // Starting a session types its command into a shell.
         .verb_requiring(ActionVerb::new("open"), [Permission::ShellExecute])
+        // Putting one away ends the program running it, which is as much of a
+        // decision as starting it was.
+        .verb_requiring(ActionVerb::new("put_away"), [Permission::ShellExecute])
         // Allowing lets a session run what it asked to. Denying stops
         // something, and needs nothing.
         .verb_requiring(ActionVerb::new("approve"), [Permission::ShellExecute])
@@ -661,6 +685,25 @@ impl ActionProvider for SessionProvider {
             }
 
             "open" => self.open_named(&context).await,
+
+            "put_away" => {
+                let session = self.resolve(&context).await?;
+                let away = self
+                    .sessions
+                    .put_away(&session.id)
+                    .await
+                    .map_err(into_action_error)?;
+                self.forget();
+                Ok(ActionResult {
+                    status: ActionStatus::Completed,
+                    message: Some(if away {
+                        format!("{} put away", session.label())
+                    } else {
+                        format!("{} runs in a terminal; it stays", session.label())
+                    }),
+                    display: None,
+                })
+            }
 
             "approve" => self.decide(&context, Decision::Allow).await,
             "deny" => self.decide(&context, Decision::Deny).await,

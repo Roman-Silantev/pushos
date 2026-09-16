@@ -62,6 +62,15 @@ pub trait AttachedSessions: Send + Sync + std::fmt::Debug {
     /// back to it: the second press is the same request as the first.
     async fn open(&self, request: &OpenSession) -> Result<Opened, AttachError>;
 
+    /// Stops a session's process, keeping the conversation for later.
+    ///
+    /// Only for a session whose keeper can give it back: see
+    /// [`Reach::Dispatching`](crate::attached::Reach::Dispatching). `false`
+    /// when this session is not one of those, or was not running anyway.
+    /// Asking for it again, by instruction or by opening a window onto it,
+    /// starts it where it left off.
+    async fn put_away(&self, session: &AttachedId) -> Result<bool, AttachError>;
+
     /// What this adapter watches, for the log and for `doctor`.
     fn describe(&self) -> &str;
 }
@@ -74,12 +83,27 @@ pub struct OpenSession {
     pub name: String,
     /// Where it starts. The home directory when not given.
     pub directory: Option<PathBuf>,
+    /// Who keeps it running.
+    pub keeper: Keeper,
     /// What to type into its shell once it has started, such as `claude`.
     ///
     /// Typed rather than run in its place, so a session outlives the program:
     /// when an agent exits, what is left is a shell in the same folder rather
     /// than a window that closed.
     pub command: Option<String>,
+}
+
+/// Who keeps a session running when PushOS is not looking at it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Keeper {
+    /// A terminal multiplexer, which keeps a screen the operator can take over
+    /// at any time. Every session kept this way is a program running.
+    #[default]
+    Terminal,
+    /// The coding agent itself, which keeps the conversation and needs a
+    /// process only while it is working. One put away costs nothing until it
+    /// is asked for again.
+    Agent,
 }
 
 /// A session that was asked for.

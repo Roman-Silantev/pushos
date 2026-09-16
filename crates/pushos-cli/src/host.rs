@@ -221,7 +221,12 @@ pub(crate) fn attached(config: &RuntimeConfig) -> Option<Arc<session::SessionPro
         return None;
     }
 
-    let watcher = Arc::new(MacSessions::new(Arc::new(SystemProcessRunner::new())));
+    let mut watcher = MacSessions::new(Arc::new(SystemProcessRunner::new()));
+    // So a pad comes back to the session it started, not merely to one like it.
+    if let Some(state) = pushos_config::paths::default_state_directory() {
+        watcher = watcher.keeping_seats_in(state.join("seats.json"));
+    }
+    let watcher = Arc::new(watcher);
     info!(
         watching = watcher.describe(),
         every = ?config.session_poll,

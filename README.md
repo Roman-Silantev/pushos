@@ -389,6 +389,67 @@ typed into a shell rather than run in its place, so when the agent exits you are
 left in the same folder instead of losing the window. To watch one from VS Code,
 run `tmux attach -t client-1` in its terminal.
 
+### Sixty-four pads, twenty agents
+
+A session in a terminal is a program running: it holds its memory whether it is
+working or waiting. Measured on an M4, a Claude Code session's real footprint
+is around 440 MB, and over 600 MB at its peak — `ps` understates it by more
+than twice, because most of it is compressed rather than resident. Sixty-four
+at once is several times the memory a 16 GB Mac has; twenty idle ones fit, and
+twenty all working do not.
+
+So a pad can hold a session Claude Code keeps instead, with `keeper = "agent"`.
+It starts with `claude --bg`, needs no terminal and no tmux, and when it is put
+away its process ends while its conversation stays. Putting one away frees all
+of its memory; asking for it again — an instruction, or opening a window onto
+it — starts it where it left off in about two seconds. Sixty-four pads can each
+hold one, and only the ones actually working cost anything.
+
+```toml
+[sessions]
+watch = true
+most_live = 20              # running at once; the rest are put away
+put_away_after_minutes = 20 # one nobody has used goes early
+
+[[bindings]]
+control = "pad.56"
+gesture = "tap"
+action = "session.open"
+label = "Invoices"
+params = { name = "invoices", cwd = "~/Work/client", keeper = "agent", work = "review the invoices module and list what is wrong" }
+
+# Take it over in a window when you want to type at it yourself.
+[[bindings]]
+control = "button.upper_1"
+gesture = "press"
+action = "session.focus"
+target = "name:invoices"
+
+# Or put it away by hand, without waiting for the limit.
+[[bindings]]
+control = "button.lower_1"
+gesture = "press"
+action = "session.put_away"
+target = "name:invoices"
+```
+
+PushOS decides which to put away, and the rules are conservative: never one
+that is working, never one waiting on you, and never a session in somebody's
+terminal, which is theirs. Of the ones sitting idle, the one idle longest goes
+first. When macOS says memory is short the limit tightens on its own — halved
+on a warning, down to four when it is critical — and returns when the pressure
+passes. That pressure signal is `kern.memorystatus_vm_pressure_level`, which is
+what macOS itself acts on. `most_live = 0` means no limit.
+
+Twenty is the default because most seats sit idle most of the time. If yours
+are all working at once, set it nearer twelve: that is what fits alongside
+everything else on a 16 GB Mac before it starts swapping, and swapping makes
+every session slower, including the ones doing useful work.
+
+Which pad holds which session is written down in `seats.json` beside the
+database, so a pad comes back to its own session after a restart rather than
+starting another.
+
 ### Answering from the Push
 
 Claude Code and Codex can ask the Push before they ask you in their own window.
@@ -514,6 +575,7 @@ Everything it writes down or holds on to has a limit:
 | A role's working tree | Removed when the role is done with it, with whatever was built in it, unless git shows work nobody committed; that is never removed |
 | Agent adapter downloads | Cleared before an agent starts once they pass 768 MB; what is installed stays |
 | A recording | One minute, more than either speech engine reads |
+| Sessions an agent keeps running | 20 at once by default, fewer while macOS says memory is short |
 | Finished agents and terminals | The last few, for the display |
 
 Running, it uses about 7 MB of memory. Watching Terminal reads each tab's

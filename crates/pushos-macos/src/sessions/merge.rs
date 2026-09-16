@@ -24,6 +24,15 @@ pub(super) enum Route {
     Tab(String),
     /// Through tmux, by the pane and the session it belongs to.
     Pane { pane: String, session: String },
+    /// Through the coding agent keeping it, which needs no window at all.
+    Kept {
+        /// What `attach`, `logs` and `stop` call it.
+        id: String,
+        /// The conversation, for carrying it on.
+        conversation: String,
+        /// Where it works.
+        directory: std::path::PathBuf,
+    },
     /// Not at all: PushOS can see it and has no way in.
     Nowhere { application: Option<String> },
 }

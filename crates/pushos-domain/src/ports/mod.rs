@@ -8,6 +8,7 @@ mod agent;
 mod attached;
 mod clock;
 mod memory;
+mod memory_pressure;
 mod push;
 mod system;
 mod terminal;
@@ -20,9 +21,10 @@ pub use agent::{
     AgentBackend, AgentCapabilities, AgentError, AgentEvent, AgentObserver, ApprovalId,
     ApprovalOption, SessionHandle, SessionRequest, StopReason,
 };
-pub use attached::{AttachError, AttachedSessions, Key, OpenSession, Opened, UnknownKey};
+pub use attached::{AttachError, AttachedSessions, Keeper, Key, OpenSession, Opened, UnknownKey};
 pub use clock::{Clock, SystemClock};
 pub use memory::{MemoryError, MemoryStore, NoteIndex, Source};
+pub use memory_pressure::{MemoryPressure, Pressure, RoomToSpare};
 pub use push::{
     DISPLAY_HEIGHT, DISPLAY_WIDTH, DisplayFrame, PushInput, PushOutput, PushSurfaceError,
     SurfaceKind,

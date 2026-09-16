@@ -16,6 +16,7 @@ mod media;
 #[cfg(target_os = "macos")]
 #[allow(unsafe_code)]
 mod power;
+mod pressure;
 mod process;
 mod script;
 mod sessions;
@@ -25,6 +26,7 @@ pub use applications::OpenLauncher;
 pub use media::{AppleScriptMedia, DEFAULT_PLAYER};
 #[cfg(target_os = "macos")]
 pub use power::{SleepWatch, SleepWatchError};
+pub use pressure::MacMemoryPressure;
 pub use process::SystemProcessRunner;
 pub use script::{ApplicationName, ScriptRunner, UnsafeApplicationName};
 pub use sessions::{MacSessions, SourceReport, terminal_above};
