@@ -36,6 +36,15 @@ const RECONCILE: Duration = Duration::from_mins(1);
 /// How long asking may take.
 const PATIENCE: Duration = Duration::from_secs(10);
 
+/// The least time between two asks.
+///
+/// Asking starts Claude Code, which is a tenth of a second of work and, for a
+/// moment, a hundred and fifty megabytes. With a pad each, sessions change
+/// state often enough that PushOS would do that every time it looked. Nothing
+/// urgent is lost by waiting this long: a session's question reaches the Push
+/// through its hook the moment it is asked, not through this.
+const ASK_AT_MOST_EVERY: Duration = Duration::from_secs(5);
+
 /// One Claude Code session that is running.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct ClaudeSession {
@@ -135,7 +144,13 @@ impl ClaudeCode {
             && remembered
                 .asked
                 .is_some_and(|asked| asked.elapsed() < RECONCILE);
-        if unchanged {
+        // Asked again only if something changed and the last answer is not
+        // seconds old: a busy session rewrites its file constantly, and every
+        // rewrite would otherwise be another Claude Code started.
+        let too_soon = remembered
+            .asked
+            .is_some_and(|asked| asked.elapsed() < ASK_AT_MOST_EVERY);
+        if unchanged || too_soon {
             return remembered.look.clone();
         }
 
@@ -398,6 +413,32 @@ mod tests {
     }
 
     #[tokio::test(start_paused = true)]
+    async fn claude_code_is_not_asked_twice_in_the_same_few_seconds() {
+        // A session that is working rewrites its file constantly, and every
+        // ask is another Claude Code started for a tenth of a second.
+        let directory = registry("often");
+        std::fs::write(directory.join("1622.json"), "{}").expect("writable");
+
+        let processes = FakeProcesses::new();
+        processes.reply_with(|_| FakeProcesses::printed(LISTED));
+        let claude = ClaudeCode::at(Arc::new(processes.clone()), "/bin/claude", &directory);
+        claude.sessions().await;
+
+        for change in 0..5 {
+            std::fs::write(directory.join(format!("{change}.json")), "{}").expect("writable");
+            claude.sessions().await;
+        }
+        assert_eq!(asked(&processes), 1, "five changes, one ask");
+
+        tokio::time::advance(ASK_AT_MOST_EVERY).await;
+        std::fs::write(directory.join("later.json"), "{}").expect("writable");
+        claude.sessions().await;
+        assert_eq!(asked(&processes), 2, "and it does catch up");
+
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    #[tokio::test(start_paused = true)]
     async fn claude_code_is_asked_again_only_when_a_session_changed() {
         let directory = registry("changes");
         std::fs::write(directory.join("1622.json"), "{}").expect("writable");
@@ -416,6 +457,7 @@ mod tests {
         );
 
         // A session starting writes a file of its own.
+        tokio::time::advance(ASK_AT_MOST_EVERY).await;
         std::fs::write(directory.join("1929.json"), "{}").expect("writable");
         claude.sessions().await;
         assert_eq!(asked(&processes), 2);
