@@ -251,12 +251,25 @@ impl CodexThreads {
             .to_owned();
 
         // Named before it is given work, so it is never briefly nameless on
-        // the surface, and so Codex's own listing says whose it is.
-        let _ = self
+        // the surface, and so Codex's own listing says whose it is. A name
+        // that would not take is worth saying: the thread still works, and
+        // Codex's own listing will not say whose it is.
+        if let Err(error) = self
             .server
             .call("thread/name/set", json!({"threadId": id, "name": name}))
-            .await;
-        self.instruct(&id, work).await?;
+            .await
+        {
+            debug!(%error, thread = %id, name, "the thread could not be named");
+        }
+        if let Err(error) = self.instruct(&id, work).await {
+            // It exists but has nothing to do, and nothing holds it: better
+            // to let it go than to leave it where nobody will look.
+            let _ = self
+                .server
+                .call("thread/delete", json!({"threadId": id}))
+                .await;
+            return Err(error);
+        }
         // It is not in the last listing, and a pad must not wait a minute to
         // see the thread it just started.
         self.look_again().await;
@@ -283,8 +296,12 @@ impl CodexThreads {
     pub(super) async fn put_away(&self, thread: &str) -> Result<(), AttachError> {
         self.server
             .call("thread/unsubscribe", json!({"threadId": thread}))
-            .await
-            .map(drop)
+            .await?;
+        // The last listing still says the server is holding it, and acting on
+        // that would have PushOS put the same thread away on every look until
+        // the listing is a minute old.
+        self.look_again().await;
+        Ok(())
     }
 
     /// The last of what a thread has said, as text for the display.

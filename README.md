@@ -416,7 +416,7 @@ control = "pad.56"
 gesture = "tap"
 action = "session.open"
 label = "Invoices"
-params = { name = "invoices", cwd = "~/Work/client", keeper = "agent", work = "review the invoices module and list what is wrong" }
+params = { name = "invoices", cwd = "~/Work/client", keeper = "agent", work = "review the invoices module and list what is wrong", window = false }
 
 # Take it over in a window when you want to type at it yourself.
 [[bindings]]
@@ -461,6 +461,10 @@ three are genuinely different things:
 | `claude` | Claude Code's supervisor, one process per session | ~440 MB each, 0 when put away |
 | `codex` | One Codex app server holding every thread | ~20 MB for the server and a thread in it |
 
+A thread on a pad is started where nothing waits on an answer: it is not asked
+for approval, because nobody is sitting at it to give one, and it is held to
+the folder it was sent to work in. It may write there and nowhere else.
+
 Codex is the one that scales. Its app server keeps many threads in a single
 process, so a seat costs tens of megabytes rather than hundreds, and the server
 unloads a thread by itself a minute after PushOS stops following it. Measured
@@ -473,8 +477,14 @@ control = "pad.57"
 gesture = "tap"
 action = "session.open"
 label = "Scraper"
-params = { name = "scraper", cwd = "~/Work/scraper", keeper = "codex", work = "make the retry logic testable" }
+params = { name = "scraper", cwd = "~/Work/scraper", keeper = "codex", work = "make the retry logic testable", window = false }
 ```
+
+`window = false` keeps the pad's session off the screen. Without it a window
+is opened onto the session, and that window is itself a terminal PushOS can
+see, so the session appears twice on the surface: once as itself and once as
+the window showing it. Open a window when you want to take over, with
+`session.focus`.
 
 A Codex seat names its thread after the seat, so `codex resume`, the Codex
 dashboard and PushOS all call it the same thing. Opening a window onto one runs
