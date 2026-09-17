@@ -34,8 +34,17 @@ use pushos_domain::ports::Pressure;
 /// for sessions that are only sitting there.
 const UNDER_WARNING: usize = 2;
 
-/// The most left running while memory is critical.
+/// The most sessions with a process each left running while memory is
+/// critical.
 const WHILE_CRITICAL: usize = 4;
+
+/// How much lower the limit for threads in a shared server goes while memory
+/// is critical.
+///
+/// A quarter rather than a fixed handful: sixty-four threads are about a
+/// gigabyte between them, so cutting them to four would give up the whole
+/// surface to recover what one session with a process of its own costs.
+const THREADS_UNDER_CRITICAL: usize = 4;
 
 /// When each session was last seen doing something.
 ///
@@ -116,7 +125,7 @@ pub(crate) fn to_put_away(
         } else {
             limits.most_threads
         };
-        let Some(most) = limit_now(asked, pressure) else {
+        let Some(most) = limit_now(asked, pressure, costly) else {
             continue;
         };
 
@@ -151,13 +160,24 @@ pub(crate) fn to_put_away(
 }
 
 /// The limit as it stands, given what the Mac says about its memory.
-fn limit_now(asked: Option<usize>, pressure: Pressure) -> Option<usize> {
+///
+/// What a session costs decides how hard it is cut: one with a process of its
+/// own is a few hundred megabytes, so under real pressure only a handful may
+/// run. Threads in a shared server are a few tens of megabytes each, and
+/// cutting those to the same handful would empty the surface to recover
+/// almost nothing.
+fn limit_now(asked: Option<usize>, pressure: Pressure, costly: bool) -> Option<usize> {
     match pressure {
         Pressure::Normal => asked,
         Pressure::Warning => {
             Some(asked.map_or(WHILE_CRITICAL * 2, |most| (most / UNDER_WARNING).max(1)))
         }
-        Pressure::Critical => Some(asked.map_or(WHILE_CRITICAL, |most| most.min(WHILE_CRITICAL))),
+        Pressure::Critical if costly => {
+            Some(asked.map_or(WHILE_CRITICAL, |most| most.min(WHILE_CRITICAL)))
+        }
+        Pressure::Critical => Some(asked.map_or(WHILE_CRITICAL, |most| {
+            (most / THREADS_UNDER_CRITICAL).max(1)
+        })),
     }
 }
 
@@ -515,23 +535,37 @@ mod tests {
 
     #[test]
     fn a_mac_short_of_memory_keeps_fewer_running() {
-        assert_eq!(limit_now(Some(20), Pressure::Normal), Some(20));
-        assert_eq!(limit_now(Some(20), Pressure::Warning), Some(10));
-        assert_eq!(limit_now(Some(20), Pressure::Critical), Some(4));
+        assert_eq!(limit_now(Some(20), Pressure::Normal, true), Some(20));
+        assert_eq!(limit_now(Some(20), Pressure::Warning, true), Some(10));
+        assert_eq!(limit_now(Some(20), Pressure::Critical, true), Some(4));
         assert_eq!(
-            limit_now(Some(2), Pressure::Warning),
+            limit_now(Some(2), Pressure::Warning, true),
             Some(1),
             "never rounded down to none at all"
         );
         assert_eq!(
-            limit_now(None, Pressure::Normal),
+            limit_now(None, Pressure::Normal, true),
             None,
             "an operator who asked for no limit has none"
         );
         assert_eq!(
-            limit_now(None, Pressure::Critical),
+            limit_now(None, Pressure::Critical, true),
             Some(WHILE_CRITICAL),
             "until the Mac itself says it cannot"
+        );
+    }
+
+    #[test]
+    fn threads_are_not_cut_to_the_number_a_session_with_a_process_would_be() {
+        // Sixty-four threads are about a gigabyte between them. Cutting them
+        // to four would empty the surface to recover what one Claude Code
+        // session costs on its own.
+        assert_eq!(limit_now(Some(64), Pressure::Critical, false), Some(16));
+        assert_eq!(limit_now(Some(64), Pressure::Warning, false), Some(32));
+        assert_eq!(
+            limit_now(Some(2), Pressure::Critical, false),
+            Some(1),
+            "never rounded down to none at all"
         );
     }
 

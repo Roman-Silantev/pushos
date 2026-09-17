@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use pushos_domain::ports::AttachError;
 use serde_json::{Value, json};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt as _, AsyncWriteExt, BufReader};
 use tokio::sync::{Mutex, oneshot};
 use tracing::{debug, warn};
 
@@ -134,11 +134,20 @@ pub(super) struct AppServer {
     /// What the server has said of its own accord.
     heard: Arc<Mutex<Heard>>,
     next: AtomicU64,
+    /// How many servers have been started.
+    generations: AtomicU64,
 }
 
 /// A server that is running, and what has been asked of it.
 #[derive(Debug)]
 struct Live {
+    /// Which connection this is, counted up from one.
+    ///
+    /// When a server dies, every caller waiting on it is told at once and each
+    /// would start another. This says which one a caller was talking to, so
+    /// the second to notice does not throw away the connection the first has
+    /// just made and greeted.
+    generation: u64,
     child: tokio::process::Child,
     writing: tokio::process::ChildStdin,
     /// Whether this server has been greeted. Once per connection: saying it
@@ -165,6 +174,7 @@ impl AppServer {
             greeting: Mutex::new(()),
             heard: Arc::new(Mutex::new(Heard::default())),
             next: AtomicU64::new(0),
+            generations: AtomicU64::new(0),
         }
     }
 
@@ -181,6 +191,7 @@ impl AppServer {
             greeting: Mutex::new(()),
             heard: Arc::new(Mutex::new(Heard::default())),
             next: AtomicU64::new(0),
+            generations: AtomicU64::new(0),
         }
     }
 
@@ -202,13 +213,24 @@ impl AppServer {
         match self.attempt(method, params.clone()).await {
             Err(gone) if gone.retry => {
                 debug!(method, "the app server went away; starting another");
-                *self.live.lock().await = None;
+                self.forget_connection(gone.generation).await;
                 self.attempt(method, params)
                     .await
                     .map_err(|failed| failed.error)
             }
             Err(failed) => Err(failed.error),
             Ok(answer) => Ok(answer),
+        }
+    }
+
+    /// Drops the connection a caller saw fail, and only that one.
+    async fn forget_connection(&self, seen: Option<u64>) {
+        let mut held = self.live.lock().await;
+        let same = held
+            .as_ref()
+            .is_some_and(|live| seen.is_none_or(|seen| live.generation == seen));
+        if same {
+            *held = None;
         }
     }
 
@@ -224,23 +246,29 @@ impl AppServer {
     /// twice, so this is where it belongs rather than at each call.
     async fn say_hello(&self) -> Result<(), Failed> {
         let _saying = self.greeting.lock().await;
-        let unheard = {
+        let greeting = {
             let mut held = self.live.lock().await;
             if held.is_none() {
                 *held = Some(self.start().map_err(Failed::final_answer)?);
             }
-            held.as_ref().is_some_and(|live| !live.greeted)
+            match held.as_ref() {
+                Some(live) if !live.greeted => Some(live.generation),
+                _ => return Ok(()),
+            }
         };
-        if !unheard {
-            return Ok(());
-        }
 
         self.ask(
             "initialize",
             json!({"clientInfo": {"name": CLIENT, "version": env!("CARGO_PKG_VERSION"), "title": "PushOS"}}),
         )
         .await?;
-        if let Some(live) = self.live.lock().await.as_mut() {
+        // Only the server that was greeted is marked as greeted. Between the
+        // two, a caller that saw the old one die may have started another,
+        // and calling that one greeted would leave every later request
+        // refused with nothing to say why.
+        if let Some(live) = self.live.lock().await.as_mut()
+            && Some(live.generation) == greeting
+        {
             live.greeted = true;
         }
         Ok(())
@@ -248,6 +276,7 @@ impl AppServer {
 
     async fn ask(&self, method: &str, params: Value) -> Result<Value, Failed> {
         let id = self.next.fetch_add(1, Ordering::Relaxed) + 1;
+        let generation;
         let (reply, answer) = oneshot::channel();
         let line = format!(
             "{}\n",
@@ -264,19 +293,27 @@ impl AppServer {
                     "the Codex app server could not be started",
                 )));
             };
+            generation = Some(running.generation);
             running.waiting.lock().await.insert(id, reply);
-            if running.writing.write_all(line.as_bytes()).await.is_err() {
+            // Given a deadline, because a server that has stopped reading its
+            // input would otherwise leave this holding the connection for
+            // ever, and with it everything else PushOS wants to ask.
+            let written = tokio::time::timeout(PATIENCE, async {
+                running.writing.write_all(line.as_bytes()).await?;
+                running.writing.flush().await
+            })
+            .await;
+            if !matches!(written, Ok(Ok(()))) {
                 running.waiting.lock().await.remove(&id);
-                return Err(Failed::worth_another_go());
+                return Err(Failed::worth_another_go_on(generation));
             }
-            let _ = running.writing.flush().await;
         }
 
         match tokio::time::timeout(PATIENCE, answer).await {
             Ok(Ok(Ok(result))) => Ok(result),
             Ok(Ok(Err(said))) => Err(Failed::final_answer(AttachError::unavailable(said))),
             // The reader dropped the sender: the server ended mid-question.
-            Ok(Err(_)) => Err(Failed::worth_another_go()),
+            Ok(Err(_)) => Err(Failed::worth_another_go_on(generation)),
             Err(_) => {
                 self.forget(id).await;
                 Err(Failed::final_answer(AttachError::unavailable(format!(
@@ -330,15 +367,22 @@ impl AppServer {
             let mut line = Vec::new();
             loop {
                 line.clear();
-                match reading.read_until(b'\n', &mut line).await {
+                // Read up to the cap rather than to the newline: a program
+                // that never sends one would otherwise be allowed to fill the
+                // machine's memory one byte at a time.
+                let read = (&mut reading)
+                    .take(LONGEST_LINE)
+                    .read_until(b'\n', &mut line)
+                    .await;
+                match read {
                     // The server ended, or said something PushOS cannot read.
                     Ok(0) | Err(_) => break,
                     Ok(_) => {}
                 }
-                // A line longer than any answer could be is dropped rather
-                // than parsed, so nothing the server says can be kept forever.
-                if line.len() as u64 > LONGEST_LINE {
+                if !line.ends_with(b"\n") {
                     warn!("ignoring an answer from the Codex app server that was absurdly long");
+                    // And give back what holding it cost.
+                    line = Vec::new();
                     continue;
                 }
                 if let Ok(text) = std::str::from_utf8(&line) {
@@ -351,6 +395,7 @@ impl AppServer {
         });
 
         let live = Live {
+            generation: self.generations.fetch_add(1, Ordering::Relaxed) + 1,
             child,
             writing,
             greeted: false,
@@ -428,6 +473,9 @@ fn read_notification(line: &str) -> Option<(String, Value)> {
 struct Failed {
     error: AttachError,
     retry: bool,
+    /// Which connection was being used, for a retry that must not throw away
+    /// a newer one.
+    generation: Option<u64>,
 }
 
 impl Failed {
@@ -435,13 +483,15 @@ impl Failed {
         Self {
             error,
             retry: false,
+            generation: None,
         }
     }
 
-    fn worth_another_go() -> Self {
+    fn worth_another_go_on(generation: Option<u64>) -> Self {
         Self {
             error: AttachError::unavailable("the Codex app server stopped answering"),
             retry: true,
+            generation,
         }
     }
 }
