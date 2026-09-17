@@ -23,9 +23,19 @@ use crate::shutdown::Shutdown;
 /// subprocess every frame.
 pub(crate) const HOW_OFTEN: Duration = Duration::from_secs(3);
 
+/// Says whether a session has work waiting for a free turn.
+type WaitingWork = Box<dyn Fn(&AttachedId) -> bool + Send + Sync>;
+
 /// Asks what is open, over and over, and tells whoever is listening.
 pub(crate) struct AttachedTask {
     sessions: Arc<dyn AttachedSessions>,
+    /// Which sessions have work waiting for a free turn.
+    ///
+    /// PushOS's own doing rather than anything a session says, and shown on
+    /// the pad all the same: an operator looking at sixty-four of them needs
+    /// to see that a pad they pressed is going to work, not that it did
+    /// nothing.
+    waiting: Option<WaitingWork>,
     found: watch::Sender<Vec<Attached>>,
     every: Duration,
     /// What the surface is doing, so looking can slow down when nobody could
@@ -63,9 +73,34 @@ impl AttachedTask {
                 found,
                 every: HOW_OFTEN,
                 view: None,
+                waiting: None,
             },
             watching,
         )
+    }
+
+    /// Says on the pad which sessions have work waiting for a free turn.
+    fn mark_waiting(&self, open: &mut [Attached]) {
+        let Some(waiting) = &self.waiting else {
+            return;
+        };
+        for session in open {
+            // Only over a session that is doing nothing: one that is working,
+            // or asking the operator something, has more to say than this.
+            if session.activity == Activity::Ready && waiting(&session.id) {
+                session.activity = Activity::Queued;
+            }
+        }
+    }
+
+    /// Shows which sessions have work waiting for a turn.
+    #[must_use]
+    pub(crate) fn showing_waiting_work(
+        mut self,
+        waiting: impl Fn(&AttachedId) -> bool + Send + Sync + 'static,
+    ) -> Self {
+        self.waiting = Some(Box::new(waiting));
+        self
     }
 
     /// Asks more or less often than the default.
@@ -95,8 +130,9 @@ impl AttachedTask {
 
         loop {
             match self.sessions.discover().await {
-                Ok(open) => {
+                Ok(mut open) => {
                     refused = false;
+                    self.mark_waiting(&mut open);
                     // Sent only when something actually differs, so a display
                     // that has not changed is not redrawn three times a second.
                     if *self.found.borrow() != open {
@@ -186,7 +222,7 @@ const fn tone_for(activity: Activity) -> Tone {
     match activity {
         Activity::NeedsDecision => Tone::Attention,
         Activity::Working => Tone::Active,
-        Activity::Drafting | Activity::Ready => Tone::Normal,
+        Activity::Drafting | Activity::Queued | Activity::Ready => Tone::Normal,
         Activity::Quiet => Tone::Muted,
     }
 }
@@ -260,6 +296,36 @@ mod tests {
         });
         view.rest = rest;
         view
+    }
+
+    #[tokio::test]
+    async fn a_pad_whose_work_is_waiting_says_so_rather_than_looking_idle() {
+        // Otherwise an operator presses it again, and again, because a pad
+        // that did what it was told looks exactly like one that did nothing.
+        let fake = pushos_testkit::FakeAttached::holding([
+            Attached::new("thread:one", "one", Activity::Ready, "Codex")
+                .dispatched(pushos_domain::ports::Keeper::CodexThreads),
+            Attached::new("thread:two", "two", Activity::Working, "Codex")
+                .dispatched(pushos_domain::ports::Keeper::CodexThreads),
+        ]);
+        let (task, found) = AttachedTask::new(Arc::new(fake));
+        let task = task
+            .every(Duration::from_millis(10))
+            .showing_waiting_work(|session| session.as_str() == "thread:one");
+
+        let shutdown = Shutdown::new();
+        let running = tokio::spawn(task.run(shutdown.clone(), || {}));
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        shutdown.stop().await;
+        let _ = running.await;
+
+        let seen = found.borrow().clone();
+        assert_eq!(seen[0].activity, Activity::Queued, "its work is held");
+        assert_eq!(
+            seen[1].activity,
+            Activity::Working,
+            "one already working is left as it is"
+        );
     }
 
     #[tokio::test(start_paused = true)]

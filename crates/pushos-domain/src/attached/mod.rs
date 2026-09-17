@@ -227,6 +227,13 @@ pub enum Activity {
     Drafting,
     /// It is waiting for the operator, with nothing typed.
     Ready,
+    /// PushOS is holding work for it until the fleet has room.
+    ///
+    /// Its own doing rather than the session's: the session is sitting there,
+    /// and what it will be told next is already decided. Worth its own colour
+    /// because a pad that looks idle while its work waits would have the
+    /// operator pressing it again.
+    Queued,
     /// Nothing recognisable is running in it.
     #[default]
     Quiet,
@@ -251,7 +258,9 @@ impl Activity {
             // Blinking amber, the same as anything else waiting on a person.
             Self::NeedsDecision => StatusColor::Waiting,
             Self::Working => StatusColor::Working,
-            Self::Drafting => StatusColor::Workflow,
+            // The same as something typed and not sent, which is what this
+            // is: words decided on and not yet delivered.
+            Self::Drafting | Self::Queued => StatusColor::Workflow,
             Self::Ready => StatusColor::Complete,
             Self::Quiet => StatusColor::Idle,
         }
@@ -263,6 +272,7 @@ impl Activity {
             Self::NeedsDecision => "asking",
             Self::Working => "working",
             Self::Drafting => "unsent",
+            Self::Queued => "queued",
             Self::Ready => "ready",
             Self::Quiet => "quiet",
         }

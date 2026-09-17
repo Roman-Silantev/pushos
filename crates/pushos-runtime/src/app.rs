@@ -351,9 +351,11 @@ impl Runtime {
             sources.push(Arc::new(AttachedSessions::new(Arc::clone(provider))));
 
             let (task, found) = crate::actors::AttachedTask::new(provider.watcher());
+            let waiting = Arc::clone(provider);
             let task = task
                 .every(self.config.current().session_poll)
-                .minding(watching.clone());
+                .minding(watching.clone())
+                .showing_waiting_work(move |session| waiting.work_waits_for(session));
 
             // A session a coding agent keeps holds its memory only while it is
             // running, so how many run at once is PushOS's to decide. Without

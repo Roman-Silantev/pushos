@@ -107,6 +107,13 @@ impl Turns {
         }
     }
 
+    /// Whether a session has work waiting for a turn.
+    pub(super) fn holds_work_for(&self, session: &AttachedId) -> bool {
+        self.waiting
+            .lock()
+            .is_ok_and(|waiting| waiting.iter().any(|held| &held.session == session))
+    }
+
     /// How much work is waiting.
     pub(super) fn waiting(&self) -> usize {
         self.waiting.lock().map_or(0, |waiting| waiting.len())

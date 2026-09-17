@@ -378,6 +378,11 @@ impl SessionProvider {
         self.turns.allow(most.unwrap_or(0));
     }
 
+    /// Whether this session has work waiting for a free turn.
+    pub fn work_waits_for(&self, session: &AttachedId) -> bool {
+        self.turns.holds_work_for(session)
+    }
+
     /// How much work is waiting for a turn.
     pub fn waiting_turns(&self) -> usize {
         self.turns.waiting()

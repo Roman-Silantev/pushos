@@ -523,8 +523,10 @@ Claude Code sessions is around nine gigabytes, and sixty-four Codex threads is
 about one. Counting them together would put away threads that cost almost
 nothing.
 
-The pad says `waits its turn (3 to go)` rather than failing, an interrupt never
-waits, and pressing a pad twice replaces what it was waiting to say rather than
+The pad says `waits its turn (3 to go)` rather than failing, and it lights as
+`queued` — the same colour as something typed and not sent — so a pad whose
+work is held never looks like a pad that did nothing. An interrupt never waits,
+and pressing a pad twice replaces what it was waiting to say rather than
 queueing both. Work for a session that closes stops waiting. The result is that
 sixty-four pads get through more work than sixty-four pads all shouting at once
 would — the limit is what makes the fleet fast, not what holds it back.
