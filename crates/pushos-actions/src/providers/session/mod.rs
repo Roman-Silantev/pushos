@@ -77,6 +77,12 @@ pub struct SessionProvider {
     questions: Questions,
     /// How many sessions may work at once, and what is waiting its turn.
     turns: turns::Turns,
+    /// Where the projects are, when PushOS knows about projects.
+    ///
+    /// What makes one row of role pads serve twenty projects: a pad that says
+    /// which role it is, and no folder, works in whichever project is in
+    /// effect.
+    workspaces: Option<Arc<dyn pushos_domain::ports::WorkspaceContext>>,
 }
 
 /// The last answers, and when they were given.
@@ -111,7 +117,18 @@ impl SessionProvider {
             seen: Mutex::new(Seen::default()),
             questions: Questions::default(),
             turns: turns::Turns::new(),
+            workspaces: None,
         }
+    }
+
+    /// Lets a pad with no folder of its own work in the project in effect.
+    #[must_use]
+    pub fn following_projects(
+        mut self,
+        workspaces: Arc<dyn pushos_domain::ports::WorkspaceContext>,
+    ) -> Self {
+        self.workspaces = Some(workspaces);
+        self
     }
 
     /// Puts a session's question to the operator, and waits for the answer.
@@ -285,9 +302,17 @@ impl SessionProvider {
                     std::io::Error::other("unknown keeper"),
                 )
             })?;
+        // A pad with no folder of its own is a role rather than a worker: it
+        // works in whichever project is in effect, and its session is that
+        // project's. One row of eight roles then serves every project the
+        // operator has, instead of eight pads each.
+        let (name, directory) = match params.text("cwd") {
+            Some(given) => (name.to_owned(), Some(PathBuf::from(given))),
+            None => self.in_the_project(name, context).await,
+        };
         let request = OpenSession {
-            name: name.to_owned(),
-            directory: params.text("cwd").map(PathBuf::from),
+            name,
+            directory,
             keeper,
             // What to run, for a session in a terminal; what to work on, for
             // one a coding agent keeps.
@@ -331,6 +356,30 @@ impl SessionProvider {
                 detail: Some(said.to_owned()),
             }),
         })
+    }
+
+    /// A role's name and folder within the project in effect.
+    ///
+    /// The name carries the project, so `builder` in two projects is two
+    /// sessions rather than one that keeps changing folder.
+    async fn in_the_project(
+        &self,
+        role: &str,
+        context: &ActionContext,
+    ) -> (String, Option<PathBuf>) {
+        let Some(workspaces) = &self.workspaces else {
+            return (role.to_owned(), None);
+        };
+        let workspace = context.surface.workspace.clone();
+        let root = workspaces.root(workspace.as_ref()).await;
+        let name = workspace
+            .map(|project| format!("{project}-{role}"))
+            // A project whose name is not one a session can be kept under
+            // leaves the role to stand alone rather than making a name
+            // nothing can hold.
+            .filter(|name| is_session_name(name))
+            .unwrap_or_else(|| role.to_owned());
+        (name, Some(root))
     }
 
     /// Whether work for this session would have to wait for a turn.

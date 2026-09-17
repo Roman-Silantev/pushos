@@ -896,3 +896,102 @@ async fn work_for_a_session_that_has_gone_is_not_offered_again() {
         "nothing waits for a session that went"
     );
 }
+
+// --- Roles that follow the project ------------------------------------------
+// A pad with no folder of its own is a role, not a worker: eight of them serve
+// every project rather than eight pads each.
+
+/// A stand-in for the projects, whose root is whatever it was told.
+#[derive(Debug)]
+struct Projects(std::path::PathBuf);
+
+#[async_trait]
+impl pushos_domain::ports::WorkspaceContext for Projects {
+    async fn root(
+        &self,
+        workspace: Option<&pushos_domain::ids::WorkspaceId>,
+    ) -> std::path::PathBuf {
+        workspace.map_or_else(|| self.0.clone(), |named| self.0.join(named.as_str()))
+    }
+}
+
+fn opening_a_role(name: &str, keeper: &str, work: &str, project: Option<&str>) -> ActionContext {
+    let mut context = context("open", None);
+    for (key, value) in [("name", name), ("keeper", keeper), ("work", work)] {
+        context
+            .definition
+            .params
+            .set(key, ParamValue::Text(value.into()));
+    }
+    context
+        .definition
+        .params
+        .set("window", ParamValue::Flag(false));
+    if let Some(project) = project {
+        context.surface = context.surface.clone().in_workspace(project);
+    }
+    context
+}
+
+#[tokio::test]
+async fn a_role_pad_works_in_whichever_project_is_in_effect() {
+    let fake = FakeAttached::holding([]);
+    let provider = SessionProvider::new(Arc::new(fake.clone()))
+        .following_projects(Arc::new(Projects("/tmp/projects".into())));
+
+    provider
+        .execute(opening_a_role(
+            "builder",
+            "codex",
+            "make the tests pass",
+            Some("pushos"),
+        ))
+        .await
+        .ok();
+
+    let asked: Vec<OpenSession> = fake
+        .calls()
+        .into_iter()
+        .filter_map(|call| match call {
+            SessionCall::Opened(request) => Some(request),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(asked.len(), 1);
+    assert_eq!(
+        asked[0].directory.as_deref(),
+        Some(std::path::Path::new("/tmp/projects/pushos"))
+    );
+    assert_eq!(
+        asked[0].name, "pushos-builder",
+        "the same role in two projects is two sessions"
+    );
+}
+
+#[tokio::test]
+async fn a_pad_that_names_its_own_folder_keeps_it() {
+    let fake = FakeAttached::holding([]);
+    let provider = SessionProvider::new(Arc::new(fake.clone()))
+        .following_projects(Arc::new(Projects("/tmp/projects".into())));
+
+    let mut context = opening_a_role("scraper", "codex", "fix the retries", Some("pushos"));
+    context
+        .definition
+        .params
+        .set("cwd", ParamValue::Text("/tmp/elsewhere".into()));
+    provider.execute(context).await.ok();
+
+    let asked: Vec<OpenSession> = fake
+        .calls()
+        .into_iter()
+        .filter_map(|call| match call {
+            SessionCall::Opened(request) => Some(request),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        asked[0].directory.as_deref(),
+        Some(std::path::Path::new("/tmp/elsewhere"))
+    );
+    assert_eq!(asked[0].name, "scraper", "and keeps the name it was given");
+}

@@ -216,7 +216,10 @@ pub(crate) fn memory(
 /// Returns `None` unless it is switched on, because asking another application
 /// what is open is something macOS will ask the operator to allow, and doing
 /// that unbidden on a machine with no interest in the feature would be rude.
-pub(crate) fn attached(config: &RuntimeConfig) -> Option<Arc<session::SessionProvider>> {
+pub(crate) fn attached(
+    config: &RuntimeConfig,
+    workspaces: &Arc<dyn WorkspaceContext>,
+) -> Option<Arc<session::SessionProvider>> {
     if !config.watch_sessions {
         return None;
     }
@@ -235,7 +238,9 @@ pub(crate) fn attached(config: &RuntimeConfig) -> Option<Arc<session::SessionPro
         every = ?config.session_poll,
         "watching the terminals already open"
     );
-    Some(Arc::new(session::SessionProvider::new(watcher)))
+    Some(Arc::new(
+        session::SessionProvider::new(watcher).following_projects(Arc::clone(workspaces)),
+    ))
 }
 
 /// Builds the named runs of several actions from configuration.
@@ -435,7 +440,7 @@ pub(crate) fn shipped_providers(config: &RuntimeConfig) -> Vec<Arc<dyn ActionPro
         engine.as_ref(),
         voice(config).as_ref(),
         memory(config, None).as_ref(),
-        attached(config).as_ref(),
+        attached(config, &(Arc::clone(&manager) as Arc<dyn WorkspaceContext>)).as_ref(),
         sequences(config).as_ref(),
     )
 }
@@ -547,7 +552,11 @@ mod tests {
             engine(&settings, &idle_terminals(&settings)).as_ref(),
             voice(&settings).as_ref(),
             memory(&settings, None).as_ref(),
-            attached(&settings).as_ref(),
+            attached(
+                &settings,
+                &(manager(&settings) as Arc<dyn WorkspaceContext>),
+            )
+            .as_ref(),
             sequences(&settings).as_ref(),
         )
         .iter()
@@ -573,7 +582,11 @@ mod tests {
             engine(&settings, &idle_terminals(&settings)).as_ref(),
             voice(&settings).as_ref(),
             memory(&settings, None).as_ref(),
-            attached(&settings).as_ref(),
+            attached(
+                &settings,
+                &(manager(&settings) as Arc<dyn WorkspaceContext>),
+            )
+            .as_ref(),
             sequences(&settings).as_ref(),
         )
         .iter()
@@ -598,7 +611,11 @@ mod tests {
             engine(&settings, &idle_terminals(&settings)).as_ref(),
             voice(&settings).as_ref(),
             memory(&settings, None).as_ref(),
-            attached(&settings).as_ref(),
+            attached(
+                &settings,
+                &(manager(&settings) as Arc<dyn WorkspaceContext>),
+            )
+            .as_ref(),
             sequences(&settings).as_ref(),
         )
         .iter()
@@ -719,7 +736,11 @@ mod tests {
             engine(&settings, &idle_terminals(&settings)).as_ref(),
             voice(&settings).as_ref(),
             memory(&settings, None).as_ref(),
-            attached(&settings).as_ref(),
+            attached(
+                &settings,
+                &(manager(&settings) as Arc<dyn WorkspaceContext>),
+            )
+            .as_ref(),
             sequences(&settings).as_ref(),
         )
         .iter()
@@ -766,7 +787,11 @@ mod tests {
             engine(&settings, &idle_terminals(&settings)).as_ref(),
             voice(&settings).as_ref(),
             memory(&settings, None).as_ref(),
-            attached(&settings).as_ref(),
+            attached(
+                &settings,
+                &(manager(&settings) as Arc<dyn WorkspaceContext>),
+            )
+            .as_ref(),
             sequences(&settings).as_ref(),
         )
         .iter()
@@ -786,7 +811,11 @@ mod tests {
             engine(&unusable, &idle_terminals(&unusable)).as_ref(),
             voice(&unusable).as_ref(),
             memory(&unusable, None).as_ref(),
-            attached(&unusable).as_ref(),
+            attached(
+                &unusable,
+                &(manager(&unusable) as Arc<dyn WorkspaceContext>),
+            )
+            .as_ref(),
             sequences(&unusable).as_ref(),
         )
         .iter()

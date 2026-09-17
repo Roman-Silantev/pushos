@@ -185,7 +185,7 @@ fn build_runtime(
     }
 
     let (terminal_reporter, terminal_updates) = pushos_runtime::TerminalReporter::new();
-    let terminals = host::terminals(&current, Arc::new(terminal_reporter), context);
+    let terminals = host::terminals(&current, Arc::new(terminal_reporter), Arc::clone(&context));
     runtime = runtime.with_terminals(Arc::clone(&terminals), terminal_updates);
     runtime = runtime.with_workspaces(Arc::clone(&workspaces));
 
@@ -227,7 +227,7 @@ fn build_runtime(
     // The terminals the operator already had open. PushOS did not start these
     // and cannot own them, but it can show what they are doing and type into
     // them, which is most of what a pad is for.
-    let sessions = host::attached(&current);
+    let sessions = host::attached(&current, &context);
     if let Some(provider) = &sessions {
         runtime = runtime.with_attached(Arc::clone(provider));
     }

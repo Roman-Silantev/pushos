@@ -482,6 +482,35 @@ dashboard and PushOS all call it the same thing. Opening a window onto one runs
 tells the server to stop holding it. PushOS shows only the threads its seats
 hold, not every thread Codex remembers.
 
+#### One row of roles, every project
+
+A pad that names a folder is a worker: it is that session, in that folder, for
+good. A pad that names **no** folder is a **role**, and works in whichever
+project is in effect. Eight role pads then serve twenty projects instead of
+needing eight pads each.
+
+```toml
+# Row of projects: each selects the one in effect.
+[[bindings]]
+control = "pad.56"
+gesture = "tap"
+action = "workspace.select"
+params = { workspace = "pushos" }
+
+# Row of roles: no cwd, so each works in the project selected above.
+[[bindings]]
+control = "pad.48"
+gesture = "tap"
+action = "session.open"
+label = "Builder"
+params = { name = "builder", keeper = "codex", work = "take the next task and finish it" }
+```
+
+The session is named for the project and the role together — `pushos-builder`,
+`glamour-decor-builder` — so the same role in two projects is two sessions with
+two conversations, and a pad comes back to the right one. Give a pad a `cwd`
+and it keeps its own folder and its own name, as before.
+
 #### Sixty-four pads working
 
 Three things stop a surface this size, and they bind in this order.
