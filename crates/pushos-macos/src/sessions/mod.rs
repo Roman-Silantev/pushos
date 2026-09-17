@@ -128,6 +128,15 @@ impl MacSessions {
         self
     }
 
+    /// The same, speaking to a particular Claude Code rather than the one
+    /// installed, so a test does not depend on the machine it runs on.
+    #[cfg(test)]
+    fn with_claude_at(mut self, program: &str, registry: &std::path::Path) -> Self {
+        self.claude = ClaudeCode::at(Arc::clone(&self.processes), program, registry);
+        self.supervisor = Supervisor::at(Arc::clone(&self.processes), program);
+        self
+    }
+
     /// The same, writing down what each seat holds in the given file.
     ///
     /// Without one, a pad that started a session finds it again only for as
@@ -674,7 +683,9 @@ mod tests {
         let scratch = Scratch::new("kept");
         let processes = FakeProcesses::new();
         claude_that_learns(&processes);
-        let sessions = MacSessions::new(Arc::new(processes)).keeping_seats_in(scratch.book());
+        let sessions = MacSessions::new(Arc::new(processes))
+            .with_claude_at("/bin/claude", &scratch.0)
+            .keeping_seats_in(scratch.book());
         // As the poll loop does, a moment before the pad is pressed: this is
         // the answer that will be stale by the time the session exists.
         sessions.discover().await.ok();
@@ -713,7 +724,9 @@ mod tests {
             }
             FakeProcesses::printed("")
         });
-        let sessions = MacSessions::new(Arc::new(processes)).keeping_seats_in(scratch.book());
+        let sessions = MacSessions::new(Arc::new(processes))
+            .with_claude_at("/bin/claude", &scratch.0)
+            .keeping_seats_in(scratch.book());
 
         sessions.discover().await.ok();
 
