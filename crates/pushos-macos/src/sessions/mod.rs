@@ -378,7 +378,7 @@ impl MacSessions {
             self.claude.look_again().await;
             id
         };
-        self.seats.took(&request.name, &id).await;
+        self.seats.took(&request.name, request.keeper, &id).await;
         Ok(Opened {
             id: AttachedId::new(format!("{prefix}{id}")),
             started: true,
@@ -411,14 +411,23 @@ impl MacSessions {
 #[async_trait]
 impl AttachedSessions for MacSessions {
     async fn discover(&self) -> Result<Vec<Attached>, AttachError> {
+        // Codex is asked nothing at all until a pad holds one of its threads.
+        // Asking starts its server, which is a process and some tens of
+        // megabytes; a surface with no Codex seats should not pay for one.
+        let wanted = self.seats.any_held_by(Keeper::CodexThreads).await;
         let (tabs, layout, claude, kept, threads) = tokio::join!(
             self.terminal.tabs(),
             self.tmux.look(),
             self.claude.sessions(),
             self.claude.kept(),
-            self.codex.threads()
+            async {
+                if wanted {
+                    self.codex.threads().await
+                } else {
+                    codex::Listing::none()
+                }
+            }
         );
-        let answered = kept.answered && threads.answered;
 
         // Each source on its own terms: Terminal refusing permission, or tmux
         // not being installed, hides nothing the others can see.
@@ -446,18 +455,27 @@ impl AttachedSessions for MacSessions {
             claude,
             whereabouts,
         });
-        // One book holds both kinds, so what still exists is worked out over
-        // both before anything is dropped from it — and only when both
-        // actually answered. A keeper that said nothing knows nothing, and
-        // pruning on that would lose which session a pad holds for good.
-        if answered {
-            let existing: Vec<String> = kept
-                .kept
+        // Each keeper's seats are pruned from its own listing, and only when
+        // it answered: an agent that said nothing has not said that anything
+        // ended, and pruning on its silence would lose which session a pad
+        // holds for good.
+        let both = kept.answered && threads.answered;
+        if kept.answered {
+            let existing: Vec<String> =
+                kept.kept.iter().map(|session| session.id.clone()).collect();
+            self.seats
+                .keep_only(Keeper::ClaudeCode, &existing, both)
+                .await;
+        }
+        if threads.answered {
+            let existing: Vec<String> = threads
+                .threads
                 .iter()
-                .map(|session| session.id.clone())
-                .chain(threads.threads.iter().map(|thread| thread.id.clone()))
+                .map(|thread| thread.id.clone())
                 .collect();
-            self.seats.keep_only(&existing).await;
+            self.seats
+                .keep_only(Keeper::CodexThreads, &existing, both)
+                .await;
         }
         merged.extend(self.on_seats(kept.kept).await);
         merged.extend(self.threads_on_seats(threads.threads).await);

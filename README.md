@@ -701,7 +701,12 @@ Everything it writes down or holds on to has a limit:
 | Work waiting for a turn | 128 pieces; one per pad, and some to spare |
 | Finished agents and terminals | The last few, for the display |
 
-Running, it uses about 7 MB of memory. Watching Terminal reads each tab's
+Running, it uses about 7 MB of memory, and asks for less the less there is to
+watch: an agent no pad uses is never started or spoken to at all, so a surface
+with only Claude Code seats never runs Codex's server. With the Push unplugged
+and nothing on a pad, PushOS looks at the terminals about once a minute rather
+than every three seconds — and the moment a surface appears, or a pad holds a
+session, it keeps up properly again. Watching Terminal reads each tab's
 screen rather than its whole scrollback, and Claude Code is only asked about
 its sessions when one of them has changed, or once a minute.
 

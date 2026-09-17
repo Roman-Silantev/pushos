@@ -70,6 +70,19 @@ pub(super) struct CodexThreads {
     listed: Mutex<Option<(Vec<Thread>, Instant)>>,
 }
 
+impl Listing {
+    /// Nothing, because nobody asked.
+    ///
+    /// Not the same as an empty answer: nothing has been decided about what
+    /// Codex holds, so nothing may be dropped on the strength of it.
+    pub(super) const fn none() -> Self {
+        Self {
+            threads: Vec::new(),
+            answered: false,
+        }
+    }
+}
+
 impl CodexThreads {
     /// Speaks to the Codex installed for this user.
     ///

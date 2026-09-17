@@ -53,6 +53,15 @@ pub(crate) struct AttachedTask {
 /// and still wakes a dark surface, within this many looks.
 const RESTING_FACTOR: u32 = 5;
 
+/// How much less often again when there is nothing to keep up with either.
+///
+/// Nobody is watching the surface *and* no pad holds a session an agent keeps,
+/// so the only reason to look is to notice a terminal somebody opened. That
+/// can wait a minute: a question from a session reaches the Push through its
+/// hook the moment it is asked, and anything that asks PushOS directly — a
+/// window, the command line — is answered by looking there and then.
+const IDLE_FACTOR: u32 = 20;
+
 impl std::fmt::Debug for AttachedTask {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AttachedTask")
@@ -152,10 +161,11 @@ impl AttachedTask {
             }
 
             let watched = self.watched();
-            let wait = if watched {
-                self.every
-            } else {
-                self.every * RESTING_FACTOR
+            let following = self.found.borrow().iter().any(Attached::can_be_put_away);
+            let wait = match (watched, following) {
+                (true, _) => self.every,
+                (false, true) => self.every * RESTING_FACTOR,
+                (false, false) => self.every * IDLE_FACTOR,
             };
 
             tokio::select! {
@@ -298,6 +308,31 @@ mod tests {
         view
     }
 
+    #[tokio::test(start_paused = true)]
+    async fn nothing_to_watch_and_nothing_to_keep_up_with_means_looking_seldom() {
+        // A Mac with the Push unplugged and no agent on a pad: every look is
+        // an `osascript` and, when a session has changed, a whole Claude Code
+        // started to ask what it is doing.
+        let fake = pushos_testkit::FakeAttached::with_sessions([("/dev/ttys003", "a terminal")]);
+        let (_view, following) = watch::channel(crate::actors::SurfaceView::waiting());
+        let (task, _found) = AttachedTask::new(Arc::new(fake.clone()));
+        let task = task.every(Duration::from_secs(3)).minding(following);
+
+        let shutdown = Shutdown::new();
+        let running = shutdown.clone();
+        tokio::spawn(async move { task.run(running, || {}).await });
+
+        // A minute with the Push unplugged and nothing on a pad.
+        tokio::time::sleep(Duration::from_secs(60)).await;
+        let seldom = looks(&fake);
+        shutdown.stop().await;
+
+        assert!(
+            seldom <= 2,
+            "a minute with nothing to follow is a look or two, not four: {seldom}"
+        );
+    }
+
     #[tokio::test]
     async fn a_pad_whose_work_is_waiting_says_so_rather_than_looking_idle() {
         // Otherwise an operator presses it again, and again, because a pad
@@ -332,7 +367,15 @@ mod tests {
     async fn nobody_able_to_see_the_surface_means_looking_less_often() {
         use pushos_domain::rest::Rest;
 
-        let fake = pushos_testkit::FakeAttached::with_sessions([("/dev/ttys001", "one")]);
+        // A session an agent keeps for a pad: PushOS has to keep up with what
+        // it is doing even while nobody is looking at the surface.
+        let fake = pushos_testkit::FakeAttached::holding([Attached::new(
+            "kept:55c88714",
+            "builder",
+            Activity::Ready,
+            "Claude Code",
+        )
+        .dispatched(pushos_domain::ports::Keeper::ClaudeCode)]);
         let (view, following) = watch::channel(crate::actors::SurfaceView::waiting());
         let (task, _found) = AttachedTask::new(Arc::new(fake.clone()));
         let task = task.every(Duration::from_secs(3)).minding(following);
