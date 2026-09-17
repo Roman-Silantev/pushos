@@ -106,7 +106,7 @@ impl MacSessions {
             tmux: Tmux::new(Arc::clone(&processes)),
             claude: ClaudeCode::new(Arc::clone(&processes)),
             supervisor: Supervisor::new(Arc::clone(&processes)),
-            codex: CodexThreads::new(),
+            codex: CodexThreads::new(true),
             seats: Seats::kept_in(None),
             hosts: Hosts::new(Arc::clone(&processes)),
             processes,
@@ -114,6 +114,18 @@ impl MacSessions {
             whereabouts: Mutex::new(HashMap::new()),
             refused: AtomicBool::new(false),
         }
+    }
+
+    /// The same, with everything Codex can do rather than only what a pad
+    /// uses.
+    ///
+    /// Costs memory in the Codex server, and a program of its own per thread
+    /// for some of it; for an operator who wants browsing or apps in the
+    /// threads on their pads.
+    #[must_use]
+    pub fn with_every_codex_feature(mut self) -> Self {
+        self.codex = CodexThreads::new(false);
+        self
     }
 
     /// The same, writing down what each seat holds in the given file.

@@ -57,6 +57,8 @@ pub struct RuntimeConfig {
     /// How many sessions a coding agent keeps may run at once, and how long
     /// one may sit idle before it is put away.
     pub seats: crate::model::SeatLimits,
+    /// Whether Codex threads are started with every feature Codex has.
+    pub every_codex_feature: bool,
     /// Where agents work when a role does not name a workspace.
     pub workspace_root: Option<std::path::PathBuf>,
     /// The program a terminal runs when a binding does not name one.
@@ -126,6 +128,11 @@ impl RuntimeConfig {
                 .poll_ms
                 .map_or(DEFAULT_SESSION_POLL, Duration::from_millis),
             seats: crate::model::SeatLimits::from(&file.sessions),
+            every_codex_feature: file
+                .sessions
+                .codex_features
+                .as_deref()
+                .is_some_and(|wanted| wanted.trim() == "full"),
             workspace_root: file
                 .runtime
                 .workspace_root
@@ -154,6 +161,7 @@ impl RuntimeConfig {
             memory: None,
             watch_sessions: false,
             seats: crate::model::SeatLimits::DEFAULT,
+            every_codex_feature: false,
             session_poll: DEFAULT_SESSION_POLL,
             workspace_root: None,
             shell: None,

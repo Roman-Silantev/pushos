@@ -12,6 +12,7 @@
 
 mod lines;
 mod questions;
+mod turns;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -19,7 +20,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use pushos_domain::action::{ActionContext, ActionResult, ActionStatus, Depth, DisplayIntent};
 use pushos_domain::attached::{
-    Attached, AttachedTarget, BANK, Decision, SessionQuestion, is_session_name,
+    Activity, Attached, AttachedTarget, BANK, Decision, SessionQuestion, is_session_name,
 };
 use pushos_domain::error::{ActionError, ErrorClass};
 use pushos_domain::ids::{ActionVerb, AttachedId, ProviderName};
@@ -32,7 +33,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::sync::watch;
-use tracing::info;
+use tracing::{debug, info};
 
 use self::questions::Questions;
 
@@ -74,6 +75,8 @@ pub struct SessionProvider {
     seen: Mutex<Seen>,
     /// Questions sessions are waiting on the operator to answer from here.
     questions: Questions,
+    /// How many sessions may work at once, and what is waiting its turn.
+    turns: turns::Turns,
 }
 
 /// The last answers, and when they were given.
@@ -107,6 +110,7 @@ impl SessionProvider {
             scrolled: AtomicUsize::new(0),
             seen: Mutex::new(Seen::default()),
             questions: Questions::default(),
+            turns: turns::Turns::new(),
         }
     }
 
@@ -327,6 +331,82 @@ impl SessionProvider {
                 detail: Some(said.to_owned()),
             }),
         })
+    }
+
+    /// Whether work for this session would have to wait for a turn.
+    ///
+    /// Only for a session an agent keeps: one in a terminal is a program the
+    /// operator is looking at, and typing into it is theirs to time.
+    async fn would_wait(&self, session: &Attached) -> bool {
+        if !session.can_be_put_away() || self.turns.limit().is_none() {
+            return false;
+        }
+        let working = self
+            .open()
+            .await
+            .unwrap_or_default()
+            .iter()
+            .filter(|open| open.can_be_put_away() && open.activity == Activity::Working)
+            .count();
+        self.turns.busy(working)
+    }
+
+    /// Puts work aside until a session frees up, and says where it stands.
+    fn wait_for_a_turn(&self, session: &Attached, text: &str) -> Result<ActionResult, ActionError> {
+        let ahead = self.turns.hold(&session.id, text).map_err(|full| {
+            ActionError::backend(
+                full.to_string(),
+                ErrorClass::UserActionRequired,
+                std::io::Error::other("the queue is full"),
+            )
+        })?;
+        Ok(ActionResult {
+            status: ActionStatus::Started,
+            message: Some(format!(
+                "{} waits its turn ({ahead} to go)",
+                session.label()
+            )),
+            display: Some(DisplayIntent::Toast {
+                title: session.label().to_owned(),
+                detail: Some(format!("{ahead} waiting")),
+            }),
+        })
+    }
+
+    /// Says how many sessions may work at once, as the configuration has it.
+    pub fn allow_working(&self, most: Option<usize>) {
+        self.turns.allow(most.unwrap_or(0));
+    }
+
+    /// How much work is waiting for a turn.
+    pub fn waiting_turns(&self) -> usize {
+        self.turns.waiting()
+    }
+
+    /// Drops work waiting for sessions that are no longer open.
+    pub fn keep_work_for(&self, open: &[Attached]) {
+        let there: Vec<AttachedId> = open.iter().map(|session| session.id.clone()).collect();
+        self.turns.keep_only(&there);
+    }
+
+    /// Sends what has been waiting, up to `free` pieces of work.
+    ///
+    /// Returns how many went. Work for a session that has since gone is
+    /// dropped rather than retried for ever.
+    pub async fn start_waiting_work(&self, free: usize) -> usize {
+        let mut started = 0;
+        for held in self.turns.take(free) {
+            match self.sessions.send(&held.session, &held.text).await {
+                Ok(()) => {
+                    debug!(session = %held.session, "started work that was waiting its turn");
+                    started += 1;
+                }
+                Err(error) => {
+                    debug!(%error, session = %held.session, "dropped work nobody can be given");
+                }
+            }
+        }
+        started
     }
 
     /// The thing that can see other terminals, for whoever has to poll it.
@@ -663,7 +743,8 @@ impl ActionProvider for SessionProvider {
 
             "send" | "interrupt" => {
                 let session = self.resolve(&context).await?;
-                let text = if context.definition.selector.verb.as_str() == "interrupt" {
+                let interrupting = context.definition.selector.verb.as_str() == "interrupt";
+                let text = if interrupting {
                     INTERRUPT.to_owned()
                 } else {
                     let written = context.params().require_text("text")?;
@@ -672,6 +753,12 @@ impl ActionProvider for SessionProvider {
                     }
                     written.to_owned()
                 };
+
+                // Stopping something is never made to wait: it is what an
+                // operator does when the fleet is already too busy.
+                if !interrupting && self.would_wait(&session).await {
+                    return self.wait_for_a_turn(&session, &text);
+                }
 
                 self.sessions
                     .send(&session.id, &text)

@@ -369,7 +369,8 @@ impl Runtime {
                     let limits = Arc::clone(&self.config);
                     move || limits.current().seats
                 },
-            );
+            )
+            .letting_work_through(Arc::clone(provider));
             shutdown.spawn(keeping.run(shutdown.clone()));
             publisher = publisher.with_attached(found.clone(), provider.watch(), provider.banked());
             watched_sessions = Some(found.clone());

@@ -720,3 +720,143 @@ async fn only_allowing_needs_saying_yes_to() {
             .is_empty()
     );
 }
+
+// --- Taking turns -----------------------------------------------------------
+// Sixty-four pads can hold sessions, but the model will not answer sixty-four
+// streams at once. Work given while the fleet is busy waits rather than failing.
+
+/// Two sessions a coding agent keeps: one working, one ready for more.
+fn a_busy_fleet() -> (SessionProvider, FakeAttached) {
+    let working = pushos_domain::attached::Attached::new(
+        "thread:busy",
+        "already working",
+        Activity::Working,
+        "Codex",
+    )
+    .dispatched()
+    .named("builder");
+    let ready = pushos_domain::attached::Attached::new(
+        "thread:free",
+        "waiting for work",
+        Activity::Ready,
+        "Codex",
+    )
+    .dispatched()
+    .named("reviewer");
+
+    let fake = FakeAttached::holding([working, ready]);
+    (SessionProvider::new(Arc::new(fake.clone())), fake)
+}
+
+fn sent(fake: &FakeAttached) -> Vec<(String, String)> {
+    fake.calls()
+        .into_iter()
+        .filter_map(|call| match call {
+            SessionCall::Sent(session, text) => Some((session, text)),
+            _ => None,
+        })
+        .collect()
+}
+
+#[tokio::test]
+async fn work_given_while_the_fleet_is_busy_waits_its_turn() {
+    let (provider, fake) = a_busy_fleet();
+    provider.allow_working(Some(1));
+
+    let result = provider
+        .execute(typing("id:thread:free", "review the invoices"))
+        .await
+        .expect("accepted");
+
+    assert_eq!(result.status, ActionStatus::Started);
+    assert!(
+        result
+            .message
+            .as_deref()
+            .unwrap_or_default()
+            .contains("waits its turn"),
+        "{result:?}"
+    );
+    assert!(
+        sent(&fake).is_empty(),
+        "nothing was sent while one was working"
+    );
+    assert_eq!(provider.waiting_turns(), 1);
+}
+
+#[tokio::test]
+async fn waiting_work_goes_as_soon_as_there_is_room() {
+    let (provider, fake) = a_busy_fleet();
+    provider.allow_working(Some(1));
+    provider
+        .execute(typing("id:thread:free", "review the invoices"))
+        .await
+        .expect("accepted");
+
+    let started = provider.start_waiting_work(1).await;
+
+    assert_eq!(started, 1);
+    assert_eq!(
+        sent(&fake),
+        [("thread:free".to_owned(), "review the invoices".to_owned())]
+    );
+    assert_eq!(provider.waiting_turns(), 0);
+}
+
+#[tokio::test]
+async fn work_goes_straight_out_while_the_fleet_has_room() {
+    let (provider, fake) = a_busy_fleet();
+    provider.allow_working(Some(4));
+
+    let result = provider
+        .execute(typing("id:thread:free", "review the invoices"))
+        .await
+        .expect("accepted");
+
+    assert_eq!(result.status, ActionStatus::Completed);
+    assert_eq!(sent(&fake).len(), 1, "one working, four allowed");
+    assert_eq!(provider.waiting_turns(), 0);
+}
+
+#[tokio::test]
+async fn a_session_in_a_terminal_is_typed_into_whatever_the_fleet_is_doing() {
+    // It is a program the operator is looking at; its timing is theirs.
+    let (provider, fake) = rig();
+    provider.allow_working(Some(1));
+
+    provider
+        .execute(typing("tty:/dev/ttys003", "hello"))
+        .await
+        .expect("accepted");
+
+    assert_eq!(sent(&fake).len(), 1);
+    assert_eq!(provider.waiting_turns(), 0);
+}
+
+#[tokio::test]
+async fn stopping_something_never_waits_for_a_turn() {
+    let (provider, fake) = a_busy_fleet();
+    provider.allow_working(Some(1));
+
+    provider
+        .execute(context("interrupt", Some("id:thread:free")))
+        .await
+        .expect("accepted");
+
+    assert_eq!(sent(&fake).len(), 1, "an interrupt goes at once");
+}
+
+#[tokio::test]
+async fn work_for_a_session_that_has_gone_stops_waiting() {
+    let (provider, _fake) = a_busy_fleet();
+    provider.allow_working(Some(1));
+    provider
+        .execute(typing("id:thread:free", "review the invoices"))
+        .await
+        .expect("accepted");
+
+    provider.keep_work_for(&[]);
+
+    assert_eq!(provider.waiting_turns(), 0);
+    assert_eq!(provider.start_waiting_work(4).await, 0);
+}

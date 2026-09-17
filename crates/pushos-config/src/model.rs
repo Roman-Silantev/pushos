@@ -157,6 +157,8 @@ impl RuntimeSection {
 pub struct SeatLimits {
     /// The most that may be running at once. `None` for no limit.
     pub most_live: Option<usize>,
+    /// The most that may be working at once. `None` for no limit.
+    pub working_at_once: Option<usize>,
     /// How long one may sit idle before it is put away. `None` to leave idle
     /// sessions alone.
     pub put_away_after: Option<std::time::Duration>,
@@ -169,6 +171,7 @@ impl SeatLimits {
     /// on, which leaves a sixteen-gigabyte Mac room to work.
     pub const DEFAULT: Self = Self {
         most_live: Some(20),
+        working_at_once: Some(6),
         put_away_after: Some(std::time::Duration::from_mins(20)),
     };
 }
@@ -187,6 +190,11 @@ impl From<&SessionSection> for SeatLimits {
             most_live: section
                 .most_live
                 .map_or(Self::DEFAULT.most_live, |most| (most > 0).then_some(most)),
+            working_at_once: section
+                .working_at_once
+                .map_or(Self::DEFAULT.working_at_once, |most| {
+                    (most > 0).then_some(most)
+                }),
             put_away_after: section
                 .put_away_after_minutes
                 .map_or(Self::DEFAULT.put_away_after, |minutes| {
@@ -224,6 +232,24 @@ pub struct SessionSection {
     ///
     /// Defaults to twenty. `0` means no limit, for a Mac with memory to spare.
     pub most_live: Option<usize>,
+    /// How many sessions may be working at once.
+    ///
+    /// Not a memory limit: what stops a fleet is the model, which answers more
+    /// than a handful of streams at once with refusals, and a refusal loses
+    /// the whole turn. Work given to a pad while this many are working waits
+    /// and goes as soon as one finishes, so the surface gets through more than
+    /// it would by starting everything at once.
+    ///
+    /// Defaults to six. `0` starts everything at once, which is what an
+    /// operator with their own model endpoint may want.
+    pub working_at_once: Option<usize>,
+    /// Whether Codex threads are started with everything Codex can do.
+    ///
+    /// Off by default: apps, browsing, computers and the rest are not what a
+    /// pad full of coding threads uses, and leaving them out is about a
+    /// quarter of what each thread costs. Set `codex_features = "full"` to
+    /// have them.
+    pub codex_features: Option<String>,
     /// How long a session may sit idle before it is put away, in minutes.
     ///
     /// Under the limit as well as over it: a pad nobody has used since this
@@ -240,6 +266,12 @@ impl SessionSection {
         }
         if other.most_live.is_some() {
             self.most_live = other.most_live;
+        }
+        if other.codex_features.is_some() {
+            self.codex_features.clone_from(&other.codex_features);
+        }
+        if other.working_at_once.is_some() {
+            self.working_at_once = other.working_at_once;
         }
         if other.put_away_after_minutes.is_some() {
             self.put_away_after_minutes = other.put_away_after_minutes;

@@ -23,6 +23,15 @@ pub const LOG_FILE_VARIABLE: &str = "PUSHOS_LOG_FILE";
 /// The login agent's name to `launchd`.
 pub const AGENT_LABEL: &str = "dev.pushos.agent";
 
+/// How many files PushOS and what it starts may have open at once.
+///
+/// `launchd` gives a service 256, and a service inherits that to everything it
+/// starts. A coding agent's server holding a thread for every pad wants around
+/// thirty files each, so sixty-four pads would run out long before the memory
+/// did, and running out of files fails in ways that are hard to read. This is
+/// well clear of that and far below what macOS allows a process.
+const OPEN_FILES: u32 = 8_192;
+
 /// What to call a certificate made on this Mac for signing PushOS.
 ///
 /// Signing with the same certificate every time is what lets macOS recognise a
@@ -188,6 +197,11 @@ impl LoginAgent {
 	<integer>10</integer>
 	<key>ProcessType</key>
 	<string>Interactive</string>
+	<key>SoftResourceLimits</key>
+	<dict>
+		<key>NumberOfFiles</key>
+		<integer>{files}</integer>
+	</dict>
 	<key>StandardOutPath</key>
 	<string>{log}</string>
 	<key>StandardErrorPath</key>
@@ -201,6 +215,7 @@ impl LoginAgent {
 </plist>
 "#,
             label = AGENT_LABEL,
+            files = OPEN_FILES,
             log_variable = LOG_FILE_VARIABLE,
             bundle = BUNDLE_IDENTIFIER,
             executable = escape(&self.executable.to_string_lossy()),
@@ -328,6 +343,17 @@ mod tests {
         assert!(lints(&plist), "plutil rejects it:\n{plist}");
         assert!(plist.contains(&format!(
             "<key>{LOG_FILE_VARIABLE}</key>\n\t\t<string>/Users/someone/Library/Logs/PushOS/pushos.log</string>"
+        )));
+    }
+
+    #[test]
+    fn enough_files_are_allowed_for_a_pad_full_of_agents() {
+        // launchd's 256 is inherited by everything PushOS starts, and an agent
+        // server holding sixty-four threads wants far more than that.
+        let plist = agent().plist();
+        assert!(lints(&plist), "plutil rejects it:\n{plist}");
+        assert!(plist.contains(&format!(
+            "<key>NumberOfFiles</key>\n\t\t<integer>{OPEN_FILES}</integer>"
         )));
     }
 

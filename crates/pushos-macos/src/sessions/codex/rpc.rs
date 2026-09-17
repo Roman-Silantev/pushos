@@ -43,6 +43,22 @@ const LONGEST_LINE: u64 = 32 * 1024 * 1024;
 /// What PushOS calls itself to the server.
 const CLIENT: &str = "pushos";
 
+/// What the server is told not to load.
+///
+/// Every one of these is something a coding thread on a pad does not use, and
+/// each costs memory in the server and, for some, a program of its own for
+/// every thread. Measured on an M4 with sixty-four threads: 1.1 GB without
+/// them against 1.5 GB with them, which is 16 MB a thread rather than 22.
+/// An operator who wants them can say so; see `codex_features`.
+const NOT_LOADED: [&str; 6] = [
+    "apps",
+    "browser_use",
+    "computer_use",
+    "code_mode_host",
+    "goals",
+    "guardian_approval",
+];
+
 /// Everyone waiting for an answer, by the number they asked under.
 type Waiting = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>>;
 
@@ -75,10 +91,17 @@ struct Live {
 
 impl AppServer {
     /// The `codex` installed for this user.
-    pub(super) fn new() -> Self {
+    pub(super) fn new(lean: bool) -> Self {
+        let mut arguments = Vec::new();
+        if lean {
+            for feature in NOT_LOADED {
+                arguments.extend(["--disable".to_owned(), feature.to_owned()]);
+            }
+        }
+        arguments.push("app-server".to_owned());
         Self {
             program: None,
-            arguments: vec!["app-server".to_owned()],
+            arguments,
             live: Mutex::new(None),
             greeting: Mutex::new(()),
             next: AtomicU64::new(0),

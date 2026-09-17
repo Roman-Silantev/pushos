@@ -135,6 +135,8 @@ fn limit_now(asked: Option<usize>, pressure: Pressure) -> Option<usize> {
 /// Keeps the number of sessions running within the limit, over and over.
 pub(crate) struct SeatsTask {
     sessions: Arc<dyn pushos_domain::ports::AttachedSessions>,
+    /// Whose queue of work is let out as sessions finish.
+    provider: Option<Arc<pushos_actions::providers::session::SessionProvider>>,
     pressure: Arc<dyn pushos_domain::ports::MemoryPressure>,
     watching: tokio::sync::watch::Receiver<Vec<Attached>>,
     /// Read again at every look, so an operator who changes the limit sees it
@@ -168,6 +170,7 @@ impl SeatsTask {
     ) -> Self {
         Self {
             sessions,
+            provider: None,
             pressure,
             watching,
             limits: Box::new(limits),
@@ -175,11 +178,54 @@ impl SeatsTask {
         }
     }
 
+    /// Lets work that is waiting for a turn go as sessions finish.
+    #[must_use]
+    pub(crate) fn letting_work_through(
+        mut self,
+        provider: Arc<pushos_actions::providers::session::SessionProvider>,
+    ) -> Self {
+        self.provider = Some(provider);
+        self
+    }
+
     /// Looks more or less often than the default.
     #[cfg(test)]
     const fn every(mut self, every: Duration) -> Self {
         self.every = every;
         self
+    }
+
+    /// Starts what has been waiting, as far as the limit allows.
+    ///
+    /// Counted from what the sessions are doing rather than from what PushOS
+    /// started: a session may be working because the operator typed in its own
+    /// window, and that is still the model's attention being used.
+    async fn let_work_through(&self, sessions: &[Attached]) {
+        let Some(provider) = &self.provider else {
+            return;
+        };
+        let limits = (self.limits)();
+        provider.allow_working(limits.working_at_once);
+        provider.keep_work_for(sessions);
+        if provider.waiting_turns() == 0 {
+            return;
+        }
+
+        let Some(most) = limits.working_at_once else {
+            provider.start_waiting_work(usize::MAX).await;
+            return;
+        };
+        let working = sessions
+            .iter()
+            .filter(|session| session.can_be_put_away() && session.activity == Activity::Working)
+            .count();
+        let free = most.saturating_sub(working);
+        if free > 0 {
+            let started = provider.start_waiting_work(free).await;
+            if started > 0 {
+                tracing::debug!(started, working, "let work through that was waiting a turn");
+            }
+        }
     }
 
     /// Runs until PushOS stops.
@@ -198,6 +244,7 @@ impl SeatsTask {
             let sessions = self.watching.borrow_and_update().clone();
             let now = Instant::now();
             idle.seen(&sessions, now);
+            self.let_work_through(&sessions).await;
             if sessions.iter().all(|session| !session.can_be_put_away()) {
                 continue;
             }
@@ -235,6 +282,7 @@ mod tests {
     fn limits(most_live: Option<usize>) -> SeatLimits {
         SeatLimits {
             most_live,
+            working_at_once: None,
             put_away_after: None,
         }
     }
@@ -349,6 +397,7 @@ mod tests {
             &idle,
             SeatLimits {
                 most_live: Some(20),
+                working_at_once: None,
                 put_away_after: Some(Duration::from_mins(20)),
             },
             Pressure::Normal,

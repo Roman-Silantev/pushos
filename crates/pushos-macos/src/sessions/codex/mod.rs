@@ -49,9 +49,12 @@ pub(super) struct CodexThreads {
 
 impl CodexThreads {
     /// Speaks to the Codex installed for this user.
-    pub(super) fn new() -> Self {
+    ///
+    /// `lean` leaves out what a thread on a pad does not use, which is most of
+    /// what a thread costs; see [`rpc`].
+    pub(super) fn new(lean: bool) -> Self {
         Self {
-            server: AppServer::new(),
+            server: AppServer::new(lean),
         }
     }
 
@@ -498,7 +501,7 @@ for line in sys.stdin:
     #[tokio::test]
     #[ignore = "needs the real Codex, and spends a little of its allowance"]
     async fn against_the_codex_installed_on_this_mac() {
-        let codex = CodexThreads::new();
+        let codex = CodexThreads::new(true);
         assert!(codex.program().is_some(), "Codex is not installed");
 
         let directory = std::env::temp_dir().join(format!(

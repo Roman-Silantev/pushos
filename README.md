@@ -482,6 +482,39 @@ dashboard and PushOS all call it the same thing. Opening a window onto one runs
 tells the server to stop holding it. PushOS shows only the threads its seats
 hold, not every thread Codex remembers.
 
+#### Sixty-four pads working
+
+Three things stop a surface this size, and they bind in this order.
+
+**Memory.** Measured on an M4 with a Codex thread per pad: 1.1 GB for sixty-four
+threads, 16 MB each. PushOS starts the server without apps, browsing, computer
+use, goals and guardian approval, which is about a quarter of what a thread
+costs and several programs per thread it would otherwise spawn. Add
+`codex_features = "full"` if you want them back. Claude Code seats are a
+different matter: one process each at ~440 MB, so those are the ones the live
+limit is for.
+
+**File descriptors.** `launchd` gives a service 256, and everything PushOS
+starts inherits it. A thread wants around thirty, so sixty-four pads would run
+out of files long before memory, failing in ways that read like nothing at all.
+The login agent now asks for 8,192.
+
+**The model.** This is the real ceiling, and no hardware fixes it: more than a
+handful of streaming turns at once is answered with refusals, and a refusal
+loses the whole turn rather than delaying it. So work given to a pad while the
+fleet is busy waits, and goes the moment a session finishes:
+
+```toml
+[sessions]
+working_at_once = 6   # turns running at once; 0 starts everything at once
+```
+
+The pad says `waits its turn (3 to go)` rather than failing, an interrupt never
+waits, and pressing a pad twice replaces what it was waiting to say rather than
+queueing both. Work for a session that closes stops waiting. The result is that
+sixty-four pads get through more work than sixty-four pads all shouting at once
+would — the limit is what makes the fleet fast, not what holds it back.
+
 ### Answering from the Push
 
 Claude Code and Codex can ask the Push before they ask you in their own window.
@@ -609,6 +642,7 @@ Everything it writes down or holds on to has a limit:
 | A recording | One minute, more than either speech engine reads |
 | Sessions an agent keeps running | 20 at once by default, fewer while macOS says memory is short |
 | Codex threads on the surface | only the ones a pad holds, listed 200 at a time |
+| Work waiting for a turn | 128 pieces; one per pad, and some to spare |
 | Finished agents and terminals | The last few, for the display |
 
 Running, it uses about 7 MB of memory. Watching Terminal reads each tab's

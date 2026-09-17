@@ -134,9 +134,14 @@ impl FakeAttached {
 
     /// Finds a session that can be typed into, as a real host would refuse one
     /// it can only watch.
+    /// Whether a session can be given anything at all.
+    ///
+    /// One a coding agent keeps takes instructions without having a screen to
+    /// type at, so this is not the same question as whether keys can be
+    /// pressed in it.
     fn reachable(&self, session: &AttachedId) -> Result<(), AttachError> {
         let found = self.find(session)?;
-        if found.can_type() {
+        if found.takes_instructions() {
             Ok(())
         } else {
             Err(AttachError::Unreachable {
@@ -181,7 +186,13 @@ impl AttachedSessions for FakeAttached {
 
     async fn press(&self, session: &AttachedId, key: Key) -> Result<(), AttachError> {
         self.check()?;
-        self.reachable(session)?;
+        let found = self.find(session)?;
+        if !found.can_type() {
+            return Err(AttachError::Unreachable {
+                session: found.id,
+                host: found.host,
+            });
+        }
         self.record(SessionCall::Pressed(session.to_string(), key));
         Ok(())
     }
