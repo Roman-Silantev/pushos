@@ -113,6 +113,10 @@ impl Turns {
         };
         if let Some(already) = waiting.iter_mut().find(|held| &held.session == session) {
             text.clone_into(&mut already.text);
+            // Different work: whatever the agent thought of the last lot is
+            // no reason to give up on this sooner, or to make it wait.
+            already.refused = 0;
+            already.next_try = None;
             return Ok(waiting.len());
         }
         if waiting.len() >= MOST_WAITING {
@@ -162,13 +166,14 @@ impl Turns {
         true
     }
 
-    /// Drops work for any session that is no longer there.
+    /// Drops whatever a session was waiting to be told.
     ///
-    /// A pad whose session was closed elsewhere would otherwise keep its work
-    /// waiting for a turn that can never come.
-    pub(super) fn keep_only(&self, open: &[AttachedId]) {
+    /// For when it is told something else directly, or stopped: what was
+    /// waiting is what the operator has just replaced or cancelled, and
+    /// sending it afterwards would be PushOS arguing with them.
+    pub(super) fn forget(&self, session: &AttachedId) {
         if let Ok(mut waiting) = self.waiting.lock() {
-            waiting.retain(|held| open.contains(&held.session));
+            waiting.retain(|held| &held.session != session);
         }
     }
 
@@ -295,19 +300,19 @@ mod tests {
     }
 
     #[test]
-    fn a_session_that_goes_takes_its_waiting_work_with_it() {
+    fn work_a_session_no_longer_needs_is_dropped() {
         let turns = Turns::new();
         turns.hold(&session("one"), "first").expect("held");
         turns.hold(&session("two"), "second").expect("held");
 
-        turns.keep_only(&[session("two")]);
+        turns.forget(&session("one"));
 
         let left = turns.take(4, Instant::now());
         assert_eq!(left.len(), 1);
         assert_eq!(
             left[0].session,
             session("two"),
-            "the one whose session closed waits for nothing"
+            "the one that was told something else waits for nothing"
         );
     }
 

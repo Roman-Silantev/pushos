@@ -201,16 +201,24 @@ impl MacSessions {
                 detail: "not installed; its threads cannot be put on pads".to_owned(),
             },
             Some(program) => {
-                let threads = self.codex.threads().await;
+                let listing = self.codex.threads().await;
                 SourceReport {
                     source: CODEX,
-                    usable: true,
-                    detail: format!(
-                        "{} thread(s), {} of them loaded, using {}",
-                        threads.len(),
-                        threads.iter().filter(|thread| thread.loaded).count(),
-                        program.display()
-                    ),
+                    usable: listing.answered,
+                    detail: if listing.answered {
+                        format!(
+                            "{} thread(s), {} of them loaded, using {}",
+                            listing.threads.len(),
+                            listing
+                                .threads
+                                .iter()
+                                .filter(|thread| thread.loaded)
+                                .count(),
+                            program.display()
+                        )
+                    } else {
+                        format!("{} would not answer", program.display())
+                    },
                 }
             }
         };
@@ -354,7 +362,12 @@ impl MacSessions {
         let id = if codex {
             self.codex.start(&directory, &request.name, work).await?
         } else {
-            self.supervisor.start(&directory, work).await?
+            let id = self.supervisor.start(&directory, work).await?;
+            // The answer Claude Code gave a moment ago is about a world
+            // without this session in it, and the next look decides what
+            // still exists.
+            self.claude.look_again().await;
+            id
         };
         self.seats.took(&request.name, &id).await;
         Ok(Opened {
@@ -364,19 +377,17 @@ impl MacSessions {
     }
 
     /// Whether what a seat holds is still something its keeper knows about.
+    ///
+    /// A keeper that would not answer leaves the seat alone: starting another
+    /// session because the first could not be confirmed would leave two agents
+    /// working in one folder, and the older one unreachable.
     async fn still_there(&self, held: &str, codex: bool) -> bool {
         if codex {
-            self.codex
-                .threads()
-                .await
-                .iter()
-                .any(|thread| thread.id == held)
+            let listing = self.codex.threads().await;
+            !listing.answered || listing.threads.iter().any(|thread| thread.id == held)
         } else {
-            self.claude
-                .kept()
-                .await
-                .iter()
-                .any(|session| session.id == held)
+            let look = self.claude.kept().await;
+            !look.answered || look.kept.iter().any(|session| session.id == held)
         }
     }
 
@@ -398,6 +409,7 @@ impl AttachedSessions for MacSessions {
             self.claude.kept(),
             self.codex.threads()
         );
+        let answered = kept.answered && threads.answered;
 
         // Each source on its own terms: Terminal refusing permission, or tmux
         // not being installed, hides nothing the others can see.
@@ -426,15 +438,20 @@ impl AttachedSessions for MacSessions {
             whereabouts,
         });
         // One book holds both kinds, so what still exists is worked out over
-        // both before anything is dropped from it.
-        let existing: Vec<String> = kept
-            .iter()
-            .map(|session| session.id.clone())
-            .chain(threads.iter().map(|thread| thread.id.clone()))
-            .collect();
-        self.seats.keep_only(&existing).await;
-        merged.extend(self.on_seats(kept).await);
-        merged.extend(self.threads_on_seats(threads).await);
+        // both before anything is dropped from it — and only when both
+        // actually answered. A keeper that said nothing knows nothing, and
+        // pruning on that would lose which session a pad holds for good.
+        if answered {
+            let existing: Vec<String> = kept
+                .kept
+                .iter()
+                .map(|session| session.id.clone())
+                .chain(threads.threads.iter().map(|thread| thread.id.clone()))
+                .collect();
+            self.seats.keep_only(&existing).await;
+        }
+        merged.extend(self.on_seats(kept.kept).await);
+        merged.extend(self.threads_on_seats(threads.threads).await);
 
         // Terminal refusing is still worth an error when it leaves nothing to
         // show, because that is the one an operator can fix.
@@ -588,6 +605,128 @@ mod tests {
     use pushos_testkit::FakeProcesses;
 
     use super::*;
+
+    /// A scratch directory for a seat book, removed when the test ends.
+    struct Scratch(std::path::PathBuf);
+
+    impl Scratch {
+        fn new(label: &str) -> Self {
+            let path = std::env::temp_dir().join(format!(
+                "pushos-seatbook-{label}-{}",
+                pushos_domain::ids::ExecutionId::generate()
+            ));
+            std::fs::create_dir_all(&path).expect("writable");
+            Self(path)
+        }
+
+        fn book(&self) -> std::path::PathBuf {
+            self.0.join("seats.json")
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            std::fs::remove_dir_all(&self.0).ok();
+        }
+    }
+
+    /// A Claude Code whose listing learns about a session once it is started.
+    ///
+    /// Exactly what the real one does, and the reason the answer from a
+    /// moment ago cannot be trusted after PushOS starts something.
+    fn claude_that_learns(processes: &FakeProcesses) -> Arc<std::sync::atomic::AtomicBool> {
+        let started = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let knows = Arc::clone(&started);
+        processes.reply_with(move |spec| {
+            let starting = spec.args.iter().any(|argument| argument == "--bg");
+            let listing = spec.args.iter().any(|argument| argument == "agents");
+            if starting {
+                knows.store(true, std::sync::atomic::Ordering::Relaxed);
+                return FakeProcesses::printed("claude attach 55c88714   open in this terminal");
+            }
+            if listing {
+                let listed = knows.load(std::sync::atomic::Ordering::Relaxed);
+                return FakeProcesses::printed(if listed {
+                    r#"[{"id":"55c88714","sessionId":"55c88714-aa","cwd":"/tmp","kind":"background","state":"done","pid":4242}]"#
+                } else {
+                    "[]"
+                });
+            }
+            FakeProcesses::printed("")
+        });
+        started
+    }
+
+    fn a_builder(name: &str) -> OpenSession {
+        OpenSession {
+            name: name.to_owned(),
+            directory: Some(std::path::PathBuf::from("/tmp")),
+            keeper: Keeper::ClaudeCode,
+            command: Some("write the tests".to_owned()),
+        }
+    }
+
+    #[tokio::test]
+    async fn a_seat_still_holds_the_session_it_just_started() {
+        // Starting one looks again at once, and the answer from a moment
+        // before it existed would say it is not there. Taking that for "it is
+        // gone" drops the seat, leaving a session running that no pad reaches.
+        let scratch = Scratch::new("kept");
+        let processes = FakeProcesses::new();
+        claude_that_learns(&processes);
+        let sessions = MacSessions::new(Arc::new(processes)).keeping_seats_in(scratch.book());
+        // As the poll loop does, a moment before the pad is pressed: this is
+        // the answer that will be stale by the time the session exists.
+        sessions.discover().await.ok();
+
+        let opened = sessions.open(&a_builder("builder")).await.expect("started");
+
+        assert_eq!(opened.id.as_str(), "kept:55c88714");
+        assert_eq!(
+            sessions.seats.holding("builder").await.as_deref(),
+            Some("55c88714"),
+            "the seat still holds what it just started"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_keeper_that_will_not_answer_never_empties_the_seat_book() {
+        // PushOS starting while Claude Code is mid-update, or before the
+        // keychain is ready: it has never answered, so it knows nothing.
+        // Reading that as "every session is gone" would lose which session
+        // each pad holds, for good.
+        let scratch = Scratch::new("silent");
+        std::fs::write(
+            scratch.book(),
+            r#"{"builder": "55c88714", "reviewer": "9db46d48"}"#,
+        )
+        .expect("writable");
+
+        let processes = FakeProcesses::new();
+        processes.reply_with(|spec| {
+            if spec.args.iter().any(|argument| argument == "agents") {
+                return pushos_domain::ports::ProcessOutcome {
+                    exit_code: Some(1),
+                    stdout_tail: String::new(),
+                    stderr_tail: "could not read the session list".to_owned(),
+                };
+            }
+            FakeProcesses::printed("")
+        });
+        let sessions = MacSessions::new(Arc::new(processes)).keeping_seats_in(scratch.book());
+
+        sessions.discover().await.ok();
+
+        assert_eq!(
+            sessions.seats.holding("builder").await.as_deref(),
+            Some("55c88714"),
+            "silence is not proof that a session went"
+        );
+        assert_eq!(
+            sessions.seats.holding("reviewer").await.as_deref(),
+            Some("9db46d48")
+        );
+    }
 
     #[tokio::test]
     async fn a_session_that_was_never_seen_is_gone() {

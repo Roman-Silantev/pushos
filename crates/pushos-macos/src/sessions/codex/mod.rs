@@ -52,6 +52,16 @@ pub(super) struct Thread {
     pub(super) loaded: bool,
 }
 
+/// The threads Codex knows about, and whether it actually said so.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(super) struct Listing {
+    /// What it reported.
+    pub(super) threads: Vec<Thread>,
+    /// Whether Codex answered at all. `false` means PushOS does not know what
+    /// is there, which must never be taken for "there is nothing".
+    pub(super) answered: bool,
+}
+
 /// Everything PushOS does with Codex threads.
 #[derive(Debug)]
 pub(super) struct CodexThreads {
@@ -90,11 +100,12 @@ impl CodexThreads {
     ///
     /// Never a failure: a Mac without Codex, or a server that would not start,
     /// simply has no threads to put on the surface.
-    pub(super) async fn threads(&self) -> Vec<Thread> {
+    pub(super) async fn threads(&self) -> Listing {
         let mut listed = self.listed.lock().await;
         let fresh = listed
             .as_ref()
             .is_some_and(|(_, asked)| asked.elapsed() < LISTING_LASTS);
+        let mut answered = true;
         if !fresh {
             match self.ask_for_threads().await {
                 Ok(threads) => *listed = Some((threads, Instant::now())),
@@ -102,15 +113,13 @@ impl CodexThreads {
                     debug!(%error, "Codex did not say what its threads are doing");
                     // What was known before is better than nothing, and a
                     // server that has gone will be started by the next ask.
-                    if listed.is_none() {
-                        return Vec::new();
-                    }
+                    answered = false;
                 }
             }
         }
 
         let Some((threads, _)) = listed.as_mut() else {
-            return Vec::new();
+            return Listing::default();
         };
 
         // What the server has said since is newer than any listing.
@@ -127,11 +136,14 @@ impl CodexThreads {
                 thread.loaded = status != "notLoaded";
             }
         }
-        threads.clone()
+        Listing {
+            threads: threads.clone(),
+            answered,
+        }
     }
 
     /// Forgets the last listing, so the next look asks the server.
-    async fn look_again(&self) {
+    pub(super) async fn look_again(&self) {
         *self.listed.lock().await = None;
     }
 
@@ -214,7 +226,20 @@ impl CodexThreads {
     ) -> Result<String, AttachError> {
         let started = self
             .server
-            .call("thread/start", json!({"cwd": directory.to_string_lossy()}))
+            .call(
+                "thread/start",
+                json!({
+                    "cwd": directory.to_string_lossy(),
+                    // Nobody is sitting at this thread to answer it. Asked for
+                    // approval, it would wait for an answer PushOS has no way
+                    // to give and the pad would say "working" for ever. So it
+                    // is not asked, and is held to its own folder instead:
+                    // it may write where it was sent to work and nowhere else,
+                    // and reaches no network unless Codex is configured to.
+                    "approvalPolicy": "never",
+                    "sandbox": "workspace-write",
+                }),
+            )
             .await?;
         let id = started
             .get("thread")
@@ -472,7 +497,7 @@ for line in sys.stdin:
         let (directory, script, _asked) = stub("list");
         let codex = CodexThreads::served_by("/usr/bin/python3", &[&script.to_string_lossy()]);
 
-        let threads = codex.threads().await;
+        let threads = codex.threads().await.threads;
 
         assert_eq!(threads.len(), 2);
         assert_eq!(threads[0].name, "invoices");
@@ -491,7 +516,7 @@ for line in sys.stdin:
         let codex = CodexThreads::served_by("/usr/bin/python3", &[&script.to_string_lossy()]);
 
         for _ in 0..5 {
-            assert_eq!(codex.threads().await.len(), 2);
+            assert_eq!(codex.threads().await.threads.len(), 2);
         }
 
         let listings = requests(&asked)
@@ -506,7 +531,7 @@ for line in sys.stdin:
     async fn a_thread_that_starts_working_shows_it_without_asking_again() {
         let (directory, script, asked) = stub("notified");
         let codex = CodexThreads::served_by("/usr/bin/python3", &[&script.to_string_lossy()]);
-        assert_eq!(codex.threads().await[1].activity, Activity::Quiet);
+        assert_eq!(codex.threads().await.threads[1].activity, Activity::Quiet);
 
         // What the server says of its own accord, which is how a pad knows.
         codex
@@ -516,7 +541,7 @@ for line in sys.stdin:
             .await
             .note_for_test("thread-2", "active");
 
-        let threads = codex.threads().await;
+        let threads = codex.threads().await.threads;
         assert_eq!(threads[1].activity, Activity::Working);
         assert!(threads[1].loaded);
         let listings = requests(&asked)
@@ -524,6 +549,27 @@ for line in sys.stdin:
             .filter(|request| request["method"] == "thread/list")
             .count();
         assert_eq!(listings, 1, "nothing was asked for the newer state");
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    #[tokio::test]
+    async fn a_thread_is_started_where_nothing_will_wait_on_an_answer() {
+        // There is no operator at a thread on a pad, so a thread that asks for
+        // approval waits for ever. It is held to its folder instead.
+        let (directory, script, asked) = stub("policy");
+        let codex = CodexThreads::served_by("/usr/bin/python3", &[&script.to_string_lossy()]);
+
+        codex
+            .start(Path::new("/tmp/work"), "invoices", "review them")
+            .await
+            .expect("started");
+
+        let started = requests(&asked)
+            .into_iter()
+            .find(|request| request["method"] == "thread/start")
+            .expect("a thread was started");
+        assert_eq!(started["params"]["approvalPolicy"], "never");
+        assert_eq!(started["params"]["sandbox"], "workspace-write");
         std::fs::remove_dir_all(directory).ok();
     }
 
@@ -616,6 +662,7 @@ for line in sys.stdin:
         let mine = codex
             .threads()
             .await
+            .threads
             .into_iter()
             .find(|thread| thread.id == id)
             .expect("the thread it just started is listed");
@@ -630,7 +677,7 @@ for line in sys.stdin:
     #[tokio::test]
     async fn a_mac_without_codex_has_no_threads_rather_than_a_failure() {
         let codex = CodexThreads::served_by("/definitely/not/a/program", &[]);
-        assert!(codex.threads().await.is_empty());
+        assert!(codex.threads().await.threads.is_empty());
     }
 
     #[test]

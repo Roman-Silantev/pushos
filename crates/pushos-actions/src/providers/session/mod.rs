@@ -437,10 +437,14 @@ impl SessionProvider {
         self.turns.waiting()
     }
 
-    /// Drops work waiting for sessions that are no longer open.
-    pub fn keep_work_for(&self, open: &[Attached]) {
-        let there: Vec<AttachedId> = open.iter().map(|session| session.id.clone()).collect();
-        self.turns.keep_only(&there);
+    /// Drops whatever a session was waiting to be told.
+    ///
+    /// Work is not pruned against a listing: a keeper that failed to answer
+    /// would empty the queue on its silence. Instead it clears itself — work
+    /// for a session that has gone is dropped the moment it cannot be
+    /// delivered, and work the operator replaced is dropped here.
+    pub fn forget_work_for(&self, session: &AttachedId) {
+        self.turns.forget(session);
     }
 
     /// Sends what has been waiting, up to `free` pieces of work.
@@ -824,6 +828,11 @@ impl ActionProvider for SessionProvider {
                 if !interrupting && self.would_wait(&session).await {
                     return self.wait_for_a_turn(&session, &text);
                 }
+
+                // What it was waiting to be told is what this replaces, or
+                // what an interrupt has just cancelled. Sending it afterwards
+                // would be PushOS arguing with the operator.
+                self.turns.forget(&session.id);
 
                 self.sessions
                     .send(&session.id, &text)

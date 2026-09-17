@@ -88,6 +88,11 @@ impl Heard {
         );
     }
 
+    /// Forgets everything, for a server that has been replaced.
+    pub(super) fn forget_everything(&mut self) {
+        self.statuses.clear();
+    }
+
     /// Forgets threads nobody is showing, so this cannot grow for ever.
     pub(super) fn keep_only(&mut self, threads: &[String]) {
         self.statuses
@@ -316,6 +321,11 @@ impl AppServer {
         let answering = Arc::clone(&asked);
         let noting = Arc::clone(&self.heard);
         tokio::spawn(async move {
+            // What the last server said was about threads it was holding. This
+            // one holds none of them yet, and keeping those states would leave
+            // a pad saying "working" for a turn that died with the process.
+            noting.lock().await.forget_everything();
+
             let mut reading = BufReader::new(reading);
             let mut line = Vec::new();
             loop {
@@ -378,6 +388,13 @@ async fn deliver(line: &str, waiting: &Waiting, heard: &Mutex<Heard>) {
 /// What one line of the server's output means, when it is an answer at all.
 fn read_answer(line: &str) -> Option<(u64, Result<Value, String>)> {
     let message: Value = serde_json::from_str(line.trim()).ok()?;
+    // The server asks things too — for approval to run a command, or for the
+    // operator to choose something — and those carry an identifier of their
+    // own alongside a method. Taken for an answer, one of them would finish
+    // somebody else's question with nonsense.
+    if message.get("method").is_some() {
+        return None;
+    }
     let id = message.get("id")?.as_u64()?;
     if let Some(failed) = message.get("error") {
         let said = failed
@@ -392,12 +409,12 @@ fn read_answer(line: &str) -> Option<(u64, Result<Value, String>)> {
     ))
 }
 
-/// What the server said of its own accord, when a line is that.
+/// What the server said or asked, when a line is either.
+///
+/// A request of its own is treated as something said: PushOS does not answer
+/// the server's questions, and the threads it starts are set up not to ask.
 fn read_notification(line: &str) -> Option<(String, Value)> {
     let message: Value = serde_json::from_str(line.trim()).ok()?;
-    if message.get("id").is_some() {
-        return None;
-    }
     let method = message.get("method")?.as_str()?.to_owned();
     Some((
         method,
@@ -498,6 +515,21 @@ mod tests {
         assert!(read_answer(r#"{"jsonrpc":"2.0","method":"thread/status/changed"}"#).is_none());
         assert!(read_answer("not json at all").is_none());
         assert!(read_answer("").is_none());
+    }
+
+    #[test]
+    fn a_question_the_server_asks_is_not_an_answer_to_ours() {
+        // The server asks for approval to run a command, with an identifier
+        // of its own. Its number means nothing to PushOS, and taking it for
+        // an answer would finish an unrelated question with nonsense.
+        let asking = r#"{"jsonrpc":"2.0","id":1,"method":"item/commandExecution/requestApproval","params":{"threadId":"one"}}"#;
+        assert!(read_answer(asking).is_none());
+        assert_eq!(
+            read_notification(asking)
+                .map(|(method, _)| method)
+                .as_deref(),
+            Some("item/commandExecution/requestApproval")
+        );
     }
 
     /// A server of sorts: it answers every request with its own method name,

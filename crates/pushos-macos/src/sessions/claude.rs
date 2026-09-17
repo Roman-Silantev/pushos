@@ -65,6 +65,14 @@ pub(super) struct Look {
     pub(super) interactive: Vec<ClaudeSession>,
     /// Sessions Claude Code keeps itself, running or put away.
     pub(super) kept: Vec<Supervised>,
+    /// Whether Claude Code actually answered.
+    ///
+    /// `false` means PushOS does not know what is there, which is a different
+    /// thing from knowing there is nothing. Anything that decides a session
+    /// has gone must read this first: a Mac mid-update, or one too busy to
+    /// answer in time, would otherwise look like one where every session
+    /// ended at once.
+    pub(super) answered: bool,
 }
 
 /// Asks Claude Code about its sessions, and remembers the answer.
@@ -131,8 +139,18 @@ impl ClaudeCode {
     }
 
     /// Every session Claude Code is keeping for PushOS, running or put away.
-    pub(super) async fn kept(&self) -> Vec<Supervised> {
-        self.look().await.kept
+    pub(super) async fn kept(&self) -> Look {
+        self.look().await
+    }
+
+    /// Forgets the last answer, so the next look asks Claude Code again.
+    ///
+    /// For when PushOS has just changed something Claude Code would report:
+    /// the answer from a moment ago is about a world that no longer exists.
+    pub(super) async fn look_again(&self) {
+        let mut remembered = self.remembered.lock().await;
+        remembered.asked = None;
+        remembered.files = None;
     }
 
     /// What Claude Code last said, asking again only when something changed.
@@ -163,7 +181,10 @@ impl ClaudeCode {
                 if !self.complained.swap(true, Ordering::Relaxed) {
                     warn!(%reason, "cannot ask Claude Code what its sessions are doing");
                 }
-                remembered.look = Look::default();
+                // What was known before is kept. An answer nobody gave is not
+                // an answer of "none", and throwing the last one away would
+                // have PushOS conclude that every session had ended.
+                remembered.look.answered = false;
             }
         }
         remembered.files = Some(files);
@@ -204,7 +225,8 @@ impl ClaudeCode {
         if !outcome.succeeded() {
             return Err(outcome.stderr_tail.trim().to_owned());
         }
-        let look = parse(&outcome.stdout_tail)?;
+        let mut look = parse(&outcome.stdout_tail)?;
+        look.answered = true;
         debug!(
             sessions = look.interactive.len(),
             kept = look.kept.len(),

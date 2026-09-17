@@ -220,6 +220,10 @@ impl SeatsTask {
         mut self,
         provider: Arc<pushos_actions::providers::session::SessionProvider>,
     ) -> Self {
+        // Said now rather than at the first look: until it is, the fleet has
+        // no limit, and the first thing an operator does is press several
+        // pads at once.
+        provider.allow_working((self.limits)().working_at_once);
         self.provider = Some(provider);
         self
     }
@@ -242,7 +246,6 @@ impl SeatsTask {
         };
         let limits = (self.limits)();
         provider.allow_working(limits.working_at_once);
-        provider.keep_work_for(sessions);
         if provider.waiting_turns() == 0 {
             return;
         }

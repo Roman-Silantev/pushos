@@ -855,7 +855,7 @@ async fn work_for_a_session_that_has_gone_stops_waiting() {
         .await
         .expect("accepted");
 
-    provider.keep_work_for(&[]);
+    provider.forget_work_for(&AttachedId::new("thread:free"));
 
     assert_eq!(provider.waiting_turns(), 0);
     assert_eq!(provider.start_waiting_work(4).await, 0);
@@ -875,6 +875,58 @@ async fn work_the_agent_refuses_waits_and_is_offered_again() {
 
     assert_eq!(provider.start_waiting_work(1).await, 0, "the agent said no");
     assert_eq!(provider.waiting_turns(), 1, "and the work is still there");
+}
+
+#[tokio::test]
+async fn telling_a_session_something_else_replaces_what_it_was_waiting_to_hear() {
+    // The operator changed their mind while the fleet was busy. Sending the
+    // older instruction afterwards would be PushOS arguing with them.
+    let (provider, fake) = a_busy_fleet();
+    provider.allow_working(Some(1));
+    provider
+        .execute(typing("id:thread:free", "run the tests"))
+        .await
+        .expect("queued");
+    assert_eq!(provider.waiting_turns(), 1);
+
+    // The fleet frees up, so the next instruction goes straight out.
+    provider.allow_working(None);
+    provider
+        .execute(typing("id:thread:free", "no, deploy"))
+        .await
+        .expect("sent");
+
+    assert_eq!(
+        provider.waiting_turns(),
+        0,
+        "the instruction it replaced is not still waiting"
+    );
+    assert_eq!(
+        sent(&fake),
+        [("thread:free".to_owned(), "no, deploy".to_owned())]
+    );
+}
+
+#[tokio::test]
+async fn stopping_a_session_cancels_the_work_it_was_waiting_to_be_given() {
+    let (provider, _fake) = a_busy_fleet();
+    provider.allow_working(Some(1));
+    provider
+        .execute(typing("id:thread:free", "run the tests"))
+        .await
+        .expect("queued");
+
+    provider
+        .execute(context("interrupt", Some("id:thread:free")))
+        .await
+        .expect("interrupted");
+
+    assert_eq!(
+        provider.waiting_turns(),
+        0,
+        "an interrupt that leaves the work queued has stopped nothing"
+    );
+    assert_eq!(provider.start_waiting_work(4).await, 0);
 }
 
 #[tokio::test]
