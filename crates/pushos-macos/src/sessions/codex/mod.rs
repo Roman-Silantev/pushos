@@ -13,13 +13,24 @@
 mod rpc;
 
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use pushos_domain::attached::Activity;
 use pushos_domain::ports::AttachError;
 use serde_json::{Value, json};
+use tokio::sync::Mutex;
+use tokio::time::Instant;
 use tracing::debug;
 
 use self::rpc::AppServer;
+
+/// How long a listing is believed before the server is asked again.
+///
+/// The server says when a thread starts and stops working, so what a listing
+/// adds is which threads exist and what they are called, and neither changes
+/// on its own. Asking every few seconds for sixty-four pads would be work for
+/// nothing; this is often enough to notice a thread somebody else started.
+const LISTING_LASTS: Duration = Duration::from_secs(60);
 
 /// How many threads are asked about in one listing.
 ///
@@ -45,6 +56,8 @@ pub(super) struct Thread {
 #[derive(Debug)]
 pub(super) struct CodexThreads {
     server: AppServer,
+    /// The last listing, and when it was asked for.
+    listed: Mutex<Option<(Vec<Thread>, Instant)>>,
 }
 
 impl CodexThreads {
@@ -55,6 +68,7 @@ impl CodexThreads {
     pub(super) fn new(lean: bool) -> Self {
         Self {
             server: AppServer::new(lean),
+            listed: Mutex::new(None),
         }
     }
 
@@ -63,6 +77,7 @@ impl CodexThreads {
     pub(super) fn served_by(program: impl Into<PathBuf>, arguments: &[&str]) -> Self {
         Self {
             server: AppServer::running(program, arguments),
+            listed: Mutex::new(None),
         }
     }
 
@@ -76,13 +91,48 @@ impl CodexThreads {
     /// Never a failure: a Mac without Codex, or a server that would not start,
     /// simply has no threads to put on the surface.
     pub(super) async fn threads(&self) -> Vec<Thread> {
-        match self.ask_for_threads().await {
-            Ok(threads) => threads,
-            Err(error) => {
-                debug!(%error, "Codex did not say what its threads are doing");
-                Vec::new()
+        let mut listed = self.listed.lock().await;
+        let fresh = listed
+            .as_ref()
+            .is_some_and(|(_, asked)| asked.elapsed() < LISTING_LASTS);
+        if !fresh {
+            match self.ask_for_threads().await {
+                Ok(threads) => *listed = Some((threads, Instant::now())),
+                Err(error) => {
+                    debug!(%error, "Codex did not say what its threads are doing");
+                    // What was known before is better than nothing, and a
+                    // server that has gone will be started by the next ask.
+                    if listed.is_none() {
+                        return Vec::new();
+                    }
+                }
             }
         }
+
+        let Some((threads, _)) = listed.as_mut() else {
+            return Vec::new();
+        };
+
+        // What the server has said since is newer than any listing.
+        let mut heard = self.server.heard().lock().await;
+        heard.keep_only(
+            &threads
+                .iter()
+                .map(|thread| thread.id.clone())
+                .collect::<Vec<_>>(),
+        );
+        for thread in threads.iter_mut() {
+            if let Some(status) = heard.status_of(&thread.id) {
+                thread.activity = activity_of(Some(status));
+                thread.loaded = status != "notLoaded";
+            }
+        }
+        threads.clone()
+    }
+
+    /// Forgets the last listing, so the next look asks the server.
+    async fn look_again(&self) {
+        *self.listed.lock().await = None;
     }
 
     async fn ask_for_threads(&self) -> Result<Vec<Thread>, AttachError> {
@@ -182,6 +232,9 @@ impl CodexThreads {
             .call("thread/name/set", json!({"threadId": id, "name": name}))
             .await;
         self.instruct(&id, work).await?;
+        // It is not in the last listing, and a pad must not wait a minute to
+        // see the thread it just started.
+        self.look_again().await;
 
         debug!(thread = %id, name, directory = %directory.display(), "started a Codex thread");
         Ok(id)
@@ -426,6 +479,51 @@ for line in sys.stdin:
         assert_eq!(threads[0].activity, Activity::Working);
         assert!(threads[0].loaded);
         assert_eq!(threads[1].activity, Activity::Quiet, "nobody is holding it");
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    #[tokio::test]
+    async fn looking_again_costs_nothing_until_the_listing_is_old() {
+        // Sixty-four pads looked at every three seconds would be a listing of
+        // two hundred threads twenty times a minute, for an answer that only
+        // changes when somebody starts a thread.
+        let (directory, script, asked) = stub("cached");
+        let codex = CodexThreads::served_by("/usr/bin/python3", &[&script.to_string_lossy()]);
+
+        for _ in 0..5 {
+            assert_eq!(codex.threads().await.len(), 2);
+        }
+
+        let listings = requests(&asked)
+            .iter()
+            .filter(|request| request["method"] == "thread/list")
+            .count();
+        assert_eq!(listings, 1, "asked once, believed five times");
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    #[tokio::test]
+    async fn a_thread_that_starts_working_shows_it_without_asking_again() {
+        let (directory, script, asked) = stub("notified");
+        let codex = CodexThreads::served_by("/usr/bin/python3", &[&script.to_string_lossy()]);
+        assert_eq!(codex.threads().await[1].activity, Activity::Quiet);
+
+        // What the server says of its own accord, which is how a pad knows.
+        codex
+            .server
+            .heard()
+            .lock()
+            .await
+            .note_for_test("thread-2", "active");
+
+        let threads = codex.threads().await;
+        assert_eq!(threads[1].activity, Activity::Working);
+        assert!(threads[1].loaded);
+        let listings = requests(&asked)
+            .iter()
+            .filter(|request| request["method"] == "thread/list")
+            .count();
+        assert_eq!(listings, 1, "nothing was asked for the newer state");
         std::fs::remove_dir_all(directory).ok();
     }
 

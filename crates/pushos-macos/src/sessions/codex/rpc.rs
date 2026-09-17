@@ -62,6 +62,58 @@ const NOT_LOADED: [&str; 6] = [
 /// Everyone waiting for an answer, by the number they asked under.
 type Waiting = Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value, String>>>>>;
 
+/// What the server has said without being asked.
+///
+/// The server says when a thread starts working and when it stops, which is
+/// both sooner and cheaper than asking it every few seconds. Kept here as it
+/// arrives; [`super`] decides what it means for a pad.
+#[derive(Debug, Default)]
+pub(super) struct Heard {
+    /// The last status each thread was reported to be in.
+    statuses: HashMap<String, String>,
+}
+
+impl Heard {
+    /// What a thread was last reported to be doing.
+    pub(super) fn status_of(&self, thread: &str) -> Option<&str> {
+        self.statuses.get(thread).map(String::as_str)
+    }
+
+    /// Notes a status as though the server had said it, for tests.
+    #[cfg(test)]
+    pub(super) fn note_for_test(&mut self, thread: &str, status: &str) {
+        self.note(
+            "thread/status/changed",
+            &json!({"threadId": thread, "status": {"type": status}}),
+        );
+    }
+
+    /// Forgets threads nobody is showing, so this cannot grow for ever.
+    pub(super) fn keep_only(&mut self, threads: &[String]) {
+        self.statuses
+            .retain(|thread, _| threads.iter().any(|kept| kept == thread));
+    }
+
+    /// Takes in one thing the server said.
+    fn note(&mut self, method: &str, params: &Value) {
+        // A turn starting and finishing is a status change too, and the status
+        // is what a pad shows, so this is the only thing worth listening for.
+        if method != "thread/status/changed" {
+            return;
+        }
+        let (Some(thread), Some(status)) = (
+            params.get("threadId").and_then(Value::as_str),
+            params
+                .get("status")
+                .and_then(|status| status.get("type"))
+                .and_then(Value::as_str),
+        ) else {
+            return;
+        };
+        self.statuses.insert(thread.to_owned(), status.to_owned());
+    }
+}
+
 /// A connection to an app server, started when it is first wanted.
 #[derive(Debug)]
 pub(super) struct AppServer {
@@ -74,6 +126,8 @@ pub(super) struct AppServer {
     /// Held while saying hello, so two callers at once cannot both do it: a
     /// server greeted twice refuses the second.
     greeting: Mutex<()>,
+    /// What the server has said of its own accord.
+    heard: Arc<Mutex<Heard>>,
     next: AtomicU64,
 }
 
@@ -104,6 +158,7 @@ impl AppServer {
             arguments,
             live: Mutex::new(None),
             greeting: Mutex::new(()),
+            heard: Arc::new(Mutex::new(Heard::default())),
             next: AtomicU64::new(0),
         }
     }
@@ -119,8 +174,14 @@ impl AppServer {
                 .collect(),
             live: Mutex::new(None),
             greeting: Mutex::new(()),
+            heard: Arc::new(Mutex::new(Heard::default())),
             next: AtomicU64::new(0),
         }
+    }
+
+    /// What the server has said without being asked.
+    pub(super) fn heard(&self) -> &Arc<Mutex<Heard>> {
+        &self.heard
     }
 
     /// Where Codex is installed, if it is.
@@ -253,6 +314,7 @@ impl AppServer {
 
         let asked: Waiting = Arc::new(Mutex::new(HashMap::new()));
         let answering = Arc::clone(&asked);
+        let noting = Arc::clone(&self.heard);
         tokio::spawn(async move {
             let mut reading = BufReader::new(reading);
             let mut line = Vec::new();
@@ -270,7 +332,7 @@ impl AppServer {
                     continue;
                 }
                 if let Ok(text) = std::str::from_utf8(&line) {
-                    deliver(text, &answering).await;
+                    deliver(text, &answering, &noting).await;
                 }
             }
             // Nobody will answer what is still outstanding, and a caller left
@@ -299,10 +361,13 @@ impl Drop for Live {
 }
 
 /// Hands one line of the server's output to whoever asked for it.
-async fn deliver(line: &str, waiting: &Waiting) {
+async fn deliver(line: &str, waiting: &Waiting, heard: &Mutex<Heard>) {
     let Some((id, answer)) = read_answer(line) else {
-        // A notification, or something a later Codex says that PushOS does
-        // not ask about. Both are none of its business.
+        // Not an answer to anything: the server saying what has changed, which
+        // is how PushOS knows what threads are doing without asking.
+        if let Some((method, params)) = read_notification(line) {
+            heard.lock().await.note(&method, &params);
+        }
         return;
     };
     if let Some(reply) = waiting.lock().await.remove(&id) {
@@ -324,6 +389,19 @@ fn read_answer(line: &str) -> Option<(u64, Result<Value, String>)> {
     Some((
         id,
         Ok(message.get("result").cloned().unwrap_or(Value::Null)),
+    ))
+}
+
+/// What the server said of its own accord, when a line is that.
+fn read_notification(line: &str) -> Option<(String, Value)> {
+    let message: Value = serde_json::from_str(line.trim()).ok()?;
+    if message.get("id").is_some() {
+        return None;
+    }
+    let method = message.get("method")?.as_str()?.to_owned();
+    Some((
+        method,
+        message.get("params").cloned().unwrap_or(Value::Null),
     ))
 }
 
@@ -371,6 +449,48 @@ mod tests {
         .expect("an answer");
         assert_eq!(id, 3);
         assert_eq!(answer.expect_err("refused"), "no such thread");
+    }
+
+    #[test]
+    fn what_a_thread_is_doing_is_taken_from_what_the_server_says() {
+        let mut heard = Heard::default();
+        heard.note(
+            "thread/status/changed",
+            &json!({"threadId": "one", "status": {"type": "active"}}),
+        );
+        assert_eq!(heard.status_of("one"), Some("active"));
+
+        heard.note(
+            "thread/status/changed",
+            &json!({"threadId": "one", "status": {"type": "idle"}}),
+        );
+        heard.note("turn/completed", &json!({"threadId": "one"}));
+        assert_eq!(heard.status_of("one"), Some("idle"));
+        assert_eq!(heard.status_of("another"), None);
+    }
+
+    #[test]
+    fn what_the_server_said_about_threads_nobody_shows_is_forgotten() {
+        let mut heard = Heard::default();
+        for thread in ["one", "two"] {
+            heard.note(
+                "thread/status/changed",
+                &json!({"threadId": thread, "status": {"type": "idle"}}),
+            );
+        }
+
+        heard.keep_only(&["two".to_owned()]);
+
+        assert_eq!(heard.status_of("one"), None);
+        assert_eq!(heard.status_of("two"), Some("idle"));
+    }
+
+    #[test]
+    fn something_the_server_says_that_pushos_does_not_know_changes_nothing() {
+        let mut heard = Heard::default();
+        heard.note("mcpServer/startupStatus/updated", &json!({"name": "x"}));
+        heard.note("thread/status/changed", &json!({"threadId": "one"}));
+        assert_eq!(heard.status_of("one"), None);
     }
 
     #[test]

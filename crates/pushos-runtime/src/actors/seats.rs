@@ -181,6 +181,13 @@ pub(crate) struct SeatsTask {
 /// sitting idle past the limit costs only memory.
 pub(crate) const HOW_OFTEN: Duration = Duration::from_secs(30);
 
+/// How often it looks while work is waiting for a turn.
+///
+/// A session that finishes frees a turn, and whatever is waiting should go
+/// then rather than up to half a minute later; an operator watching a pad
+/// would call that half a minute broken.
+const WHILE_WORK_WAITS: Duration = Duration::from_secs(2);
+
 impl std::fmt::Debug for SeatsTask {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SeatsTask")
@@ -260,14 +267,22 @@ impl SeatsTask {
     /// Runs until PushOS stops.
     pub(crate) async fn run(mut self, shutdown: crate::shutdown::Shutdown) {
         let mut idle = Idleness::default();
-        let mut every = tokio::time::interval(self.every);
-        every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
 
         loop {
+            let waiting = self
+                .provider
+                .as_ref()
+                .is_some_and(|provider| provider.waiting_turns() > 0);
+            let soon = if waiting {
+                WHILE_WORK_WAITS.min(self.every)
+            } else {
+                self.every
+            };
+
             tokio::select! {
                 biased;
                 () = shutdown.cancelled() => break,
-                _ = every.tick() => {}
+                () = tokio::time::sleep(soon) => {}
             }
 
             let sessions = self.watching.borrow_and_update().clone();

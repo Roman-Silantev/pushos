@@ -499,6 +499,13 @@ starts inherits it. A thread wants around thirty, so sixty-four pads would run
 out of files long before memory, failing in ways that read like nothing at all.
 The login agent now asks for 8,192.
 
+**Asking costs, so PushOS is told instead.** The Codex server says when a
+thread starts and stops working, so PushOS listens rather than asking: it reads
+the full listing once a minute, and everything in between comes from what the
+server volunteers. Sixty-four pads therefore cost one listing a minute instead
+of twenty, and a pad lights up when its thread starts working rather than up to
+three seconds later.
+
 **The model.** This is the real ceiling, and no hardware fixes it: more than a
 handful of streaming turns at once is answered with refusals, and a refusal
 loses the whole turn rather than delaying it. So work given to a pad while the
