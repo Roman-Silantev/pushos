@@ -159,6 +159,9 @@ pub struct SeatLimits {
     pub most_live: Option<usize>,
     /// The most that may be working at once. `None` for no limit.
     pub working_at_once: Option<usize>,
+    /// The most threads in a shared server that may be loaded at once.
+    /// `None` for no limit.
+    pub most_threads: Option<usize>,
     /// How long one may sit idle before it is put away. `None` to leave idle
     /// sessions alone.
     pub put_away_after: Option<std::time::Duration>,
@@ -172,6 +175,9 @@ impl SeatLimits {
     pub const DEFAULT: Self = Self {
         most_live: Some(20),
         working_at_once: Some(6),
+        // One per pad. Measured on an M4: sixty-four Codex threads in one
+        // server is 1.1 GB, so there is no reason to put one away for room.
+        most_threads: Some(64),
         put_away_after: Some(std::time::Duration::from_mins(20)),
     };
 }
@@ -193,6 +199,11 @@ impl From<&SessionSection> for SeatLimits {
             working_at_once: section
                 .working_at_once
                 .map_or(Self::DEFAULT.working_at_once, |most| {
+                    (most > 0).then_some(most)
+                }),
+            most_threads: section
+                .most_threads
+                .map_or(Self::DEFAULT.most_threads, |most| {
                     (most > 0).then_some(most)
                 }),
             put_away_after: section
@@ -221,17 +232,25 @@ pub struct SessionSection {
     /// faster than an operator opens windows and slower than the display is
     /// redrawn.
     pub poll_ms: Option<u64>,
-    /// How many sessions a coding agent keeps may be running at once.
+    /// How many sessions that cost a process of their own may run at once.
     ///
-    /// Every running session holds its memory whether or not it is working:
-    /// measured on an M4, between a sixth and half a gigabyte each. Beyond
-    /// this many, the ones sitting idle longest are put away, which frees all
-    /// of it and keeps their conversations; an instruction or a window starts
-    /// one again where it left off. Nothing working, and nothing waiting on
-    /// the operator, is ever put away.
+    /// A Claude Code session is a process holding its memory whether or not it
+    /// is working: measured on an M4, around 440 MB, and over 600 MB at its
+    /// peak. Beyond this many, the ones sitting idle longest are put away,
+    /// which frees all of it and keeps their conversations; an instruction or
+    /// a window starts one again where it left off. Nothing working, and
+    /// nothing waiting on the operator, is ever put away.
     ///
     /// Defaults to twenty. `0` means no limit, for a Mac with memory to spare.
+    /// Codex threads are counted by `most_threads` instead, because they cost
+    /// a small fraction as much.
     pub most_live: Option<usize>,
+    /// How many Codex threads may be loaded at once.
+    ///
+    /// A thread lives inside one server shared with every other thread:
+    /// measured on an M4, 16 MB each, so sixty-four of them is about 1.1 GB.
+    /// Defaults to sixty-four, one per pad. `0` means no limit.
+    pub most_threads: Option<usize>,
     /// How many sessions may be working at once.
     ///
     /// Not a memory limit: what stops a fleet is the model, which answers more
@@ -272,6 +291,9 @@ impl SessionSection {
         }
         if other.working_at_once.is_some() {
             self.working_at_once = other.working_at_once;
+        }
+        if other.most_threads.is_some() {
+            self.most_threads = other.most_threads;
         }
         if other.put_away_after_minutes.is_some() {
             self.put_away_after_minutes = other.put_away_after_minutes;

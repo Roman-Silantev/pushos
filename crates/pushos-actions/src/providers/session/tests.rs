@@ -733,7 +733,7 @@ fn a_busy_fleet() -> (SessionProvider, FakeAttached) {
         Activity::Working,
         "Codex",
     )
-    .dispatched()
+    .dispatched(pushos_domain::ports::Keeper::CodexThreads)
     .named("builder");
     let ready = pushos_domain::attached::Attached::new(
         "thread:free",
@@ -741,7 +741,7 @@ fn a_busy_fleet() -> (SessionProvider, FakeAttached) {
         Activity::Ready,
         "Codex",
     )
-    .dispatched()
+    .dispatched(pushos_domain::ports::Keeper::CodexThreads)
     .named("reviewer");
 
     let fake = FakeAttached::holding([working, ready]);

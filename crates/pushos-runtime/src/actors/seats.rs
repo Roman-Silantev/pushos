@@ -106,16 +106,45 @@ pub(crate) fn to_put_away(
         }
     }
 
-    // And then enough of the rest to come back within the limit.
-    if let Some(most) = limit_now(limits.most_live, pressure) {
+    // And then enough of the rest to come back within the limits. The two
+    // kinds are counted apart because what they cost is not comparable: a
+    // session with a process of its own is a few hundred megabytes, and a
+    // thread in a shared server is a few tens.
+    for costly in [true, false] {
+        let asked = if costly {
+            limits.most_live
+        } else {
+            limits.most_threads
+        };
+        let Some(most) = limit_now(asked, pressure) else {
+            continue;
+        };
+
+        let of_this_kind =
+            |session: &Attached| session.can_be_put_away() && session.costs_a_process() == costly;
         let live = sessions
             .iter()
-            .filter(|session| session.can_be_put_away() && session.activity != Activity::Quiet)
+            .filter(|session| of_this_kind(session) && session.activity != Activity::Quiet)
             .count();
-        let over = live.saturating_sub(going.len()).saturating_sub(most);
-        for (session, _) in resting.iter().take(going.len() + over).skip(going.len()) {
-            going.push(session.id.clone());
-        }
+        let chosen: Vec<AttachedId> = going.clone();
+        let waiting: Vec<&Attached> = resting
+            .iter()
+            .map(|(session, _)| *session)
+            .filter(|session| of_this_kind(session))
+            .collect();
+
+        let already = waiting
+            .iter()
+            .filter(|session| chosen.contains(&session.id))
+            .count();
+        let over = live.saturating_sub(already).saturating_sub(most);
+        going.extend(
+            waiting
+                .iter()
+                .filter(|session| !chosen.contains(&session.id))
+                .take(over)
+                .map(|session| session.id.clone()),
+        );
     }
 
     going
@@ -272,7 +301,8 @@ mod tests {
     use super::*;
 
     fn session(id: &str, activity: Activity) -> Attached {
-        Attached::new(format!("kept:{id}"), id, activity, "Claude Code").dispatched()
+        Attached::new(format!("kept:{id}"), id, activity, "Claude Code")
+            .dispatched(pushos_domain::ports::Keeper::ClaudeCode)
     }
 
     fn in_a_terminal(id: &str, activity: Activity) -> Attached {
@@ -283,6 +313,9 @@ mod tests {
         SeatLimits {
             most_live,
             working_at_once: None,
+            // The tests below are about sessions with a process each; a
+            // separate test covers threads in a shared server.
+            most_threads: None,
             put_away_after: None,
         }
     }
@@ -398,6 +431,7 @@ mod tests {
             SeatLimits {
                 most_live: Some(20),
                 working_at_once: None,
+                most_threads: None,
                 put_away_after: Some(Duration::from_mins(20)),
             },
             Pressure::Normal,
@@ -409,6 +443,56 @@ mod tests {
             [sessions[0].id.clone()],
             "nobody has used it all day"
         );
+    }
+
+    #[test]
+    fn threads_in_a_shared_server_are_counted_apart_from_sessions_with_a_process() {
+        // Sixty-four threads is about a gigabyte; twenty sessions with a
+        // process each is nine. One limit for both would put away threads
+        // that cost almost nothing.
+        let threads: Vec<Attached> = (0..30)
+            .map(|index| {
+                Attached::new(
+                    format!("thread:{index}"),
+                    index.to_string(),
+                    Activity::Ready,
+                    "Codex",
+                )
+                .dispatched(pushos_domain::ports::Keeper::CodexThreads)
+            })
+            .collect();
+
+        let limits = SeatLimits {
+            most_live: Some(2),
+            working_at_once: None,
+            most_threads: Some(64),
+            put_away_after: None,
+        };
+        let going = to_put_away(
+            &threads,
+            &Idleness::default(),
+            limits,
+            Pressure::Normal,
+            Instant::now(),
+        );
+        assert!(
+            going.is_empty(),
+            "thirty threads are well inside what a server holds: {going:?}"
+        );
+
+        // And the limit that is theirs does apply.
+        let tighter = SeatLimits {
+            most_threads: Some(8),
+            ..limits
+        };
+        let going = to_put_away(
+            &threads,
+            &Idleness::default(),
+            tighter,
+            Pressure::Normal,
+            Instant::now(),
+        );
+        assert_eq!(going.len(), 22, "down to eight");
     }
 
     #[test]

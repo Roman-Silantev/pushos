@@ -507,7 +507,14 @@ fleet is busy waits, and goes the moment a session finishes:
 ```toml
 [sessions]
 working_at_once = 6   # turns running at once; 0 starts everything at once
+most_live = 20        # sessions with a process each, such as Claude Code
+most_threads = 64     # threads in Codex's shared server: one per pad
 ```
+
+The two limits are separate because the costs are not comparable: twenty
+Claude Code sessions is around nine gigabytes, and sixty-four Codex threads is
+about one. Counting them together would put away threads that cost almost
+nothing.
 
 The pad says `waits its turn (3 to go)` rather than failing, an interrupt never
 waits, and pressing a pad twice replaces what it was waiting to say rather than
@@ -640,7 +647,8 @@ Everything it writes down or holds on to has a limit:
 | A role's working tree | Removed when the role is done with it, with whatever was built in it, unless git shows work nobody committed; that is never removed |
 | Agent adapter downloads | Cleared before an agent starts once they pass 768 MB; what is installed stays |
 | A recording | One minute, more than either speech engine reads |
-| Sessions an agent keeps running | 20 at once by default, fewer while macOS says memory is short |
+| Sessions with a process each | 20 at once by default, fewer while macOS says memory is short |
+| Codex threads loaded | 64 by default, one per pad |
 | Codex threads on the surface | only the ones a pad holds, listed 200 at a time |
 | Work waiting for a turn | 128 pieces; one per pad, and some to spare |
 | Finished agents and terminals | The last few, for the display |

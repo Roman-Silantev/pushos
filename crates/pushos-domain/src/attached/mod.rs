@@ -48,6 +48,12 @@ pub struct Attached {
     pub host: String,
     /// What PushOS can do with it.
     pub reach: Reach,
+    /// Who keeps it running, for one PushOS asked an agent to keep.
+    ///
+    /// What a session costs depends entirely on this: a Claude Code session is
+    /// a process of its own, and a Codex thread is a few tens of megabytes
+    /// inside a server it shares with every other thread.
+    pub keeper: Option<crate::ports::Keeper>,
 }
 
 /// What PushOS can do with a session.
@@ -86,6 +92,7 @@ impl Attached {
             name: None,
             host: host.into(),
             reach: Reach::Typing,
+            keeper: None,
         }
     }
 
@@ -105,9 +112,21 @@ impl Attached {
 
     /// The same session, kept for PushOS by an agent rather than a terminal.
     #[must_use]
-    pub const fn dispatched(mut self) -> Self {
+    pub const fn dispatched(mut self, keeper: crate::ports::Keeper) -> Self {
         self.reach = Reach::Dispatching;
+        self.keeper = Some(keeper);
         self
+    }
+
+    /// Whether running this session costs a process of its own.
+    ///
+    /// The ones that do are what a limit on how many may run is really about;
+    /// a thread in a shared server costs a fraction as much.
+    pub const fn costs_a_process(&self) -> bool {
+        match self.keeper {
+            Some(crate::ports::Keeper::ClaudeCode | crate::ports::Keeper::Terminal) => true,
+            Some(crate::ports::Keeper::CodexThreads) | None => false,
+        }
     }
 
     /// Whether it takes an instruction, whether or not it is running now.

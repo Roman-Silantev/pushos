@@ -277,7 +277,7 @@ impl MacSessions {
                 session.activity,
                 CLAUDE_CODE,
             )
-            .dispatched();
+            .dispatched(Keeper::ClaudeCode);
             if let Some(seat) = seat {
                 attached = attached.named(seat);
             }
@@ -311,7 +311,7 @@ impl MacSessions {
                     thread.activity,
                     CODEX,
                 )
-                .dispatched()
+                .dispatched(Keeper::CodexThreads)
                 .named(seat),
                 Route::Thread { id: thread.id },
             ));
