@@ -860,3 +860,39 @@ async fn work_for_a_session_that_has_gone_stops_waiting() {
     assert_eq!(provider.waiting_turns(), 0);
     assert_eq!(provider.start_waiting_work(4).await, 0);
 }
+
+#[tokio::test]
+async fn work_the_agent_refuses_waits_and_is_offered_again() {
+    // A refusal is usually the model saying there is too much at once. Losing
+    // the work would mean a pad that was pressed and never did anything.
+    let (provider, fake) = a_busy_fleet();
+    provider.allow_working(Some(1));
+    provider
+        .execute(typing("id:thread:free", "review the invoices"))
+        .await
+        .expect("accepted");
+    fake.refuse();
+
+    assert_eq!(provider.start_waiting_work(1).await, 0, "the agent said no");
+    assert_eq!(provider.waiting_turns(), 1, "and the work is still there");
+}
+
+#[tokio::test]
+async fn work_for_a_session_that_has_gone_is_not_offered_again() {
+    let (provider, fake) = a_busy_fleet();
+    provider.allow_working(Some(1));
+    provider
+        .execute(typing("id:thread:free", "review the invoices"))
+        .await
+        .expect("accepted");
+
+    // The session closes; what it was going to be told cannot be delivered.
+    fake.close("thread:free");
+
+    assert_eq!(provider.start_waiting_work(1).await, 0);
+    assert_eq!(
+        provider.waiting_turns(),
+        0,
+        "nothing waits for a session that went"
+    );
+}

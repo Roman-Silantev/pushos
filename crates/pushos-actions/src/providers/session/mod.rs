@@ -33,7 +33,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::sync::watch;
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use self::questions::Questions;
 
@@ -400,14 +400,25 @@ impl SessionProvider {
     /// dropped rather than retried for ever.
     pub async fn start_waiting_work(&self, free: usize) -> usize {
         let mut started = 0;
-        for held in self.turns.take(free) {
-            match self.sessions.send(&held.session, &held.text).await {
+        for held in self.turns.take(free, Instant::now()) {
+            let session = held.session.clone();
+            match self.sessions.send(&session, &held.text).await {
                 Ok(()) => {
-                    debug!(session = %held.session, "started work that was waiting its turn");
+                    debug!(session = %session, "started work that was waiting its turn");
                     started += 1;
                 }
+                // A session that has gone cannot be told anything, ever.
+                Err(AttachError::Gone { .. }) => {
+                    debug!(session = %session, "dropped work for a session that has gone");
+                }
+                // Anything else is usually the model saying there is too much
+                // at once, which passes: the work waits rather than being lost.
                 Err(error) => {
-                    debug!(%error, session = %held.session, "dropped work nobody can be given");
+                    if self.turns.refused(held, Instant::now()) {
+                        debug!(%error, session = %session, "work was refused; it waits and goes again");
+                    } else {
+                        warn!(%error, session = %session, "gave up on work the agent kept refusing");
+                    }
                 }
             }
         }

@@ -14,6 +14,7 @@
 use std::collections::VecDeque;
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{Duration, Instant};
 
 use pushos_domain::ids::AttachedId;
 
@@ -23,6 +24,19 @@ use pushos_domain::ids::AttachedId;
 /// to a queue nobody could read.
 const MOST_WAITING: usize = 128;
 
+/// How many times work is offered again after the agent refused it.
+///
+/// A refusal is usually the model saying there is too much at once, which
+/// passes. After this many it is something else, and trying for ever would be
+/// a pad that never reports a problem.
+const TRIES: u8 = 4;
+
+/// How long to leave it before offering refused work again.
+///
+/// Doubling each time: a model that is rate limiting says so for a while, and
+/// asking again immediately would spend the next refusal for nothing.
+const FIRST_WAIT: Duration = Duration::from_secs(5);
+
 /// Work that has not started yet.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct Waiting {
@@ -30,6 +44,29 @@ pub(super) struct Waiting {
     pub(super) session: AttachedId,
     /// What to tell it.
     pub(super) text: String,
+    /// How many times the agent has refused to start it.
+    refused: u8,
+    /// Not offered again before this, after a refusal.
+    next_try: Option<Instant>,
+}
+
+impl Waiting {
+    /// Whether it may be offered now.
+    fn ready(&self, now: Instant) -> bool {
+        self.next_try.is_none_or(|next| now >= next)
+    }
+
+    /// The same work, refused once more and left for longer.
+    ///
+    /// `None` once it has been refused too often to be worth offering again.
+    fn refused_again(mut self, now: Instant) -> Option<Self> {
+        self.refused += 1;
+        if self.refused >= TRIES {
+            return None;
+        }
+        self.next_try = Some(now + FIRST_WAIT * 2_u32.pow(u32::from(self.refused) - 1));
+        Some(self)
+    }
 }
 
 /// How many may work at once, and what is waiting for a turn.
@@ -84,17 +121,45 @@ impl Turns {
         waiting.push_back(Waiting {
             session: session.clone(),
             text: text.to_owned(),
+            refused: 0,
+            next_try: None,
         });
         Ok(waiting.len())
     }
 
     /// Takes the next `free` pieces of work, oldest first.
-    pub(super) fn take(&self, free: usize) -> Vec<Waiting> {
+    ///
+    /// Work that was refused is left alone until its wait has passed.
+    pub(super) fn take(&self, free: usize, now: Instant) -> Vec<Waiting> {
         let Ok(mut waiting) = self.waiting.lock() else {
             return Vec::new();
         };
-        let taking = free.min(waiting.len());
-        waiting.drain(..taking).collect()
+        let mut taking = Vec::new();
+        let mut index = 0;
+        while index < waiting.len() && taking.len() < free {
+            if waiting[index].ready(now) {
+                if let Some(held) = waiting.remove(index) {
+                    taking.push(held);
+                }
+            } else {
+                index += 1;
+            }
+        }
+        taking
+    }
+
+    /// Puts work back after the agent refused it, to be offered again later.
+    ///
+    /// Dropped once it has been refused too often: something is wrong that
+    /// waiting will not fix.
+    pub(super) fn refused(&self, held: Waiting, now: Instant) -> bool {
+        let Some(again) = held.refused_again(now) else {
+            return false;
+        };
+        if let Ok(mut waiting) = self.waiting.lock() {
+            waiting.push_front(again);
+        }
+        true
     }
 
     /// Drops work for any session that is no longer there.
@@ -151,6 +216,59 @@ mod tests {
     }
 
     #[test]
+    fn work_the_agent_refused_is_offered_again_later_rather_than_lost() {
+        let turns = Turns::new();
+        let now = Instant::now();
+        turns.hold(&session("one"), "first").expect("held");
+
+        let held = turns.take(1, now).pop().expect("taken");
+        assert!(turns.refused(held, now), "kept for another go");
+        assert_eq!(turns.waiting(), 1);
+
+        assert!(
+            turns.take(4, now).is_empty(),
+            "not offered again immediately: the model said no a moment ago"
+        );
+        let later = now + FIRST_WAIT;
+        assert_eq!(
+            turns.take(4, later).len(),
+            1,
+            "and offered once it has waited"
+        );
+    }
+
+    #[test]
+    fn work_refused_over_and_over_is_given_up_on() {
+        let turns = Turns::new();
+        let mut now = Instant::now();
+        turns.hold(&session("one"), "first").expect("held");
+
+        for _ in 0..TRIES - 1 {
+            let held = turns.take(4, now).pop().expect("taken");
+            assert!(turns.refused(held, now));
+            now += FIRST_WAIT * 8;
+        }
+        let held = turns.take(4, now).pop().expect("taken");
+        assert!(!turns.refused(held, now), "something else is wrong");
+        assert_eq!(turns.waiting(), 0);
+    }
+
+    #[test]
+    fn work_that_was_refused_does_not_hold_up_the_rest() {
+        let turns = Turns::new();
+        let now = Instant::now();
+        turns.hold(&session("one"), "first").expect("held");
+        turns.hold(&session("two"), "second").expect("held");
+
+        let held = turns.take(1, now).pop().expect("taken");
+        turns.refused(held, now);
+
+        let going = turns.take(1, now);
+        assert_eq!(going.len(), 1);
+        assert_eq!(going[0].session, session("two"), "the other one goes now");
+    }
+
+    #[test]
     fn what_waits_goes_in_the_order_it_was_asked_for() {
         let turns = Turns::new();
         turns.allow(2);
@@ -158,7 +276,7 @@ mod tests {
         assert_eq!(turns.hold(&session("two"), "second").expect("held"), 2);
         assert_eq!(turns.waiting(), 2);
 
-        let going = turns.take(1);
+        let going = turns.take(1, Instant::now());
         assert_eq!(going.len(), 1);
         assert_eq!(going[0].session, session("one"));
         assert_eq!(going[0].text, "first");
@@ -173,7 +291,7 @@ mod tests {
         turns.hold(&session("one"), "no, this").expect("held");
 
         assert_eq!(turns.waiting(), 1, "one pad, one piece of work");
-        assert_eq!(turns.take(4)[0].text, "no, this");
+        assert_eq!(turns.take(4, Instant::now())[0].text, "no, this");
     }
 
     #[test]
@@ -184,7 +302,7 @@ mod tests {
 
         turns.keep_only(&[session("two")]);
 
-        let left = turns.take(4);
+        let left = turns.take(4, Instant::now());
         assert_eq!(left.len(), 1);
         assert_eq!(
             left[0].session,
@@ -209,7 +327,7 @@ mod tests {
     fn taking_more_than_is_waiting_takes_what_there_is() {
         let turns = Turns::new();
         turns.hold(&session("one"), "first").expect("held");
-        assert_eq!(turns.take(10).len(), 1);
-        assert!(turns.take(10).is_empty());
+        assert_eq!(turns.take(10, Instant::now()).len(), 1);
+        assert!(turns.take(10, Instant::now()).is_empty());
     }
 }
