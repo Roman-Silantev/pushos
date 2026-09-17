@@ -128,7 +128,9 @@ impl Supervisor {
             .capturing(LOG);
         let outcome = self.run(spec).await?;
         let output = outcome.stdout_tail;
-        let from = output.len().saturating_sub(most);
+        // Cut on a character, not a byte: what an agent prints is full of box
+        // drawing and arrows, and slicing one of those in half panics.
+        let from = output.floor_char_boundary(output.len().saturating_sub(most));
         Ok(output[from..].to_owned())
     }
 
@@ -295,6 +297,20 @@ mod tests {
         supervisor.put_away("55c88714").await.expect("put away");
 
         assert_eq!(processes.spawned()[0].args, ["stop", "55c88714"]);
+    }
+
+    #[tokio::test]
+    async fn reading_the_end_of_what_it_said_never_cuts_a_character_in_half() {
+        // A coding agent's output is full of box drawing and arrows, and
+        // cutting a three-byte character down the middle panics.
+        let processes = FakeProcesses::new();
+        processes.reply_with(|_| outcome("✳✳✳✳✳ working on it ─────"));
+        let supervisor = Supervisor::at(Arc::new(processes.clone()), "/usr/bin/claude");
+
+        for most in 1..24 {
+            let said = supervisor.read("55c88714", most).await.expect("read");
+            assert!(said.len() <= 24, "kept {} bytes for {most}", said.len());
+        }
     }
 
     #[tokio::test]
