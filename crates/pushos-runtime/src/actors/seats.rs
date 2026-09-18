@@ -46,6 +46,22 @@ const WHILE_CRITICAL: usize = 4;
 /// surface to recover what one session with a process of its own costs.
 const THREADS_UNDER_CRITICAL: usize = 4;
 
+/// The most threads left loaded while memory is critical, when the operator
+/// set no limit of their own.
+///
+/// A quarter of a full surface, for the same reason: it gives back most of
+/// what the threads cost and still leaves a surface worth looking at.
+const THREADS_WHILE_CRITICAL: usize = 16;
+
+/// How long a turn is held for work that has been sent but is not yet being
+/// done.
+///
+/// A session takes a moment to start, and until it does it still reads as
+/// idle; without this the next look would let the same turn out again. Past
+/// this, whatever was sent has gone nowhere, and holding its turn for ever
+/// would be a fleet that quietly stops taking work.
+const SHOWS_UP_WITHIN: Duration = Duration::from_secs(30);
+
 /// When each session was last seen doing something.
 ///
 /// A session nobody has used is the one to put away first, so what is kept is
@@ -170,15 +186,39 @@ fn limit_now(asked: Option<usize>, pressure: Pressure, costly: bool) -> Option<u
     match pressure {
         Pressure::Normal => asked,
         Pressure::Warning => {
-            Some(asked.map_or(WHILE_CRITICAL * 2, |most| (most / UNDER_WARNING).max(1)))
+            let unasked = if costly {
+                WHILE_CRITICAL * 2
+            } else {
+                THREADS_WHILE_CRITICAL * 2
+            };
+            Some(asked.map_or(unasked, |most| (most / UNDER_WARNING).max(1)))
         }
         Pressure::Critical if costly => {
             Some(asked.map_or(WHILE_CRITICAL, |most| most.min(WHILE_CRITICAL)))
         }
-        Pressure::Critical => Some(asked.map_or(WHILE_CRITICAL, |most| {
+        Pressure::Critical => Some(asked.map_or(THREADS_WHILE_CRITICAL, |most| {
             (most / THREADS_UNDER_CRITICAL).max(1)
         })),
     }
+}
+
+/// Drops the turns held for work that has begun, gone, or never got going.
+///
+/// What is left is the sessions that were given work and still read as idle,
+/// whose turns are therefore not free for anything else. Judged one session at
+/// a time: a description arriving says nothing about the sessions it is not
+/// about, and most descriptions are about something else entirely.
+fn still_starting(
+    just_started: &mut Vec<(AttachedId, Instant)>,
+    sessions: &[Attached],
+    now: Instant,
+) {
+    just_started.retain(|(id, sent)| {
+        now.duration_since(*sent) < SHOWS_UP_WITHIN
+            && sessions
+                .iter()
+                .any(|session| &session.id == id && session.activity == Activity::Ready)
+    });
 }
 
 /// Keeps the number of sessions running within the limit, over and over.
@@ -300,14 +340,11 @@ impl SeatsTask {
     /// Runs until PushOS stops.
     pub(crate) async fn run(mut self, shutdown: crate::shutdown::Shutdown) {
         let mut idle = Idleness::default();
-        // Work let through since the sessions were last described. Until the
-        // next description arrives those sessions still read as idle, and
-        // without this the next look would let the same number through again.
-        // Sessions given work since they were last described. They still
-        // read as idle until the next description, and both decisions below
-        // need to know better: the limit is not free again, and a session
-        // about to work is not one to put away.
-        let mut just_started: Vec<AttachedId> = Vec::new();
+        // Sessions given work that has not shown up as work yet, and when they
+        // were given it. They still read as idle until the agent gets going,
+        // and both decisions below need to know better: the turn they took is
+        // not free again, and a session about to work is not one to put away.
+        let mut just_started: Vec<(AttachedId, Instant)> = Vec::new();
         let mut last_look: Option<Instant> = None;
 
         loop {
@@ -327,29 +364,39 @@ impl SeatsTask {
                 () = tokio::time::sleep(soon) => {}
             }
 
-            let described = self.watching.has_changed().unwrap_or(false);
             let sessions = self.watching.borrow_and_update().clone();
-            if described {
-                just_started.clear();
-            }
             let now = Instant::now();
-            just_started.extend(self.let_work_through(&sessions, just_started.len()).await);
+            still_starting(&mut just_started, &sessions, now);
+            just_started.extend(
+                self.let_work_through(&sessions, just_started.len())
+                    .await
+                    .into_iter()
+                    .map(|id| (id, now)),
+            );
 
-            // The quick look is only for letting work through. Asking the Mac
-            // about its memory costs a subprocess, and putting a session away
-            // is not a decision to take every two seconds.
+            // At every look, quick or not: it is only bookkeeping over what
+            // is already in hand, and a session that worked and finished
+            // between two slow looks would otherwise read as having sat idle
+            // through the whole of it, and be put away first for it.
+            idle.seen(&sessions, now);
+
+            // The rest of the look is not for every tick. Asking the Mac about
+            // its memory costs a subprocess, and putting a session away is not
+            // a decision to take every two seconds.
             if last_look.is_some_and(|last: Instant| last.elapsed() < self.every) {
                 continue;
             }
             last_look = Some(now);
-            idle.seen(&sessions, now);
             if sessions.iter().all(|session| !session.can_be_put_away()) {
                 continue;
             }
 
             let pressure = self.pressure.now().await;
             let going = to_put_away(&sessions, &idle, (self.limits)(), pressure, now);
-            for id in going.into_iter().filter(|id| !just_started.contains(id)) {
+            for id in going
+                .into_iter()
+                .filter(|id| !just_started.iter().any(|(started, _)| started == id))
+            {
                 match self.sessions.put_away(&id).await {
                     Ok(true) => tracing::info!(
                         session = %id,
@@ -598,6 +645,54 @@ mod tests {
             limit_now(Some(2), Pressure::Critical, false),
             Some(1),
             "never rounded down to none at all"
+        );
+        assert_eq!(
+            limit_now(None, Pressure::Critical, false),
+            Some(THREADS_WHILE_CRITICAL),
+            "and an operator who set no limit is held to a surface, not a handful"
+        );
+        assert_eq!(
+            limit_now(None, Pressure::Warning, false),
+            Some(THREADS_WHILE_CRITICAL * 2)
+        );
+        assert!(
+            limit_now(None, Pressure::Critical, false) > limit_now(None, Pressure::Critical, true),
+            "a thread costs a fraction of a session, so more of them fit"
+        );
+    }
+
+    #[test]
+    fn a_turn_is_held_until_the_work_it_was_given_is_under_way() {
+        let now = Instant::now();
+        let one = session("one", Activity::Ready);
+        let mut held = vec![(one.id.clone(), now)];
+
+        still_starting(&mut held, std::slice::from_ref(&one), now);
+        assert_eq!(held.len(), 1, "it still reads as idle: the turn is taken");
+
+        // Another session being described says nothing about this one, and
+        // freeing the turn here would let the same turn out twice.
+        still_starting(&mut held, &[one, session("two", Activity::Working)], now);
+        assert_eq!(held.len(), 1);
+
+        still_starting(&mut held, &[session("one", Activity::Working)], now);
+        assert!(held.is_empty(), "it is counted among the working now");
+    }
+
+    #[test]
+    fn a_turn_is_not_held_for_ever_by_work_that_never_started() {
+        let now = Instant::now();
+        let one = session("one", Activity::Ready);
+        let mut held = vec![(
+            one.id.clone(),
+            now.checked_sub(SHOWS_UP_WITHIN).expect("a while"),
+        )];
+
+        still_starting(&mut held, &[one], now);
+
+        assert!(
+            held.is_empty(),
+            "a fleet that quietly stopped taking work would be far worse"
         );
     }
 
