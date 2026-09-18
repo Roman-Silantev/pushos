@@ -24,7 +24,7 @@ use crate::shutdown::Shutdown;
 /// the day. Measured on an M4 with a surface attached, halving the rate was
 /// half of a three-and-a-half-fold saving. Nothing else in PushOS redraws on a
 /// timer at all: a still screen is drawn once and left alone.
-const FRAME_INTERVAL: Duration = Duration::from_millis(66);
+const FRAME_INTERVAL: Duration = Duration::from_millis(1_000 / pushos_ui::FRAMES_A_SECOND as u64);
 
 /// How often an animated screen is redrawn once it has dimmed.
 ///

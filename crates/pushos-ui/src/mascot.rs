@@ -73,21 +73,25 @@ pub const MASCOT: Rgb = Rgb::new(226, 128, 84);
 /// How far a quadrant may be dimmed at the bottom of its cycle.
 const FLOOR: f32 = 0.45;
 
-/// How many animation steps one full sweep takes.
-const SWEEP_STEPS: u32 = 96;
-
 /// How many steps one hop and the pause after it take.
 ///
-/// A whole number of hops to one sweep, so the animation has a single period
-/// and returns to exactly where it started. Two hops per sweep: often enough
-/// to be alive, seldom enough to read past.
-const HOP_STEPS: u32 = SWEEP_STEPS / 2;
+/// About a second and a half, whatever the frame rate is: often enough to be
+/// alive, seldom enough to read past.
+const HOP_STEPS: u32 = crate::FRAMES_A_SECOND * 3 / 2;
+
+/// How many animation steps one full sweep takes.
+///
+/// Two hops, so a whole number of hops fits one sweep: the animation then has
+/// a single period and returns to exactly where it started. That is about
+/// three seconds, which is what the sweep was tuned to.
+const SWEEP_STEPS: u32 = HOP_STEPS * 2;
 
 /// How much of that is spent in the air.
 ///
 /// Well under half, because a mascot that never rested would be a distraction
-/// on a panel somebody is trying to read.
-const HOP_AIRBORNE: u32 = 18;
+/// on a panel somebody is trying to read. Around six tenths of a second in the
+/// air, which is what a hop looks like.
+const HOP_AIRBORNE: u32 = crate::FRAMES_A_SECOND * 3 / 5;
 
 /// How high it goes, in quadrants.
 const HOP_HEIGHT: f32 = 2.4;

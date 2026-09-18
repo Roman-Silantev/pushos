@@ -240,7 +240,15 @@ impl TextRenderer {
     /// worse than a gap, because a row of empty rectangles reads as a fault in
     /// PushOS rather than as a glyph somebody else chose.
     fn readable(&self, character: char) -> Option<char> {
-        if character.is_whitespace() || self.font.has_glyph(character) {
+        // A space is the one blank the typeface actually has. Every other
+        // blank — a tab, and the several exotic ones that turn up in what an
+        // agent prints — has no glyph, and asking for one draws the empty box
+        // the typeface keeps for characters it does not know. A blank is a
+        // blank on a panel this size.
+        if character.is_whitespace() {
+            return Some(' ');
+        }
+        if self.font.has_glyph(character) {
             return Some(character);
         }
 
@@ -409,6 +417,25 @@ pub struct FontUnavailable {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn a_tab_is_drawn_as_a_blank_rather_than_an_empty_box() {
+        // Terminal output keeps tabs on purpose — it is how output lines up —
+        // and the typeface has no glyph for one, so asking for it draws the
+        // box kept for characters nothing knows.
+        let mut text = super::TextRenderer::embedded().expect("the font is compiled in");
+        assert!(!text.font.has_glyph('\t'), "the premise of this test");
+
+        let drawn = text.truncate("one\ttwo\u{3000}three", 12.0, 1_000.0);
+
+        assert_eq!(drawn, "one two three");
+        for character in drawn.chars() {
+            assert!(
+                text.font.has_glyph(character),
+                "`{character}` would be drawn as an empty rectangle"
+            );
+        }
+    }
+
+    #[test]
     fn nothing_the_typeface_cannot_draw_reaches_the_panel() {
         // PushOS shows text it did not write. A terminal screen is full of box
         // rules, spinners and arrows, and a row of empty rectangles reads as a
@@ -420,7 +447,7 @@ mod tests {
         let drawn = text.truncate(screen, 12.0, 1_000.0);
         for character in drawn.chars() {
             assert!(
-                character.is_whitespace() || text.font.has_glyph(character),
+                text.font.has_glyph(character),
                 "`{character}` would be drawn as an empty rectangle"
             );
         }

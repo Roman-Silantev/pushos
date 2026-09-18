@@ -77,7 +77,9 @@ const OTHERS_GAP: f32 = 4.0;
 /// Height of that bar.
 const BAR_HEIGHT: f32 = 4.0;
 /// How many frames one sweep of that bar takes.
-const SWEEP: u32 = 44;
+///
+/// Around a second and a half, whatever the frame rate is.
+const SWEEP: u32 = crate::FRAMES_A_SECOND * 3 / 2;
 /// How much of the bar the moving part covers.
 const SWEEP_WIDTH: f32 = 0.34;
 /// Width of the bar saying where in a long history the panel is.
