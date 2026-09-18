@@ -459,22 +459,28 @@ impl SessionProvider {
             let session = held.session.clone();
             match self.sessions.send(&session, &held.text).await {
                 Ok(()) => {
+                    self.turns.done(&session);
                     debug!(session = %session, "started work that was waiting its turn");
                     started.push(session);
                 }
                 // A session that has gone cannot be told anything, ever.
                 Err(AttachError::Gone { .. }) => {
+                    self.turns.done(&session);
                     debug!(session = %session, "dropped work for a session that has gone");
                 }
                 // Anything else is usually the model saying there is too much
                 // at once, which passes: the work waits rather than being lost.
-                Err(error) => {
-                    if self.turns.refused(held, Instant::now()) {
+                Err(error) => match self.turns.refused(held, Instant::now()) {
+                    turns::Refused::WaitsAgain => {
                         debug!(%error, session = %session, "work was refused; it waits and goes again");
-                    } else {
+                    }
+                    turns::Refused::GivenUpOn => {
                         warn!(%error, session = %session, "gave up on work the agent kept refusing");
                     }
-                }
+                    turns::Refused::NoLongerWanted => {
+                        debug!(session = %session, "the work refused had already been replaced");
+                    }
+                },
             }
         }
         started

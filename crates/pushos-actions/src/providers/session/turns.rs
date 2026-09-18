@@ -11,7 +11,7 @@
 //! finishes. That is the difference between sixty-four pads that collapse and
 //! sixty-four pads that get through their work.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
@@ -48,6 +48,12 @@ pub(super) struct Waiting {
     refused: u8,
     /// Not offered again before this, after a refusal.
     next_try: Option<Instant>,
+    /// What this piece of work is written down under.
+    ///
+    /// A refusal arrives after the fact, and by then the operator may have
+    /// replaced this work or cancelled it. This is how one is told from the
+    /// other, so what comes back is only ever what is still wanted.
+    token: u64,
 }
 
 impl Waiting {
@@ -69,20 +75,53 @@ impl Waiting {
     }
 }
 
+/// What became of work the agent refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Refused {
+    /// It waits, and goes again when it has waited long enough.
+    WaitsAgain,
+    /// Refused too often: something is wrong that waiting will not fix.
+    GivenUpOn,
+    /// The operator replaced or cancelled it while the agent was deciding.
+    NoLongerWanted,
+}
+
+/// The queue, and what has been handed out of it.
+#[derive(Debug, Default)]
+struct Queue {
+    /// Work waiting for a turn, oldest first.
+    waiting: VecDeque<Waiting>,
+    /// Work handed to a session and not yet finished with, by session.
+    ///
+    /// What makes putting a refusal back safe: work the operator has since
+    /// replaced or cancelled is no longer here, so it comes back to nothing.
+    given: HashMap<AttachedId, u64>,
+    /// What the next piece of work is written down under.
+    next: u64,
+}
+
+impl Queue {
+    /// A number no other piece of work has.
+    fn token(&mut self) -> u64 {
+        self.next = self.next.wrapping_add(1);
+        self.next
+    }
+}
+
 /// How many may work at once, and what is waiting for a turn.
 #[derive(Debug, Default)]
 pub(super) struct Turns {
     /// The most sessions that may be working at once. Nought is no limit.
     allowed: AtomicUsize,
-    waiting: Mutex<VecDeque<Waiting>>,
+    queue: Mutex<Queue>,
 }
 
 impl Turns {
     /// A book with no limit, until the runtime says what the limit is.
-    pub(super) const fn new() -> Self {
+    pub(super) fn new() -> Self {
         Self {
             allowed: AtomicUsize::new(0),
-            waiting: Mutex::new(VecDeque::new()),
+            queue: Mutex::new(Queue::default()),
         }
     }
 
@@ -109,9 +148,16 @@ impl Turns {
     /// newer instruction is the one the operator meant, exactly as pressing a
     /// pad twice means the second thing.
     pub(super) fn hold(&self, session: &AttachedId, text: &str) -> Result<usize, Full> {
-        let mut waiting = self.waiting();
-        if let Some(at) = waiting.iter().position(|held| &held.session == session) {
-            let already = &mut waiting[at];
+        let mut queue = self.queue();
+        // Whatever this session was handed a moment ago is not what the
+        // operator wants any more, so a refusal of it must not bring it back.
+        queue.given.remove(session);
+        if let Some(at) = queue
+            .waiting
+            .iter()
+            .position(|held| &held.session == session)
+        {
+            let already = &mut queue.waiting[at];
             text.clone_into(&mut already.text);
             // Different work: whatever the agent thought of the last lot is
             // no reason to give up on this sooner, or to make it wait.
@@ -119,28 +165,31 @@ impl Turns {
             already.next_try = None;
             return Ok(at);
         }
-        if waiting.len() >= MOST_WAITING {
+        if queue.waiting.len() >= MOST_WAITING {
             return Err(Full);
         }
-        waiting.push_back(Waiting {
+        let token = queue.token();
+        queue.waiting.push_back(Waiting {
             session: session.clone(),
             text: text.to_owned(),
             refused: 0,
             next_try: None,
+            token,
         });
-        Ok(waiting.len() - 1)
+        Ok(queue.waiting.len() - 1)
     }
 
     /// Takes the next `free` pieces of work, oldest first.
     ///
     /// Work that was refused is left alone until its wait has passed.
     pub(super) fn take(&self, free: usize, now: Instant) -> Vec<Waiting> {
-        let mut waiting = self.waiting();
+        let mut queue = self.queue();
         let mut taking = Vec::new();
         let mut index = 0;
-        while index < waiting.len() && taking.len() < free {
-            if waiting[index].ready(now) {
-                if let Some(held) = waiting.remove(index) {
+        while index < queue.waiting.len() && taking.len() < free {
+            if queue.waiting[index].ready(now) {
+                if let Some(held) = queue.waiting.remove(index) {
+                    queue.given.insert(held.session.clone(), held.token);
                     taking.push(held);
                 }
             } else {
@@ -152,14 +201,30 @@ impl Turns {
 
     /// Puts work back after the agent refused it, to be offered again later.
     ///
-    /// Dropped once it has been refused too often: something is wrong that
-    /// waiting will not fix.
-    pub(super) fn refused(&self, held: Waiting, now: Instant) -> bool {
+    /// Dropped once it has been refused too often, because something is wrong
+    /// that waiting will not fix, and dropped if the operator has replaced or
+    /// cancelled it since: offering that again would be PushOS arguing with
+    /// them.
+    pub(super) fn refused(&self, held: Waiting, now: Instant) -> Refused {
+        let mut queue = self.queue();
+        if queue.given.get(&held.session) != Some(&held.token) {
+            return Refused::NoLongerWanted;
+        }
+        queue.given.remove(&held.session);
         let Some(again) = held.refused_again(now) else {
-            return false;
+            return Refused::GivenUpOn;
         };
-        self.waiting().push_front(again);
-        true
+        queue.waiting.push_front(again);
+        // It was in the queue a moment ago, so this is the same queue it came
+        // from; the bound still holds, and the oldest goes if it does not.
+        queue.waiting.truncate(MOST_WAITING);
+        Refused::WaitsAgain
+    }
+
+    /// Forgets that a session was handed work, once it has gone or been
+    /// dropped.
+    pub(super) fn done(&self, session: &AttachedId) {
+        self.queue().given.remove(session);
     }
 
     /// Drops whatever a session was waiting to be told.
@@ -168,7 +233,9 @@ impl Turns {
     /// waiting is what the operator has just replaced or cancelled, and
     /// sending it afterwards would be PushOS arguing with them.
     pub(super) fn forget(&self, session: &AttachedId) {
-        self.waiting().retain(|held| &held.session != session);
+        let mut queue = self.queue();
+        queue.waiting.retain(|held| &held.session != session);
+        queue.given.remove(session);
     }
 
     /// The queue, whatever state a panic elsewhere left the lock in.
@@ -176,20 +243,23 @@ impl Turns {
     /// What it holds is text and identifiers, which a panic cannot have made
     /// nonsense of, and a fleet that stopped taking work for the rest of the
     /// day would be far worse than the risk of reading them.
-    fn waiting(&self) -> std::sync::MutexGuard<'_, VecDeque<Waiting>> {
-        self.waiting
+    fn queue(&self) -> std::sync::MutexGuard<'_, Queue> {
+        self.queue
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Whether a session has work waiting for a turn.
     pub(super) fn holds_work_for(&self, session: &AttachedId) -> bool {
-        self.waiting().iter().any(|held| &held.session == session)
+        self.queue()
+            .waiting
+            .iter()
+            .any(|held| &held.session == session)
     }
 
     /// How much work is waiting.
     pub(super) fn how_much_waiting(&self) -> usize {
-        self.waiting().len()
+        self.queue().waiting.len()
     }
 }
 
@@ -230,7 +300,11 @@ mod tests {
         turns.hold(&session("one"), "first").expect("held");
 
         let held = turns.take(1, now).pop().expect("taken");
-        assert!(turns.refused(held, now), "kept for another go");
+        assert_eq!(
+            turns.refused(held, now),
+            Refused::WaitsAgain,
+            "kept for another go"
+        );
         assert_eq!(turns.how_much_waiting(), 1);
 
         assert!(
@@ -253,11 +327,15 @@ mod tests {
 
         for _ in 0..TRIES - 1 {
             let held = turns.take(4, now).pop().expect("taken");
-            assert!(turns.refused(held, now));
+            assert_eq!(turns.refused(held, now), Refused::WaitsAgain);
             now += FIRST_WAIT * 8;
         }
         let held = turns.take(4, now).pop().expect("taken");
-        assert!(!turns.refused(held, now), "something else is wrong");
+        assert_eq!(
+            turns.refused(held, now),
+            Refused::GivenUpOn,
+            "something else is wrong"
+        );
         assert_eq!(turns.how_much_waiting(), 0);
     }
 
@@ -333,6 +411,53 @@ mod tests {
         }
         assert_eq!(turns.hold(&session("one too many"), "work"), Err(Full));
         assert_eq!(turns.how_much_waiting(), MOST_WAITING);
+    }
+
+    #[test]
+    fn work_the_operator_cancelled_does_not_come_back_when_the_agent_refuses_it() {
+        // The refusal arrives after the fact. By then the operator has
+        // stopped the session, and sending it anyway would be PushOS arguing
+        // with them.
+        let turns = Turns::new();
+        let now = Instant::now();
+        turns.hold(&session("one"), "first").expect("held");
+        let held = turns.take(1, now).pop().expect("taken");
+
+        turns.forget(&session("one"));
+
+        assert_eq!(turns.refused(held, now), Refused::NoLongerWanted);
+        assert_eq!(turns.how_much_waiting(), 0);
+    }
+
+    #[test]
+    fn a_pad_pressed_again_while_the_agent_was_deciding_keeps_only_the_newer_work() {
+        let turns = Turns::new();
+        let now = Instant::now();
+        turns.hold(&session("one"), "first").expect("held");
+        let held = turns.take(1, now).pop().expect("taken");
+
+        turns.hold(&session("one"), "no, this").expect("held");
+        assert_eq!(turns.refused(held, now), Refused::NoLongerWanted);
+
+        assert_eq!(turns.how_much_waiting(), 1, "one pad, one piece of work");
+        let going = turns.take(4, now);
+        assert_eq!(going.len(), 1);
+        assert_eq!(going[0].text, "no, this");
+    }
+
+    #[test]
+    fn work_that_went_is_not_still_held_for_the_session() {
+        // Otherwise the next refusal for that session would be matched
+        // against work that finished long ago.
+        let turns = Turns::new();
+        let now = Instant::now();
+        turns.hold(&session("one"), "first").expect("held");
+        let held = turns.take(1, now).pop().expect("taken");
+
+        turns.done(&session("one"));
+
+        assert_eq!(turns.refused(held, now), Refused::NoLongerWanted);
+        assert_eq!(turns.how_much_waiting(), 0);
     }
 
     #[test]
