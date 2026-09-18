@@ -228,9 +228,13 @@ impl Seats {
     }
 
     /// The book, read from the file the first time.
-    async fn read(&self) -> BTreeMap<String, Held> {
-        let mut held = self.held.lock().await;
-        held.get_or_insert_with(|| self.load()).clone()
+    ///
+    /// Borrowed rather than copied: this is asked several times for every
+    /// session on every look, and every copy would be the whole book.
+    async fn read(&self) -> tokio::sync::MappedMutexGuard<'_, BTreeMap<String, Held>> {
+        tokio::sync::MutexGuard::map(self.held.lock().await, |held| {
+            held.get_or_insert_with(|| self.load())
+        })
     }
 
     fn load(&self) -> BTreeMap<String, Held> {
