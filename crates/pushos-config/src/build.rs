@@ -107,18 +107,16 @@ impl RuntimeConfig {
         // nothing is said rather than quietly taken for the default.
         // However it was capitalised: a setting an operator typed is read the
         // way they typed it, as seat names are.
-        let codex_features = file
-            .sessions
-            .codex_features
-            .as_deref()
-            .map(|written| written.trim().to_lowercase());
-        let every_codex_feature = match codex_features.as_deref() {
+        let written = file.sessions.codex_features.as_deref().map(str::trim);
+        let every_codex_feature = match written.map(str::to_lowercase).as_deref() {
             Some("full") => true,
             Some("lean") | None => false,
-            Some(other) => {
+            Some(_) => {
                 problems.push(Problem::UnknownSetting {
                     setting: "codex_features",
-                    value: other.to_owned(),
+                    // What they wrote, not what it was flattened to: an
+                    // operator reads the message looking for what they typed.
+                    value: written.unwrap_or_default().to_owned(),
                     allowed: "`lean` or `full`",
                 });
                 false

@@ -1526,6 +1526,19 @@ fn a_setting_that_means_nothing_is_said_rather_than_guessed_at() {
         codex_features = ""
         "#,
     );
+    let typed = problems(
+        r#"
+        [sessions]
+        codex_features = "Everything"
+        "#,
+    );
+    assert!(
+        typed
+            .iter()
+            .any(|problem| problem.to_string().contains("`Everything`")),
+        "the message shows what they typed, which is what they will look for: {typed:?}"
+    );
+
     assert!(
         empty
             .iter()

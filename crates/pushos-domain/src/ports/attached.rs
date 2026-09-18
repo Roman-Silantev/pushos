@@ -139,14 +139,17 @@ impl std::str::FromStr for Keeper {
     type Err = UnknownKeeper;
 
     fn from_str(written: &str) -> Result<Self, Self::Err> {
-        match written.trim() {
+        // However it was capitalised, like every other name an operator
+        // types: a keeper written `Claude` is the one they meant.
+        match written.trim().to_lowercase().as_str() {
             "terminal" | "tmux" => Ok(Self::Terminal),
             // `agent` is what this was called when Claude Code was the only
             // one, and still means it.
             "claude" | "agent" => Ok(Self::ClaudeCode),
             "codex" => Ok(Self::CodexThreads),
-            other => Err(UnknownKeeper {
-                written: other.to_owned(),
+            // Reported as they wrote it, which is what they will look for.
+            _ => Err(UnknownKeeper {
+                written: written.trim().to_owned(),
             }),
         }
     }
