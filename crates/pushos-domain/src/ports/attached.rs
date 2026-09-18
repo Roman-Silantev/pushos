@@ -113,6 +113,13 @@ pub enum Keeper {
 }
 
 impl Keeper {
+    /// Every agent that keeps sessions of its own, which is every one a seat
+    /// can be held by.
+    ///
+    /// A terminal session is found by the name tmux keeps it under, so no seat
+    /// is ever written down for one.
+    pub const KEEPING_SESSIONS: [Self; 2] = [Self::ClaudeCode, Self::CodexThreads];
+
     /// How it is written in configuration.
     pub const fn as_str(self) -> &'static str {
         match self {

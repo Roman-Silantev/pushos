@@ -42,7 +42,7 @@ use self::claude::ClaudeCode;
 use self::codex::CodexThreads;
 use self::hosts::{Hosts, Whereabouts};
 use self::merge::{Route, Seen, merge};
-use self::seats::Seats;
+use self::seats::{Seats, Still};
 use self::supervised::Supervisor;
 use self::terminal_app::TerminalApp;
 use self::tmux::Tmux;
@@ -459,34 +459,36 @@ impl AttachedSessions for MacSessions {
         // it answered: an agent that said nothing has not said that anything
         // ended, and pruning on its silence would lose which session a pad
         // holds for good.
-        let both = kept.answered && threads.answered;
+        let mut answered = Vec::new();
+        let claude_kept: Vec<String> = kept.kept.iter().map(|session| session.id.clone()).collect();
         if kept.answered {
-            let existing: Vec<String> =
-                kept.kept.iter().map(|session| session.id.clone()).collect();
-            self.seats
-                .keep_only(Keeper::ClaudeCode, &existing, both)
-                .await;
+            answered.push(Still {
+                keeper: Keeper::ClaudeCode,
+                sessions: &claude_kept,
+            });
         }
+        let mut codex_kept: Vec<String> = threads
+            .threads
+            .iter()
+            .map(|thread| thread.id.clone())
+            .collect();
         if threads.answered {
-            let mut existing: Vec<String> = threads
-                .threads
-                .iter()
-                .map(|thread| thread.id.clone())
-                .collect();
             // A listing that filled its page is the newest threads, not all of
             // them, so a seat missing from it is asked after by name before it
             // is given up on.
             if !threads.complete {
                 for held in self.seats.held_by(Keeper::CodexThreads).await {
-                    if !existing.contains(&held) && self.codex.knows(&held).await {
-                        existing.push(held);
+                    if !codex_kept.contains(&held) && self.codex.knows(&held).await {
+                        codex_kept.push(held);
                     }
                 }
             }
-            self.seats
-                .keep_only(Keeper::CodexThreads, &existing, both)
-                .await;
+            answered.push(Still {
+                keeper: Keeper::CodexThreads,
+                sessions: &codex_kept,
+            });
         }
+        self.seats.keep_only(&answered).await;
         merged.extend(self.on_seats(kept.kept).await);
         merged.extend(self.threads_on_seats(threads.threads).await);
 

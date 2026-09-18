@@ -67,6 +67,35 @@ impl Held {
             Self::Session(_) => None,
         }
     }
+
+    /// The same, labelled `seat` if the book never said what it was called.
+    ///
+    /// For a book whose keys were the names, which is where the name goes when
+    /// the key is flattened.
+    fn or_named(mut self, seat: &str) -> Self {
+        if let Self::By { name, .. } = &mut self
+            && name.is_none()
+        {
+            *name = Some(seat.trim().to_owned());
+        }
+        self
+    }
+}
+
+/// What one agent said it still has, when it answered at all.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Still<'a> {
+    /// Which agent answered.
+    pub(super) keeper: Keeper,
+    /// The sessions it still knows about.
+    pub(super) sessions: &'a [String],
+}
+
+impl Still<'_> {
+    /// Whether this agent listed that session.
+    fn has(&self, session: &str) -> bool {
+        self.sessions.iter().any(|kept| kept == session)
+    }
 }
 
 /// What each seat is holding, kept between runs.
@@ -152,25 +181,48 @@ impl Seats {
         self.save(book);
     }
 
-    /// Drops the seats of one keeper whose sessions it no longer knows about.
+    /// Drops the seats whose sessions the agent that kept them no longer knows
+    /// about.
     ///
-    /// Only that keeper's seats, and only from a listing it actually gave:
-    /// what another agent holds is none of its business, and an agent that
-    /// said nothing has not said that anything ended.
-    pub(super) async fn keep_only(&self, keeper: Keeper, existing: &[String], both: bool) {
+    /// Each keeper's seats go only from a listing it actually gave: what
+    /// another agent holds is none of its business, and an agent that said
+    /// nothing has not said that anything ended. A seat written before the
+    /// book named keepers belongs to one of them and there is no telling
+    /// which, so it is judged against everything every agent listed, and only
+    /// once they all have.
+    pub(super) async fn keep_only(&self, answered: &[Still<'_>]) {
         let mut held = self.held.lock().await;
         let book = held.get_or_insert_with(|| self.load());
         let before = book.len();
-        book.retain(|_, held| {
-            let whose = held.keeper();
-            // A seat written before the book named keepers belongs to one of
-            // them, and which is not known; it goes only when both have
-            // answered and neither claims it.
-            let mine = whose.is_none_or(|whose| whose == keeper);
-            let decidable = whose.is_some() || both;
-            !mine || !decidable || existing.iter().any(|kept| kept == held.session())
+        let all_answered = answered.len() == Keeper::KEEPING_SESSIONS.len();
+        book.retain(|_, held| match held.keeper() {
+            Some(whose) => answered
+                .iter()
+                .find(|still| still.keeper == whose)
+                .is_none_or(|still| still.has(held.session())),
+            None => !all_answered || answered.iter().any(|still| still.has(held.session())),
         });
-        if book.len() != before {
+        let dropped = book.len() != before;
+        // A seat written before the book named keepers is written down
+        // properly the moment exactly one agent claims its session. After that
+        // the other agent is left alone for it, which is a server not started.
+        let mut claimed = false;
+        for held in book.values_mut() {
+            if held.keeper().is_some() {
+                continue;
+            }
+            let session = held.session().to_owned();
+            let mut whose = answered.iter().filter(|still| still.has(&session));
+            if let (Some(still), None) = (whose.next(), whose.next()) {
+                *held = Held::By {
+                    keeper: still.keeper.as_str().to_owned(),
+                    session,
+                    name: held.name().map(str::to_owned),
+                };
+                claimed = true;
+            }
+        }
+        if dropped || claimed {
             self.save(book);
         }
     }
@@ -188,10 +240,31 @@ impl Seats {
         let Ok(written) = std::fs::read_to_string(path) else {
             return BTreeMap::new();
         };
-        serde_json::from_str(&written).unwrap_or_else(|error| {
-            warn!(%error, path = %path.display(), "the seat book could not be read; starting a new one");
-            BTreeMap::new()
-        })
+        let read: BTreeMap<String, serde_json::Value> = match serde_json::from_str(&written) {
+            Ok(read) => read,
+            Err(error) => {
+                warn!(%error, path = %path.display(), "the seat book could not be read; starting a new one");
+                return BTreeMap::new();
+            }
+        };
+        // Entry by entry, so one line a newer PushOS wrote, or a full disk
+        // mangled, costs that one pad its seat rather than every pad theirs.
+        let mut book = BTreeMap::new();
+        for (seat, entry) in read {
+            match serde_json::from_value::<Held>(entry) {
+                // A book written before a seat was found however it was typed
+                // is keyed as the operator wrote it. Flattening it as it is
+                // read is what stops the pad starting a second session on the
+                // day PushOS is upgraded.
+                Ok(held) => {
+                    book.insert(called(&seat), held.or_named(&seat));
+                }
+                Err(error) => {
+                    warn!(%error, seat, path = %path.display(), "a seat in the book could not be read; leaving it out");
+                }
+            }
+        }
+        book
     }
 
     fn save(&self, book: &BTreeMap<String, Held>) {
@@ -250,6 +323,11 @@ mod tests {
         }
     }
 
+    /// One agent answering with what it still has.
+    fn still(keeper: Keeper, sessions: &[String]) -> Still<'_> {
+        Still { keeper, sessions }
+    }
+
     #[tokio::test]
     async fn a_seat_still_holds_its_session_after_pushos_is_started_again() {
         let scratch = Scratch::new("kept");
@@ -289,9 +367,8 @@ mod tests {
         seats.took("client-1", Keeper::ClaudeCode, "55c88714").await;
         seats.took("client-2", Keeper::ClaudeCode, "9db46d48").await;
 
-        seats
-            .keep_only(Keeper::ClaudeCode, &["9db46d48".to_owned()], true)
-            .await;
+        let kept = ["9db46d48".to_owned()];
+        seats.keep_only(&[still(Keeper::ClaudeCode, &kept)]).await;
 
         assert_eq!(seats.holding("client-1").await, None);
         assert_eq!(
@@ -356,7 +433,7 @@ mod tests {
         seats.took("scraper", Keeper::CodexThreads, "abc").await;
 
         // Codex answers, and says it has nothing.
-        seats.keep_only(Keeper::CodexThreads, &[], false).await;
+        seats.keep_only(&[still(Keeper::CodexThreads, &[])]).await;
 
         assert_eq!(
             seats.holding("builder").await.as_deref(),
@@ -374,7 +451,7 @@ mod tests {
 
         // One agent answers and does not know it. The other has said nothing,
         // so it is still possible that the seat is theirs.
-        seats.keep_only(Keeper::ClaudeCode, &[], false).await;
+        seats.keep_only(&[still(Keeper::ClaudeCode, &[])]).await;
         assert_eq!(
             seats.holding("builder").await.as_deref(),
             Some("55c88714"),
@@ -382,8 +459,107 @@ mod tests {
         );
 
         // Both have answered now, and neither claims it.
-        seats.keep_only(Keeper::ClaudeCode, &[], true).await;
+        seats
+            .keep_only(&[
+                still(Keeper::ClaudeCode, &[]),
+                still(Keeper::CodexThreads, &[]),
+            ])
+            .await;
         assert_eq!(seats.holding("builder").await, None);
+    }
+
+    #[tokio::test]
+    async fn a_seat_written_down_before_names_were_flattened_is_still_the_same_seat() {
+        // Written by a PushOS that kept the book under the name as typed. The
+        // pad must find the session it already has, not start a second one.
+        let scratch = Scratch::new("capitals");
+        std::fs::write(
+            scratch.book(),
+            r#"{"ReviewCheck": {"keeper": "codex", "session": "abc"}}"#,
+        )
+        .expect("writable");
+        let seats = Seats::kept_in(Some(scratch.book()));
+
+        assert_eq!(seats.holding("ReviewCheck").await.as_deref(), Some("abc"));
+        assert_eq!(seats.holding("reviewcheck").await.as_deref(), Some("abc"));
+        assert_eq!(
+            seats.seat_of("abc").await.as_deref(),
+            Some("ReviewCheck"),
+            "and the pad is still labelled the way they wrote it"
+        );
+    }
+
+    #[tokio::test]
+    async fn one_seat_the_book_cannot_read_does_not_cost_the_others_theirs() {
+        let scratch = Scratch::new("partly");
+        std::fs::write(
+            scratch.book(),
+            r#"{"builder": {"keeper": "claude", "session": "55c88714"}, "odd": {"held": ["something newer"]}}"#,
+        )
+        .expect("writable");
+        let seats = Seats::kept_in(Some(scratch.book()));
+
+        assert_eq!(
+            seats.holding("builder").await.as_deref(),
+            Some("55c88714"),
+            "the seats that read are kept"
+        );
+        assert_eq!(seats.holding("odd").await, None);
+    }
+
+    #[tokio::test]
+    async fn a_seat_claimed_by_one_agent_stops_the_other_being_asked_about_it() {
+        let scratch = Scratch::new("upgraded");
+        std::fs::write(scratch.book(), r#"{"builder": "abc"}"#).expect("writable");
+        let seats = Seats::kept_in(Some(scratch.book()));
+        assert!(
+            seats.any_held_by(Keeper::ClaudeCode).await,
+            "until somebody claims it, it could be anyone's"
+        );
+
+        let codex = ["abc".to_owned()];
+        seats
+            .keep_only(&[
+                still(Keeper::ClaudeCode, &[]),
+                still(Keeper::CodexThreads, &codex),
+            ])
+            .await;
+
+        assert_eq!(seats.holding("builder").await.as_deref(), Some("abc"));
+        assert!(
+            !seats.any_held_by(Keeper::ClaudeCode).await,
+            "the book knows whose it is now, so Claude Code is left alone"
+        );
+        assert_eq!(
+            Seats::kept_in(Some(scratch.book()))
+                .held_by(Keeper::CodexThreads)
+                .await,
+            vec!["abc".to_owned()],
+            "and it was written down, not worked out again every look"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_seat_written_before_the_book_named_keepers_is_kept_by_whoever_has_it() {
+        let scratch = Scratch::new("claimed");
+        std::fs::write(scratch.book(), r#"{"builder": "55c88714"}"#).expect("writable");
+        let seats = Seats::kept_in(Some(scratch.book()));
+
+        // Both answer at once, and the session is one of Codex's. Claude Code
+        // not knowing it is not a reason to give it up.
+        let codex = ["55c88714".to_owned()];
+        seats
+            .keep_only(&[
+                still(Keeper::ClaudeCode, &[]),
+                still(Keeper::CodexThreads, &codex),
+            ])
+            .await;
+
+        assert_eq!(
+            seats.holding("builder").await.as_deref(),
+            Some("55c88714"),
+            "one agent still has it, so the pad still holds it"
+        );
     }
 
     #[tokio::test]
