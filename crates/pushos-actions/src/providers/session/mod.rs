@@ -390,14 +390,19 @@ impl SessionProvider {
         if !session.can_be_put_away() || self.turns.limit().is_none() {
             return false;
         }
-        let working = self
+        let working: Vec<AttachedId> = self
             .open()
             .await
             .unwrap_or_default()
             .iter()
             .filter(|open| open.can_be_put_away() && open.activity == Activity::Working)
-            .count();
-        self.turns.busy(working)
+            .map(|open| open.id.clone())
+            .collect();
+        // What has been sent counts too. Pressing four pads takes a second,
+        // and none of them would be described as working yet, so on the
+        // description alone every one of them would go at once.
+        let starting = self.turns.starting(Instant::now(), &working);
+        self.turns.busy(working.len() + starting)
     }
 
     /// Puts work aside until a session frees up, and says where it stands.
@@ -460,6 +465,7 @@ impl SessionProvider {
             match self.sessions.send(&session, &held.text).await {
                 Ok(()) => {
                     self.turns.done(&session);
+                    self.turns.sent(&session, Instant::now());
                     debug!(session = %session, "started work that was waiting its turn");
                     started.push(session);
                 }
@@ -846,6 +852,9 @@ impl ActionProvider for SessionProvider {
                     .send(&session.id, &text)
                     .await
                     .map_err(into_action_error)?;
+                if !interrupting {
+                    self.turns.sent(&session.id, Instant::now());
+                }
                 Ok(ActionResult {
                     status: ActionStatus::Completed,
                     message: Some(session.label().to_owned()),

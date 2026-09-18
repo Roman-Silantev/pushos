@@ -31,6 +31,15 @@ const MOST_WAITING: usize = 128;
 /// a pad that never reports a problem.
 const TRIES: u8 = 4;
 
+/// How long work counts as under way before it has been seen being done.
+///
+/// Pressing several pads at once is faster than any description of what the
+/// sessions are doing, so without this every press in the same few seconds
+/// would see an idle fleet and go straight past the limit. Past this,
+/// whatever was sent has gone nowhere, and counting it for ever would be a
+/// fleet that quietly stops taking work.
+const STARTS_WITHIN: Duration = Duration::from_secs(30);
+
 /// How long to leave it before offering refused work again.
 ///
 /// Doubling each time: a model that is rate limiting says so for a while, and
@@ -96,6 +105,8 @@ struct Queue {
     /// What makes putting a refusal back safe: work the operator has since
     /// replaced or cancelled is no longer here, so it comes back to nothing.
     given: HashMap<AttachedId, u64>,
+    /// When each session was last sent work, until it is seen doing it.
+    sent: HashMap<AttachedId, Instant>,
     /// What the next piece of work is written down under.
     next: u64,
 }
@@ -139,6 +150,23 @@ impl Turns {
     /// Whether work given now would have to wait, with `working` under way.
     pub(super) fn busy(&self, working: usize) -> bool {
         self.limit().is_some_and(|most| working >= most)
+    }
+
+    /// Notes that a session has just been sent work.
+    pub(super) fn sent(&self, session: &AttachedId, now: Instant) {
+        self.queue().sent.insert(session.clone(), now);
+    }
+
+    /// How many sessions were sent work that is not yet being done.
+    ///
+    /// Those already among `working` are left out: they are counted there,
+    /// and counting them twice would hold back a fleet that has room.
+    pub(super) fn starting(&self, now: Instant, working: &[AttachedId]) -> usize {
+        let mut queue = self.queue();
+        queue.sent.retain(|session, sent| {
+            now.duration_since(*sent) < STARTS_WITHIN && !working.contains(session)
+        });
+        queue.sent.len()
     }
 
     /// Puts work aside until a session is free, and says how much is ahead of
@@ -236,6 +264,7 @@ impl Turns {
         let mut queue = self.queue();
         queue.waiting.retain(|held| &held.session != session);
         queue.given.remove(session);
+        queue.sent.remove(session);
     }
 
     /// The queue, whatever state a panic elsewhere left the lock in.

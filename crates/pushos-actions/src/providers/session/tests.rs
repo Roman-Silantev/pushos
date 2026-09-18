@@ -933,6 +933,40 @@ async fn stopping_a_session_cancels_the_work_it_was_waiting_to_be_given() {
 }
 
 #[tokio::test]
+async fn pads_pressed_one_after_another_do_not_all_go_past_the_limit() {
+    // A press takes a moment; a description of what the sessions are doing
+    // takes seconds. On the description alone every pad pressed in that
+    // window sees an idle fleet and goes, which is what the limit exists to
+    // stop.
+    let idle: Vec<_> = ["one", "two", "three"]
+        .into_iter()
+        .map(|name| {
+            pushos_domain::attached::Attached::new(
+                format!("thread:{name}"),
+                name,
+                Activity::Ready,
+                "Codex",
+            )
+            .dispatched(pushos_domain::ports::Keeper::CodexThreads)
+            .named(name)
+        })
+        .collect();
+    let fake = FakeAttached::holding(idle);
+    let provider = SessionProvider::new(Arc::new(fake.clone()));
+    provider.allow_working(Some(2));
+
+    for name in ["one", "two", "three"] {
+        provider
+            .execute(typing(&format!("id:thread:{name}"), "review the invoices"))
+            .await
+            .expect("accepted");
+    }
+
+    assert_eq!(sent(&fake).len(), 2, "two went, as the operator allowed");
+    assert_eq!(provider.waiting_turns(), 1, "and the third waits its turn");
+}
+
+#[tokio::test]
 async fn work_for_a_session_that_has_gone_is_not_offered_again() {
     let (provider, fake) = a_busy_fleet();
     provider.allow_working(Some(1));
