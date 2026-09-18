@@ -967,6 +967,46 @@ async fn pads_pressed_one_after_another_do_not_all_go_past_the_limit() {
 }
 
 #[tokio::test]
+async fn typing_into_your_own_terminal_does_not_take_a_turn_from_the_fleet() {
+    // A terminal is the operator's own window: nothing in it is the model's
+    // attention, so it must not hold an agent pad back.
+    let terminals = ["/dev/ttys003", "/dev/ttys004"].map(|device| {
+        pushos_domain::attached::Attached::new(device, device, Activity::Ready, "Terminal")
+    });
+    let agent = pushos_domain::attached::Attached::new(
+        "thread:free",
+        "waiting for work",
+        Activity::Ready,
+        "Codex",
+    )
+    .dispatched(pushos_domain::ports::Keeper::CodexThreads)
+    .named("reviewer");
+    let fake = FakeAttached::holding(terminals.into_iter().chain(std::iter::once(agent)));
+    let provider = SessionProvider::new(Arc::new(fake.clone()));
+    provider.allow_working(Some(2));
+
+    // Two of the operator's own terminals, typed into. Neither is a session
+    // an agent keeps, so neither uses any of the model's attention.
+    for device in ["tty:ttys003", "tty:ttys004"] {
+        provider
+            .execute(typing(device, "ls\n"))
+            .await
+            .expect("typed");
+    }
+
+    provider
+        .execute(typing("id:thread:free", "review the invoices"))
+        .await
+        .expect("accepted");
+
+    assert_eq!(
+        provider.waiting_turns(),
+        0,
+        "no agent session is working, so the one agent pad should have gone"
+    );
+}
+
+#[tokio::test]
 async fn work_for_a_session_that_has_gone_is_not_offered_again() {
     let (provider, fake) = a_busy_fleet();
     provider.allow_working(Some(1));

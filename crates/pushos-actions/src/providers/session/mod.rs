@@ -444,6 +444,16 @@ impl SessionProvider {
         self.turns.how_much_waiting()
     }
 
+    /// How many sessions were sent work that is not yet being done.
+    ///
+    /// `working` is what the last description said is working, so that a
+    /// session counted there is not counted twice. Whoever decides how much
+    /// more work may go needs this: a pad pressed a second ago has taken a
+    /// turn that no description shows yet.
+    pub fn work_starting(&self, working: &[AttachedId]) -> usize {
+        self.turns.starting(Instant::now(), working)
+    }
+
     /// Drops whatever a session was waiting to be told.
     ///
     /// Work is not pruned against a listing: a keeper that failed to answer
@@ -852,7 +862,10 @@ impl ActionProvider for SessionProvider {
                     .send(&session.id, &text)
                     .await
                     .map_err(into_action_error)?;
-                if !interrupting {
+                // Only a session an agent keeps takes a turn: a terminal is
+                // the operator's own window, and counting what they type into
+                // it would hold their pads back for nothing.
+                if !interrupting && session.can_be_put_away() {
                     self.turns.sent(&session.id, Instant::now());
                 }
                 Ok(ActionResult {

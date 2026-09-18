@@ -193,21 +193,25 @@ fn limit_now(asked: Option<usize>, pressure: Pressure, costly: bool) -> Option<u
             };
             Some(asked.map_or(unasked, |most| (most / UNDER_WARNING).max(1)))
         }
-        Pressure::Critical if costly => {
-            Some(asked.map_or(WHILE_CRITICAL, |most| most.min(WHILE_CRITICAL)))
-        }
+        // Never above what a warning already allows: the Mac saying it is
+        // about to swap must not be the moment more sessions are let run.
+        Pressure::Critical if costly => Some(asked.map_or(WHILE_CRITICAL, |most| {
+            (most / UNDER_WARNING).clamp(1, WHILE_CRITICAL)
+        })),
         Pressure::Critical => Some(asked.map_or(THREADS_WHILE_CRITICAL, |most| {
             (most / THREADS_UNDER_CRITICAL).max(1)
         })),
     }
 }
 
-/// Drops the turns held for work that has begun, gone, or never got going.
+/// Drops the sessions whose work has begun, or plainly never will.
 ///
-/// What is left is the sessions that were given work and still read as idle,
-/// whose turns are therefore not free for anything else. Judged one session at
-/// a time: a description arriving says nothing about the sessions it is not
-/// about, and most descriptions are about something else entirely.
+/// What is left is the sessions that were given work and are not yet seen
+/// doing it, which must not be put away underneath it. A session woken from
+/// being put away reads as put away for the seconds its process takes to
+/// start, and one absent from a description has not been described at all;
+/// neither is a reason to take its work away, so only a session actually seen
+/// working is dropped from here.
 fn still_starting(
     just_started: &mut Vec<(AttachedId, Instant)>,
     sessions: &[Attached],
@@ -300,11 +304,7 @@ impl SeatsTask {
     /// Counted from what the sessions are doing rather than from what PushOS
     /// started: a session may be working because the operator typed in its own
     /// window, and that is still the model's attention being used.
-    async fn let_work_through(
-        &self,
-        sessions: &[Attached],
-        just_started: usize,
-    ) -> Vec<AttachedId> {
+    async fn let_work_through(&self, sessions: &[Attached]) -> Vec<AttachedId> {
         let Some(provider) = &self.provider else {
             return Vec::new();
         };
@@ -317,11 +317,17 @@ impl SeatsTask {
         let Some(most) = limits.working_at_once else {
             return provider.start_waiting_work(usize::MAX).await;
         };
-        let working = sessions
+        let working: Vec<AttachedId> = sessions
             .iter()
             .filter(|session| session.can_be_put_away() && session.activity == Activity::Working)
-            .count();
-        let free = most.saturating_sub(working).saturating_sub(just_started);
+            .map(|session| session.id.clone())
+            .collect();
+        // Asked of the provider rather than counted here, because a pad the
+        // operator pressed a second ago took a turn that this task never saw
+        // and no description shows yet. One account of what is under way, kept
+        // in one place.
+        let starting = provider.work_starting(&working);
+        let free = most.saturating_sub(working.len()).saturating_sub(starting);
         if free == 0 {
             return Vec::new();
         }
@@ -329,8 +335,8 @@ impl SeatsTask {
         if !started.is_empty() {
             tracing::debug!(
                 started = started.len(),
-                working,
-                just_started,
+                working = working.len(),
+                starting,
                 "let work through that was waiting a turn"
             );
         }
@@ -367,12 +373,11 @@ impl SeatsTask {
             let sessions = self.watching.borrow_and_update().clone();
             let now = Instant::now();
             still_starting(&mut just_started, &sessions, now);
-            just_started.extend(
-                self.let_work_through(&sessions, just_started.len())
-                    .await
-                    .into_iter()
-                    .map(|id| (id, now)),
-            );
+            for id in self.let_work_through(&sessions).await {
+                if !just_started.iter().any(|(started, _)| *started == id) {
+                    just_started.push((id, now));
+                }
+            }
 
             // At every look, quick or not: it is only bookkeeping over what
             // is already in hand, and a session that worked and finished
@@ -694,6 +699,174 @@ mod tests {
             held.is_empty(),
             "a fleet that quietly stopped taking work would be far worse"
         );
+    }
+
+    fn typing(target: &str, text: &str) -> pushos_domain::action::ActionContext {
+        use pushos_domain::action::{ActionDefinition, ActionSelector, ParamValue, Params};
+        let mut params = Params::new();
+        params.set("target", ParamValue::Text(target.into()));
+        params.set("text", ParamValue::Text(text.into()));
+        pushos_domain::action::ActionContext::new(
+            ActionDefinition::new(
+                "session.send".parse::<ActionSelector>().expect("valid"),
+                params,
+            ),
+            pushos_domain::ids::CorrelationId::generate(),
+            pushos_domain::context::SurfaceContext::empty(),
+        )
+    }
+
+    #[tokio::test]
+    async fn a_session_woken_from_being_put_away_keeps_the_turn_it_was_given() {
+        use pushos_domain::ports::ActionProvider as _;
+        use pushos_testkit::{FakeAttached, SessionCall};
+
+        let busy = session("busy", Activity::Working);
+        let away = session("away", Activity::Quiet);
+        let free = session("free", Activity::Ready);
+        let fake = Arc::new(FakeAttached::holding([
+            busy.clone(),
+            away.clone(),
+            free.clone(),
+        ]));
+        let provider = Arc::new(pushos_actions::providers::session::SessionProvider::new(
+            Arc::clone(&fake) as Arc<_>,
+        ));
+        provider.allow_working(Some(1));
+
+        // Both pads pressed while the one turn is taken: both wait.
+        for id in ["kept:away", "kept:free"] {
+            provider
+                .execute(typing(&format!("id:{id}"), "review the invoices"))
+                .await
+                .expect("accepted");
+        }
+        assert_eq!(provider.waiting_turns(), 2);
+
+        // The busy one finishes.
+        let described = [session("busy", Activity::Ready), away.clone(), free.clone()];
+        let (_found, watching) = tokio::sync::watch::channel(described.to_vec());
+        let task = SeatsTask::new(
+            Arc::clone(&fake) as Arc<_>,
+            Arc::new(pushos_domain::ports::RoomToSpare),
+            watching,
+            || SeatLimits {
+                most_live: None,
+                working_at_once: Some(1),
+                most_threads: None,
+                put_away_after: None,
+            },
+        )
+        .letting_work_through(Arc::clone(&provider));
+
+        let now = Instant::now();
+        let mut just_started: Vec<(AttachedId, Instant)> = Vec::new();
+        just_started.extend(
+            task.let_work_through(&described)
+                .await
+                .into_iter()
+                .map(|id| (id, now)),
+        );
+        assert_eq!(just_started.len(), 1, "one turn, one piece of work");
+
+        // Two seconds later. The session that was woken is still starting its
+        // process, so it is still described as put away.
+        let soon = now + Duration::from_secs(2);
+        still_starting(&mut just_started, &described, soon);
+        just_started.extend(
+            task.let_work_through(&described)
+                .await
+                .into_iter()
+                .map(|id| (id, soon)),
+        );
+
+        let went: Vec<String> = fake
+            .calls()
+            .into_iter()
+            .filter_map(|call| match call {
+                SessionCall::Sent(id, _) => Some(id),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            went.len(),
+            1,
+            "the operator allowed one at once, and the woken session has not \
+             started yet: {went:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn work_sent_straight_from_a_pad_is_counted_before_more_is_let_through() {
+        use pushos_domain::ports::ActionProvider as _;
+        use pushos_testkit::{FakeAttached, SessionCall};
+
+        let described = [
+            session("one", Activity::Ready),
+            session("two", Activity::Ready),
+            session("three", Activity::Ready),
+        ];
+        let fake = Arc::new(FakeAttached::holding(described.to_vec()));
+        let provider = Arc::new(pushos_actions::providers::session::SessionProvider::new(
+            Arc::clone(&fake) as Arc<_>,
+        ));
+        provider.allow_working(Some(2));
+
+        // Three pads pressed in the same second. The provider itself holds the
+        // third back: two have been sent and nothing is described as working
+        // yet, so the fleet is full.
+        for id in ["kept:one", "kept:two", "kept:three"] {
+            provider
+                .execute(typing(&format!("id:{id}"), "review the invoices"))
+                .await
+                .expect("accepted");
+        }
+        assert_eq!(provider.waiting_turns(), 1, "the third waits its turn");
+
+        let (_found, watching) = tokio::sync::watch::channel(described.to_vec());
+        let task = SeatsTask::new(
+            Arc::clone(&fake) as Arc<_>,
+            Arc::new(pushos_domain::ports::RoomToSpare),
+            watching,
+            || SeatLimits {
+                most_live: None,
+                working_at_once: Some(2),
+                most_threads: None,
+                put_away_after: None,
+            },
+        )
+        .letting_work_through(Arc::clone(&provider));
+
+        // The next look, two seconds later. The two that were sent still read
+        // as idle, exactly as they did when the third was held back.
+        let started = task.let_work_through(&described).await;
+
+        let went: Vec<String> = fake
+            .calls()
+            .into_iter()
+            .filter_map(|call| match call {
+                SessionCall::Sent(id, _) => Some(id),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            started.is_empty() && went.len() == 2,
+            "two at once is what the operator allowed: {went:?}"
+        );
+    }
+
+    #[test]
+    fn a_tighter_pressure_never_raises_the_limit() {
+        for most in 1..=64 {
+            let normal = limit_now(Some(most), Pressure::Normal, true);
+            let warning = limit_now(Some(most), Pressure::Warning, true);
+            let critical = limit_now(Some(most), Pressure::Critical, true);
+            assert!(
+                critical <= warning && warning <= normal,
+                "most_live {most}: normal {normal:?}, warning {warning:?}, \
+                 critical {critical:?}"
+            );
+        }
     }
 
     #[test]

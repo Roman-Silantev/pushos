@@ -152,9 +152,19 @@ impl Turns {
         self.limit().is_some_and(|most| working >= most)
     }
 
-    /// Notes that a session has just been sent work.
+    /// Notes that a session an agent keeps has just been sent work.
+    ///
+    /// Only those: what an operator types into their own terminal is theirs
+    /// to time, and none of it is the model's attention.
     pub(super) fn sent(&self, session: &AttachedId, now: Instant) {
-        self.queue().sent.insert(session.clone(), now);
+        let mut queue = self.queue();
+        // Swept here as well as when they are counted, because with no limit
+        // set nobody ever counts them and this would be the one store that
+        // grew for the life of the process.
+        queue
+            .sent
+            .retain(|_, sent| now.duration_since(*sent) < STARTS_WITHIN);
+        queue.sent.insert(session.clone(), now);
     }
 
     /// How many sessions were sent work that is not yet being done.
