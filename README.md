@@ -437,9 +437,12 @@ PushOS decides which to put away, and the rules are conservative: never one
 that is working, never one waiting on you, and never a session in somebody's
 terminal, which is theirs. Of the ones sitting idle, the one idle longest goes
 first. When macOS says memory is short the limit tightens on its own — halved
-on a warning, down to four when it is critical — and returns when the pressure
-passes. That pressure signal is `kern.memorystatus_vm_pressure_level`, which is
-what macOS itself acts on. `most_live = 0` means no limit.
+on a warning, and down to a handful of sessions with a process each when it is
+critical — and returns when the pressure passes. Codex threads are cut to a
+quarter rather than to that handful, because sixty-four of them cost about
+what three sessions with a process each do. That pressure signal is
+`kern.memorystatus_vm_pressure_level`, which is what macOS itself acts on.
+`most_live = 0` means no limit.
 
 Twenty is the default because most seats sit idle most of the time. If yours
 are all working at once, set it nearer twelve: that is what fits alongside
