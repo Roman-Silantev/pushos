@@ -139,7 +139,7 @@ pub enum Problem {
     },
 
     /// A setting was given a value that means nothing.
-    #[error("`{value}` is not something `{setting}` can be; use {allowed}")]
+    #[error("{} is not something `{setting}` can be; use {allowed}", if value.is_empty() { "an empty value".to_owned() } else { format!("`{value}`") })]
     UnknownSetting {
         /// Which setting.
         setting: &'static str,

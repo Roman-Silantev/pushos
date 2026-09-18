@@ -1478,3 +1478,58 @@ fn a_role_in_a_project_nothing_declares_is_refused() {
         "{found:?}"
     );
 }
+
+// --- Settings ----------------------------------------------------------------
+
+#[test]
+fn a_setting_is_read_however_the_operator_capitalised_it() {
+    let config = build(
+        r#"
+        [sessions]
+        codex_features = "  Full  "
+        "#,
+    );
+    assert!(
+        config.every_codex_feature,
+        "an operator who wrote Full meant full"
+    );
+    assert!(
+        !build(
+            r#"
+            [sessions]
+            codex_features = "LEAN"
+            "#
+        )
+        .every_codex_feature
+    );
+}
+
+#[test]
+fn a_setting_that_means_nothing_is_said_rather_than_guessed_at() {
+    let found = problems(
+        r#"
+        [sessions]
+        codex_features = "everything"
+        "#,
+    );
+    assert!(
+        found.iter().any(|problem| matches!(
+            problem,
+            Problem::UnknownSetting { setting, .. } if *setting == "codex_features"
+        )),
+        "{found:?}"
+    );
+
+    let empty = problems(
+        r#"
+        [sessions]
+        codex_features = ""
+        "#,
+    );
+    assert!(
+        empty
+            .iter()
+            .any(|problem| problem.to_string().contains("an empty value")),
+        "a blank setting says so rather than showing an empty pair of quotes: {empty:?}"
+    );
+}

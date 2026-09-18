@@ -136,9 +136,23 @@ pub enum Align {
 
 /// A measurement as a whole number, so a cache cannot be defeated by floating
 /// point noise.
+///
+/// Anything wider than a panel could ever be reads as one figure of its own
+/// rather than as the widest real one: the answers differ, and a key they
+/// shared would hand one of them the other's line.
 fn quantised(measure: f32) -> u32 {
+    /// Past this there is nothing to tell apart: it is wider than any display
+    /// PushOS draws on, and every line fits.
+    const BEYOND: f32 = 4_000.0;
+
+    if measure.is_nan() {
+        return 0;
+    }
+    if measure > BEYOND {
+        return u32::MAX;
+    }
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-    let whole = (measure.clamp(0.0, 4_000.0) * 10.0).round() as u32;
+    let whole = (measure.max(0.0) * 10.0).round() as u32;
     whole
 }
 
@@ -179,14 +193,26 @@ impl std::hash::BuildHasher for Quick {
     }
 }
 
-/// A line as it was last fitted to a width.
-type Fitted = HashMap<(String, u32, u32), String, Quick>;
+/// Lines as they were last fitted, under the size and width they were fitted
+/// to.
+///
+/// Nested so that looking one up costs nothing: the outer key is a pair of
+/// numbers, and the map inside is found by the line itself without copying it
+/// first. Every line of every frame goes through here.
+type Fitted = HashMap<(u32, u32), HashMap<String, String, Quick>, Quick>;
 
 /// The most lines whose fitting is remembered.
 ///
 /// A screenful is a dozen or so; this is room for the pages an operator moves
 /// between without ever being a store worth thinking about.
 const REMEMBERED_LINES: usize = 128;
+
+/// The most rasterised glyphs kept at once.
+///
+/// A display of English text uses a hundred or so across its sizes. This is
+/// room for the languages a session name might be written in, and a bound on
+/// what a pad named in every alphabet at once could cost.
+const REMEMBERED_GLYPHS: usize = 1_024;
 
 /// Draws text onto a canvas.
 pub struct TextRenderer {
@@ -196,8 +222,10 @@ pub struct TextRenderer {
     ///
     /// Fitting walks the string, asks the typeface about every character and
     /// measures each one. The lines on the display change seldom; the frame
-    /// they are drawn in changes thirty times a second.
+    /// they are drawn in changes many times a second.
     fitted: Fitted,
+    /// How many lines are remembered, across every size and width.
+    remembered: usize,
 }
 
 impl TextRenderer {
@@ -212,6 +240,7 @@ impl TextRenderer {
             font,
             cache: HashMap::default(),
             fitted: Fitted::default(),
+            remembered: 0,
         })
     }
 
@@ -300,17 +329,26 @@ impl TextRenderer {
     /// The answer is remembered: the same line is fitted again on every frame
     /// of an animation, and nothing about it has changed.
     pub fn truncate(&mut self, text: &str, size: f32, max_width: f32) -> String {
-        let key = (text.to_owned(), quantised(size), quantised(max_width));
-        if let Some(fitted) = self.fitted.get(&key) {
+        let shape = (quantised(size), quantised(max_width));
+        if let Some(fitted) = self.fitted.get(&shape).and_then(|lines| lines.get(text)) {
             return fitted.clone();
         }
         let fitted = self.fit(text, size, max_width);
         // Cleared rather than evicted one by one: it is rebuilt in a frame,
         // and a page that changed its lines wants none of the old ones.
-        if self.fitted.len() >= REMEMBERED_LINES {
+        if self.remembered >= REMEMBERED_LINES {
             self.fitted.clear();
+            self.remembered = 0;
         }
-        self.fitted.insert(key, fitted.clone());
+        if self
+            .fitted
+            .entry(shape)
+            .or_default()
+            .insert(text.to_owned(), fitted.clone())
+            .is_none()
+        {
+            self.remembered += 1;
+        }
         fitted
     }
 
@@ -359,6 +397,12 @@ impl TextRenderer {
         if self.cache.contains_key(&key) {
             return;
         }
+        // Cleared rather than evicted one by one, like the fitted lines: what
+        // the display is showing is rasterised again within a frame, and
+        // deciding which glyph to keep would cost more than drawing it does.
+        if self.cache.len() >= REMEMBERED_GLYPHS {
+            self.cache.clear();
+        }
         let (metrics, coverage) = self.font.rasterize(character, size);
         self.cache.insert(key, Glyph { metrics, coverage });
     }
@@ -401,7 +445,15 @@ fn blit(canvas: &mut Canvas, glyph: &Glyph, pen: f32, baseline: f32, color: Rgb)
             let (Ok(dx), Ok(dy)) = (i32::try_from(column), i32::try_from(row)) else {
                 continue;
             };
-            canvas.blend(left + dx, top + dy, coverage, color);
+            // Saturating, so a pen position out at the edge of what an `i32`
+            // holds cannot panic; a pixel that far off the canvas is dropped
+            // by `blend` either way.
+            canvas.blend(
+                left.saturating_add(dx),
+                top.saturating_add(dy),
+                coverage,
+                color,
+            );
         }
     }
 }
@@ -563,6 +615,33 @@ mod tests {
         let mut text = renderer();
         assert_eq!(text.truncate("Anything", 18.0, 1.0), "");
         assert_eq!(text.truncate("Anything", 18.0, 0.0), "");
+    }
+
+    #[test]
+    fn neither_cache_can_grow_without_end() {
+        // A name in an alphabet of its own is drawn like any other, and a
+        // surface left running for a week must not end up holding every
+        // glyph and line it has ever been shown.
+        let mut text = renderer();
+        let many = u32::try_from(REMEMBERED_GLYPHS).expect("a sensible bound") + 200;
+        for point in 0x4E00..0x4E00 + many {
+            let character = char::from_u32(point).expect("a character");
+            let line = character.to_string();
+            text.width(&line, 18.0);
+            text.truncate(&line, 18.0, 100.0);
+        }
+
+        assert!(text.cached_glyphs() <= REMEMBERED_GLYPHS);
+        assert!(text.remembered <= REMEMBERED_LINES);
+    }
+
+    #[test]
+    fn a_width_past_anything_drawable_is_not_confused_with_the_widest_real_one() {
+        assert_eq!(quantised(4_000.0), 40_000);
+        assert_eq!(quantised(9_000.0), u32::MAX);
+        assert_eq!(quantised(f32::INFINITY), u32::MAX);
+        assert_eq!(quantised(f32::NAN), 0, "no width at all");
+        assert_eq!(quantised(-5.0), 0);
     }
 
     #[test]

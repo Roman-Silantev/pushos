@@ -105,7 +105,14 @@ impl RuntimeConfig {
 
         // Worked out before the problems are reported, so a value that means
         // nothing is said rather than quietly taken for the default.
-        let every_codex_feature = match file.sessions.codex_features.as_deref().map(str::trim) {
+        // However it was capitalised: a setting an operator typed is read the
+        // way they typed it, as seat names are.
+        let codex_features = file
+            .sessions
+            .codex_features
+            .as_deref()
+            .map(|written| written.trim().to_lowercase());
+        let every_codex_feature = match codex_features.as_deref() {
             Some("full") => true,
             Some("lean") | None => false,
             Some(other) => {

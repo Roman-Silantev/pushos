@@ -238,7 +238,9 @@ fn as_length(lines: usize) -> f32 {
 const fn pace(tone: Tone, frame: u32) -> u32 {
     match tone {
         // Twice the pace, because this is the one worth walking over for.
-        Tone::Attention | Tone::Failure => frame * 2,
+        // Wrapping, because the frame count wraps too: a surface left
+        // running for years would otherwise stop the display dead.
+        Tone::Attention | Tone::Failure => frame.wrapping_mul(2),
         Tone::Active => frame,
         // Half, so the mascot is alive without asking to be looked at.
         Tone::Normal => frame / 2,
