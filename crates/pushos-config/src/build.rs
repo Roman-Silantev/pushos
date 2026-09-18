@@ -103,6 +103,21 @@ impl RuntimeConfig {
         let bindings = crate::bindings::build(file, &page_ids, &workspace_ids, &mut problems);
         problems.extend(find_conflicts(&bindings).into_iter().map(Problem::Conflict));
 
+        // Worked out before the problems are reported, so a value that means
+        // nothing is said rather than quietly taken for the default.
+        let every_codex_feature = match file.sessions.codex_features.as_deref().map(str::trim) {
+            Some("full") => true,
+            Some("lean") | None => false,
+            Some(other) => {
+                problems.push(Problem::UnknownSetting {
+                    setting: "codex_features",
+                    value: other.to_owned(),
+                    allowed: "`lean` or `full`",
+                });
+                false
+            }
+        };
+
         if !problems.is_empty() {
             return Err(ConfigError::Invalid { problems });
         }
@@ -122,17 +137,13 @@ impl RuntimeConfig {
             rest,
             voice,
             memory,
-            watch_sessions: file.sessions.watch,
+            watch_sessions: file.sessions.watch.unwrap_or(false),
             session_poll: file
                 .sessions
                 .poll_ms
                 .map_or(DEFAULT_SESSION_POLL, Duration::from_millis),
             seats: crate::model::SeatLimits::from(&file.sessions),
-            every_codex_feature: file
-                .sessions
-                .codex_features
-                .as_deref()
-                .is_some_and(|wanted| wanted.trim() == "full"),
+            every_codex_feature,
             workspace_root: file
                 .runtime
                 .workspace_root

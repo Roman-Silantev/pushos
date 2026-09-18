@@ -409,15 +409,17 @@ impl SessionProvider {
                 std::io::Error::other("the queue is full"),
             )
         })?;
+        let queue = if ahead == 0 {
+            "next".to_owned()
+        } else {
+            format!("{ahead} ahead")
+        };
         Ok(ActionResult {
             status: ActionStatus::Started,
-            message: Some(format!(
-                "{} waits its turn ({ahead} to go)",
-                session.label()
-            )),
+            message: Some(format!("{} waits its turn ({queue})", session.label())),
             display: Some(DisplayIntent::Toast {
                 title: session.label().to_owned(),
-                detail: Some(format!("{ahead} waiting")),
+                detail: Some(format!("waiting, {queue}")),
             }),
         })
     }
@@ -434,7 +436,7 @@ impl SessionProvider {
 
     /// How much work is waiting for a turn.
     pub fn waiting_turns(&self) -> usize {
-        self.turns.waiting()
+        self.turns.how_much_waiting()
     }
 
     /// Drops whatever a session was waiting to be told.
@@ -451,14 +453,14 @@ impl SessionProvider {
     ///
     /// Returns how many went. Work for a session that has since gone is
     /// dropped rather than retried for ever.
-    pub async fn start_waiting_work(&self, free: usize) -> usize {
-        let mut started = 0;
+    pub async fn start_waiting_work(&self, free: usize) -> Vec<AttachedId> {
+        let mut started = Vec::new();
         for held in self.turns.take(free, Instant::now()) {
             let session = held.session.clone();
             match self.sessions.send(&session, &held.text).await {
                 Ok(()) => {
                     debug!(session = %session, "started work that was waiting its turn");
-                    started += 1;
+                    started.push(session);
                 }
                 // A session that has gone cannot be told anything, ever.
                 Err(AttachError::Gone { .. }) => {

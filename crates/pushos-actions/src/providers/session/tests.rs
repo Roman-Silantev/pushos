@@ -795,7 +795,7 @@ async fn waiting_work_goes_as_soon_as_there_is_room() {
 
     let started = provider.start_waiting_work(1).await;
 
-    assert_eq!(started, 1);
+    assert_eq!(started.len(), 1);
     assert_eq!(
         sent(&fake),
         [("thread:free".to_owned(), "review the invoices".to_owned())]
@@ -858,7 +858,7 @@ async fn work_for_a_session_that_has_gone_stops_waiting() {
     provider.forget_work_for(&AttachedId::new("thread:free"));
 
     assert_eq!(provider.waiting_turns(), 0);
-    assert_eq!(provider.start_waiting_work(4).await, 0);
+    assert_eq!(provider.start_waiting_work(4).await.len(), 0);
 }
 
 #[tokio::test]
@@ -873,7 +873,10 @@ async fn work_the_agent_refuses_waits_and_is_offered_again() {
         .expect("accepted");
     fake.refuse();
 
-    assert_eq!(provider.start_waiting_work(1).await, 0, "the agent said no");
+    assert!(
+        provider.start_waiting_work(1).await.is_empty(),
+        "the agent said no"
+    );
     assert_eq!(provider.waiting_turns(), 1, "and the work is still there");
 }
 
@@ -926,7 +929,7 @@ async fn stopping_a_session_cancels_the_work_it_was_waiting_to_be_given() {
         0,
         "an interrupt that leaves the work queued has stopped nothing"
     );
-    assert_eq!(provider.start_waiting_work(4).await, 0);
+    assert_eq!(provider.start_waiting_work(4).await.len(), 0);
 }
 
 #[tokio::test]
@@ -941,7 +944,7 @@ async fn work_for_a_session_that_has_gone_is_not_offered_again() {
     // The session closes; what it was going to be told cannot be delivered.
     fake.close("thread:free");
 
-    assert_eq!(provider.start_waiting_work(1).await, 0);
+    assert_eq!(provider.start_waiting_work(1).await.len(), 0);
     assert_eq!(
         provider.waiting_turns(),
         0,

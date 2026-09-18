@@ -260,14 +260,18 @@ impl SeatsTask {
     /// Counted from what the sessions are doing rather than from what PushOS
     /// started: a session may be working because the operator typed in its own
     /// window, and that is still the model's attention being used.
-    async fn let_work_through(&self, sessions: &[Attached], just_started: usize) -> usize {
+    async fn let_work_through(
+        &self,
+        sessions: &[Attached],
+        just_started: usize,
+    ) -> Vec<AttachedId> {
         let Some(provider) = &self.provider else {
-            return 0;
+            return Vec::new();
         };
         let limits = (self.limits)();
         provider.allow_working(limits.working_at_once);
         if provider.waiting_turns() == 0 {
-            return 0;
+            return Vec::new();
         }
 
         let Some(most) = limits.working_at_once else {
@@ -279,12 +283,12 @@ impl SeatsTask {
             .count();
         let free = most.saturating_sub(working).saturating_sub(just_started);
         if free == 0 {
-            return 0;
+            return Vec::new();
         }
         let started = provider.start_waiting_work(free).await;
-        if started > 0 {
+        if !started.is_empty() {
             tracing::debug!(
-                started,
+                started = started.len(),
                 working,
                 just_started,
                 "let work through that was waiting a turn"
@@ -299,7 +303,11 @@ impl SeatsTask {
         // Work let through since the sessions were last described. Until the
         // next description arrives those sessions still read as idle, and
         // without this the next look would let the same number through again.
-        let mut just_started = 0_usize;
+        // Sessions given work since they were last described. They still
+        // read as idle until the next description, and both decisions below
+        // need to know better: the limit is not free again, and a session
+        // about to work is not one to put away.
+        let mut just_started: Vec<AttachedId> = Vec::new();
         let mut last_look: Option<Instant> = None;
 
         loop {
@@ -322,10 +330,10 @@ impl SeatsTask {
             let described = self.watching.has_changed().unwrap_or(false);
             let sessions = self.watching.borrow_and_update().clone();
             if described {
-                just_started = 0;
+                just_started.clear();
             }
             let now = Instant::now();
-            just_started += self.let_work_through(&sessions, just_started).await;
+            just_started.extend(self.let_work_through(&sessions, just_started.len()).await);
 
             // The quick look is only for letting work through. Asking the Mac
             // about its memory costs a subprocess, and putting a session away
@@ -340,7 +348,8 @@ impl SeatsTask {
             }
 
             let pressure = self.pressure.now().await;
-            for id in to_put_away(&sessions, &idle, (self.limits)(), pressure, now) {
+            let going = to_put_away(&sessions, &idle, (self.limits)(), pressure, now);
+            for id in going.into_iter().filter(|id| !just_started.contains(id)) {
                 match self.sessions.put_away(&id).await {
                     Ok(true) => tracing::info!(
                         session = %id,

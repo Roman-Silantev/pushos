@@ -102,22 +102,22 @@ impl Turns {
         self.limit().is_some_and(|most| working >= most)
     }
 
-    /// Puts work aside until a session is free, and says how much is ahead.
+    /// Puts work aside until a session is free, and says how much is ahead of
+    /// it — nought when it is next.
     ///
     /// Replaces whatever that session was already waiting to be told: the
     /// newer instruction is the one the operator meant, exactly as pressing a
     /// pad twice means the second thing.
     pub(super) fn hold(&self, session: &AttachedId, text: &str) -> Result<usize, Full> {
-        let Ok(mut waiting) = self.waiting.lock() else {
-            return Err(Full);
-        };
-        if let Some(already) = waiting.iter_mut().find(|held| &held.session == session) {
+        let mut waiting = self.waiting();
+        if let Some(at) = waiting.iter().position(|held| &held.session == session) {
+            let already = &mut waiting[at];
             text.clone_into(&mut already.text);
             // Different work: whatever the agent thought of the last lot is
             // no reason to give up on this sooner, or to make it wait.
             already.refused = 0;
             already.next_try = None;
-            return Ok(waiting.len());
+            return Ok(at);
         }
         if waiting.len() >= MOST_WAITING {
             return Err(Full);
@@ -128,16 +128,14 @@ impl Turns {
             refused: 0,
             next_try: None,
         });
-        Ok(waiting.len())
+        Ok(waiting.len() - 1)
     }
 
     /// Takes the next `free` pieces of work, oldest first.
     ///
     /// Work that was refused is left alone until its wait has passed.
     pub(super) fn take(&self, free: usize, now: Instant) -> Vec<Waiting> {
-        let Ok(mut waiting) = self.waiting.lock() else {
-            return Vec::new();
-        };
+        let mut waiting = self.waiting();
         let mut taking = Vec::new();
         let mut index = 0;
         while index < waiting.len() && taking.len() < free {
@@ -160,9 +158,7 @@ impl Turns {
         let Some(again) = held.refused_again(now) else {
             return false;
         };
-        if let Ok(mut waiting) = self.waiting.lock() {
-            waiting.push_front(again);
-        }
+        self.waiting().push_front(again);
         true
     }
 
@@ -172,21 +168,28 @@ impl Turns {
     /// waiting is what the operator has just replaced or cancelled, and
     /// sending it afterwards would be PushOS arguing with them.
     pub(super) fn forget(&self, session: &AttachedId) {
-        if let Ok(mut waiting) = self.waiting.lock() {
-            waiting.retain(|held| &held.session != session);
-        }
+        self.waiting().retain(|held| &held.session != session);
+    }
+
+    /// The queue, whatever state a panic elsewhere left the lock in.
+    ///
+    /// What it holds is text and identifiers, which a panic cannot have made
+    /// nonsense of, and a fleet that stopped taking work for the rest of the
+    /// day would be far worse than the risk of reading them.
+    fn waiting(&self) -> std::sync::MutexGuard<'_, VecDeque<Waiting>> {
+        self.waiting
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     /// Whether a session has work waiting for a turn.
     pub(super) fn holds_work_for(&self, session: &AttachedId) -> bool {
-        self.waiting
-            .lock()
-            .is_ok_and(|waiting| waiting.iter().any(|held| &held.session == session))
+        self.waiting().iter().any(|held| &held.session == session)
     }
 
     /// How much work is waiting.
-    pub(super) fn waiting(&self) -> usize {
-        self.waiting.lock().map_or(0, |waiting| waiting.len())
+    pub(super) fn how_much_waiting(&self) -> usize {
+        self.waiting().len()
     }
 }
 
@@ -228,7 +231,7 @@ mod tests {
 
         let held = turns.take(1, now).pop().expect("taken");
         assert!(turns.refused(held, now), "kept for another go");
-        assert_eq!(turns.waiting(), 1);
+        assert_eq!(turns.how_much_waiting(), 1);
 
         assert!(
             turns.take(4, now).is_empty(),
@@ -255,7 +258,7 @@ mod tests {
         }
         let held = turns.take(4, now).pop().expect("taken");
         assert!(!turns.refused(held, now), "something else is wrong");
-        assert_eq!(turns.waiting(), 0);
+        assert_eq!(turns.how_much_waiting(), 0);
     }
 
     #[test]
@@ -277,15 +280,19 @@ mod tests {
     fn what_waits_goes_in_the_order_it_was_asked_for() {
         let turns = Turns::new();
         turns.allow(2);
-        assert_eq!(turns.hold(&session("one"), "first").expect("held"), 1);
-        assert_eq!(turns.hold(&session("two"), "second").expect("held"), 2);
-        assert_eq!(turns.waiting(), 2);
+        assert_eq!(
+            turns.hold(&session("one"), "first").expect("held"),
+            0,
+            "the first has nothing ahead of it"
+        );
+        assert_eq!(turns.hold(&session("two"), "second").expect("held"), 1);
+        assert_eq!(turns.how_much_waiting(), 2);
 
         let going = turns.take(1, Instant::now());
         assert_eq!(going.len(), 1);
         assert_eq!(going[0].session, session("one"));
         assert_eq!(going[0].text, "first");
-        assert_eq!(turns.waiting(), 1, "the other is still waiting");
+        assert_eq!(turns.how_much_waiting(), 1, "the other is still waiting");
     }
 
     #[test]
@@ -295,7 +302,7 @@ mod tests {
         turns.hold(&session("one"), "first").expect("held");
         turns.hold(&session("one"), "no, this").expect("held");
 
-        assert_eq!(turns.waiting(), 1, "one pad, one piece of work");
+        assert_eq!(turns.how_much_waiting(), 1, "one pad, one piece of work");
         assert_eq!(turns.take(4, Instant::now())[0].text, "no, this");
     }
 
@@ -325,7 +332,7 @@ mod tests {
                 .expect("held");
         }
         assert_eq!(turns.hold(&session("one too many"), "work"), Err(Full));
-        assert_eq!(turns.waiting(), MOST_WAITING);
+        assert_eq!(turns.how_much_waiting(), MOST_WAITING);
     }
 
     #[test]

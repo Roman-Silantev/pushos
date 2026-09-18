@@ -72,10 +72,14 @@ impl Seats {
     }
 
     /// What a seat is holding, if it holds anything.
+    ///
+    /// A seat is found however it was capitalised, because that is how a
+    /// binding's target finds a session: `Invoices` and `invoices` are one
+    /// pad's seat, not two.
     pub(super) async fn holding(&self, seat: &str) -> Option<String> {
         self.read()
             .await
-            .get(seat)
+            .get(&called(seat))
             .map(|held| held.session().to_owned())
     }
 
@@ -100,12 +104,22 @@ impl Seats {
             .any(|held| held.keeper().is_none_or(|whose| whose == keeper))
     }
 
+    /// Every session this keeper holds a seat for.
+    pub(super) async fn held_by(&self, keeper: Keeper) -> Vec<String> {
+        self.read()
+            .await
+            .values()
+            .filter(|held| held.keeper().is_some_and(|whose| whose == keeper))
+            .map(|held| held.session().to_owned())
+            .collect()
+    }
+
     /// Records that a seat took a session, replacing whatever it had.
     pub(super) async fn took(&self, seat: &str, keeper: Keeper, session: &str) {
         let mut held = self.held.lock().await;
         let book = held.get_or_insert_with(|| self.load());
         book.insert(
-            seat.to_owned(),
+            called(seat),
             Held::By {
                 keeper: keeper.as_str().to_owned(),
                 session: session.to_owned(),
@@ -176,6 +190,11 @@ impl Seats {
             warn!(%error, path = %path.display(), "the seat book could not be written");
         }
     }
+}
+
+/// How a seat's name is written down, so it is found however it was typed.
+fn called(seat: &str) -> String {
+    seat.trim().to_lowercase()
 }
 
 /// Writes the book in one step, so a crash cannot leave half of it.

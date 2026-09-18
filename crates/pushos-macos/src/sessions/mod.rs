@@ -468,11 +468,21 @@ impl AttachedSessions for MacSessions {
                 .await;
         }
         if threads.answered {
-            let existing: Vec<String> = threads
+            let mut existing: Vec<String> = threads
                 .threads
                 .iter()
                 .map(|thread| thread.id.clone())
                 .collect();
+            // A listing that filled its page is the newest threads, not all of
+            // them, so a seat missing from it is asked after by name before it
+            // is given up on.
+            if !threads.complete {
+                for held in self.seats.held_by(Keeper::CodexThreads).await {
+                    if !existing.contains(&held) && self.codex.knows(&held).await {
+                        existing.push(held);
+                    }
+                }
+            }
             self.seats
                 .keep_only(Keeper::CodexThreads, &existing, both)
                 .await;

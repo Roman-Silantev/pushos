@@ -60,6 +60,13 @@ pub(super) struct Listing {
     /// Whether Codex answered at all. `false` means PushOS does not know what
     /// is there, which must never be taken for "there is nothing".
     pub(super) answered: bool,
+    /// Whether this is every thread Codex has, rather than the newest page of
+    /// them.
+    ///
+    /// An operator with a long history has more threads than one page holds,
+    /// and a seat's thread can be older than the page. Absent from a page is
+    /// not gone.
+    pub(super) complete: bool,
 }
 
 /// Everything PushOS does with Codex threads.
@@ -79,6 +86,7 @@ impl Listing {
         Self {
             threads: Vec::new(),
             answered: false,
+            complete: false,
         }
     }
 }
@@ -134,6 +142,8 @@ impl CodexThreads {
         let Some((threads, _)) = listed.as_mut() else {
             return Listing::default();
         };
+        // The listing asks for a page, so a shorter answer is all of them.
+        let complete = u64::try_from(threads.len()).is_ok_and(|held| held < LISTED);
 
         // What the server has said since is newer than any listing.
         let mut heard = self.server.heard().lock().await;
@@ -152,7 +162,23 @@ impl CodexThreads {
         Listing {
             threads: threads.clone(),
             answered,
+            complete,
         }
+    }
+
+    /// Whether Codex still knows a thread it did not list.
+    ///
+    /// For a seat whose thread is older than the page the listing returns:
+    /// absent from a page is not gone, and dropping it would have the pad
+    /// start a new thread and leave the old one unreachable.
+    pub(super) async fn knows(&self, thread: &str) -> bool {
+        self.server
+            .call(
+                "thread/read",
+                json!({"threadId": thread, "includeTurns": false}),
+            )
+            .await
+            .is_ok()
     }
 
     /// Forgets the last listing, so the next look asks the server.

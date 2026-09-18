@@ -138,6 +138,17 @@ pub enum Problem {
         id: String,
     },
 
+    /// A setting was given a value that means nothing.
+    #[error("`{value}` is not something `{setting}` can be; use {allowed}")]
+    UnknownSetting {
+        /// Which setting.
+        setting: &'static str,
+        /// What was written.
+        value: String,
+        /// What it could have been.
+        allowed: &'static str,
+    },
+
     /// Two agent roles share an identity.
     #[error("agent `{id}` is declared more than once")]
     DuplicateAgent {

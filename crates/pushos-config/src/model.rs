@@ -206,11 +206,18 @@ impl From<&SessionSection> for SeatLimits {
                 .map_or(Self::DEFAULT.most_threads, |most| {
                     (most > 0).then_some(most)
                 }),
-            put_away_after: section
-                .put_away_after_minutes
-                .map_or(Self::DEFAULT.put_away_after, |minutes| {
-                    (minutes > 0).then(|| std::time::Duration::from_secs(minutes * 60))
-                }),
+            put_away_after: section.put_away_after_minutes.map_or(
+                Self::DEFAULT.put_away_after,
+                |minutes| {
+                    // Nought is "leave them alone", and a number of minutes
+                    // too large to be a length of time is the same thing
+                    // rather than a reason to stop.
+                    minutes
+                        .checked_mul(60)
+                        .map(std::time::Duration::from_secs)
+                        .filter(|_| minutes > 0)
+                },
+            ),
         }
     }
 }
@@ -224,8 +231,11 @@ impl From<&SessionSection> for SeatLimits {
 #[serde(deny_unknown_fields)]
 pub struct SessionSection {
     /// Whether to watch them at all.
-    #[serde(default)]
-    pub watch: bool,
+    ///
+    /// Absent rather than false when nobody said, so that what the operator
+    /// wrote themselves wins over what a pack asked for — including turning
+    /// it off, which is the setting macOS asks them to allow.
+    pub watch: Option<bool>,
     /// How often to ask what is open, in milliseconds.
     ///
     /// Asking costs a subprocess. Defaults to every three seconds, which is
@@ -279,7 +289,9 @@ pub struct SessionSection {
 
 impl SessionSection {
     fn merge(&mut self, other: &Self) {
-        self.watch |= other.watch;
+        if other.watch.is_some() {
+            self.watch = other.watch;
+        }
         if other.poll_ms.is_some() {
             self.poll_ms = other.poll_ms;
         }
