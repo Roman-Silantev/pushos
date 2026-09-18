@@ -17,9 +17,14 @@ use crate::shutdown::Shutdown;
 
 /// How often an animated screen is redrawn.
 ///
-/// The specification's ceiling. Nothing else in PushOS redraws on a timer at
-/// all: a still screen is drawn once and left alone.
-const FRAME_INTERVAL: Duration = Duration::from_millis(33);
+/// Fifteen frames a second, within the specification's ceiling of around
+/// thirty. A spinner saying an agent is working reads the same at either, and
+/// a frame is a whole screen of text laid out and rasterised; with a fleet of
+/// agents something is nearly always working, so the screen animates most of
+/// the day. Measured on an M4 with a surface attached, halving the rate was
+/// half of a three-and-a-half-fold saving. Nothing else in PushOS redraws on a
+/// timer at all: a still screen is drawn once and left alone.
+const FRAME_INTERVAL: Duration = Duration::from_millis(66);
 
 /// How often an animated screen is redrawn once it has dimmed.
 ///

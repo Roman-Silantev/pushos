@@ -134,16 +134,70 @@ pub enum Align {
     Right,
 }
 
+/// A measurement as a whole number, so a cache cannot be defeated by floating
+/// point noise.
+fn quantised(measure: f32) -> u32 {
+    #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+    let whole = (measure.clamp(0.0, 4_000.0) * 10.0).round() as u32;
+    whole
+}
+
 /// A rasterised glyph, kept so it is only produced once.
 struct Glyph {
     metrics: Metrics,
     coverage: Vec<u8>,
 }
 
+/// Hashing for keys PushOS makes itself.
+///
+/// The standard hasher is built to be unguessable, which costs more than the
+/// lookup saves when the key is a character and a size and the answer is
+/// wanted for every character of every line, thirty times a second. These keys
+/// come from the typeface and the theme, never from anything outside.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct Quick(u64);
+
+impl std::hash::Hasher for Quick {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for byte in bytes {
+            // The usual multiply-and-mix: enough spread for a few hundred
+            // glyphs and a handful of lines.
+            self.0 = (self.0 ^ u64::from(*byte)).wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+}
+
+impl std::hash::BuildHasher for Quick {
+    type Hasher = Self;
+
+    fn build_hasher(&self) -> Self {
+        Self(0xcbf2_9ce4_8422_2325)
+    }
+}
+
+/// A line as it was last fitted to a width.
+type Fitted = HashMap<(String, u32, u32), String, Quick>;
+
+/// The most lines whose fitting is remembered.
+///
+/// A screenful is a dozen or so; this is room for the pages an operator moves
+/// between without ever being a store worth thinking about.
+const REMEMBERED_LINES: usize = 128;
+
 /// Draws text onto a canvas.
 pub struct TextRenderer {
     font: Font,
-    cache: HashMap<(char, u32), Glyph>,
+    cache: HashMap<(char, u32), Glyph, Quick>,
+    /// What each line came to when it was last fitted.
+    ///
+    /// Fitting walks the string, asks the typeface about every character and
+    /// measures each one. The lines on the display change seldom; the frame
+    /// they are drawn in changes thirty times a second.
+    fitted: Fitted,
 }
 
 impl TextRenderer {
@@ -156,7 +210,8 @@ impl TextRenderer {
         })?;
         Ok(Self {
             font,
-            cache: HashMap::new(),
+            cache: HashMap::default(),
+            fitted: Fitted::default(),
         })
     }
 
@@ -233,7 +288,26 @@ impl TextRenderer {
     }
 
     /// Shortens `text` so it fits within `max_width`, appending an ellipsis.
+    ///
+    /// The answer is remembered: the same line is fitted again on every frame
+    /// of an animation, and nothing about it has changed.
     pub fn truncate(&mut self, text: &str, size: f32, max_width: f32) -> String {
+        let key = (text.to_owned(), quantised(size), quantised(max_width));
+        if let Some(fitted) = self.fitted.get(&key) {
+            return fitted.clone();
+        }
+        let fitted = self.fit(text, size, max_width);
+        // Cleared rather than evicted one by one: it is rebuilt in a frame,
+        // and a page that changed its lines wants none of the old ones.
+        if self.fitted.len() >= REMEMBERED_LINES {
+            self.fitted.clear();
+        }
+        self.fitted.insert(key, fitted.clone());
+        fitted
+    }
+
+    /// Works out what a line comes to at a size and width.
+    fn fit(&mut self, text: &str, size: f32, max_width: f32) -> String {
         // Substituted here as well as measured, so what is drawn is exactly
         // what was measured and nothing tofu reaches the panel.
         if self.width(text, size) <= max_width {
@@ -284,9 +358,7 @@ impl TextRenderer {
     /// Sizes are quantised to a tenth of a pixel so the cache cannot be
     /// defeated by floating point noise.
     fn key(character: char, size: f32) -> (char, u32) {
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        let quantised = (size.clamp(1.0, 400.0) * 10.0).round() as u32;
-        (character, quantised)
+        (character, quantised(size))
     }
 
     /// How many glyphs are currently cached.

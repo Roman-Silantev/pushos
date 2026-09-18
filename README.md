@@ -701,7 +701,10 @@ Everything it writes down or holds on to has a limit:
 | Work waiting for a turn | 128 pieces; one per pad, and some to spare |
 | Finished agents and terminals | The last few, for the display |
 
-Running, it uses about 7 MB of memory, and asks for less the less there is to
+With the Push attached and agents working, PushOS uses about 1% of a core and
+11 MB: the screen animates at fifteen frames a second, each line is laid out
+once rather than on every frame, and the lights are sent only what changed.
+Idle, it uses about 7 MB and asks for less the less there is to
 watch: an agent no pad uses is never started or spoken to at all, so a surface
 with only Claude Code seats never runs Codex's server. With the Push unplugged
 and nothing on a pad, PushOS looks at the terminals about once a minute rather
