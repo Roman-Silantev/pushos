@@ -275,11 +275,20 @@ impl AppServer {
             }
         };
 
-        self.ask(
-            "initialize",
-            json!({"clientInfo": {"name": CLIENT, "version": env!("CARGO_PKG_VERSION"), "title": "PushOS"}}),
-        )
-        .await?;
+        if let Err(refused) = self
+            .ask(
+                "initialize",
+                json!({"clientInfo": {"name": CLIENT, "version": env!("CARGO_PKG_VERSION"), "title": "PushOS"}}),
+            )
+            .await
+        {
+            // Dropped, whatever went wrong. A server that half-heard the
+            // greeting would refuse every later one as a second greeting, and
+            // every call after that would come back as a refusal from a server
+            // that was never actually asked the question.
+            self.forget_connection(greeting).await;
+            return Err(refused.about_the_connection());
+        }
         // Only the server that was greeted is marked as greeted. Between the
         // two, a caller that saw the old one die may have started another,
         // and calling that one greeted would leave every later request
@@ -557,6 +566,19 @@ impl Failed {
             retry: false,
             from_server: true,
             generation: None,
+        }
+    }
+
+    /// The same, but about reaching the server rather than about what was
+    /// asked.
+    ///
+    /// A refusal of the greeting is news about the greeting: whatever the
+    /// caller wanted to ask was never put to the server, so nothing has been
+    /// said about it.
+    fn about_the_connection(self) -> Self {
+        Self {
+            from_server: false,
+            ..self
         }
     }
 

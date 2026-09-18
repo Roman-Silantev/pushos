@@ -393,7 +393,13 @@ impl MacSessions {
     async fn still_there(&self, held: &str, codex: bool) -> bool {
         if codex {
             let listing = self.codex.threads().await;
-            !listing.answered || listing.threads.iter().any(|thread| thread.id == held)
+            if !listing.answered || listing.threads.iter().any(|thread| thread.id == held) {
+                return true;
+            }
+            // A listing that filled its page is the newest threads, not all of
+            // them, so the seat is asked after by name before a second thread
+            // is started beside the operator's work.
+            !listing.complete && self.codex.may_still_have(held).await
         } else {
             let look = self.claude.kept().await;
             !look.answered || look.kept.iter().any(|session| session.id == held)
@@ -477,7 +483,10 @@ impl AttachedSessions for MacSessions {
             // them, so a seat missing from it is asked after by name before it
             // is given up on.
             if !threads.complete {
-                for held in self.seats.held_by(Keeper::CodexThreads).await {
+                // Seats the book cannot name a keeper for are asked after too:
+                // one of the agents has them, and a seat never asked about is
+                // a seat dropped for want of asking.
+                for held in self.seats.maybe_held_by(Keeper::CodexThreads).await {
                     if !codex_kept.contains(&held) && self.codex.may_still_have(&held).await {
                         codex_kept.push(held);
                     }

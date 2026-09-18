@@ -821,6 +821,26 @@ for line in sys.stdin:
     }
 
     #[tokio::test]
+    async fn a_server_that_refuses_the_greeting_has_not_said_a_thread_is_gone() {
+        // PushOS never got as far as asking about the thread: the refusal is
+        // about the greeting, and reading it as news about the thread would
+        // drop every Codex seat the moment the app server's protocol moves on.
+        let (directory, script, _asked) = speaking(
+            "greeting",
+            r#"if method == "initialize":
+    print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "error": {"code": -32600, "message": "unsupported client version"}}), flush=True)
+    continue"#,
+        );
+        let codex = served_by(&script);
+
+        assert!(
+            codex.may_still_have("thread-9").await,
+            "the thread was never asked about"
+        );
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    #[tokio::test]
     async fn a_seat_is_kept_when_codex_cannot_say_whether_it_still_has_the_thread() {
         // A server that will not run has not said that anything ended, and a
         // seat given up on here is a pad that starts a second thread and
