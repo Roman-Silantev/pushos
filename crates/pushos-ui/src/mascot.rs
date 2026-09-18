@@ -266,7 +266,10 @@ impl Mascot {
             // Sparkles blink out of step with each other, so the flecks look
             // scattered rather than synchronised.
             let offset = u32::from(cell.x) * 7 + u32::from(cell.y) * 13;
-            let lit = (phase + offset) % SWEEP_STEPS < SWEEP_STEPS / 2;
+            // Wrapping, because the frame count wraps: the phase is only ever
+            // read modulo a sweep, and a surface left running for years must
+            // not stop the display dead at the end of the counter.
+            let lit = phase.wrapping_add(offset) % SWEEP_STEPS < SWEEP_STEPS / 2;
             return if lit { 1.0 } else { FLOOR * 0.5 };
         }
 
@@ -596,5 +599,23 @@ mod tests {
     fn a_mascot_that_is_never_advanced_never_moves() {
         // Which is what a caller showing it as a static mark relies on.
         assert!(grounded(Mascot::lift(0)));
+    }
+
+    #[test]
+    fn a_sparkle_still_blinks_at_the_far_end_of_the_frame_counter() {
+        // The render task advances its counter with `wrapping_add`, and the
+        // focus panel hands it to the mark unchanged for a working session,
+        // so a phase of `u32::MAX` is a value this actually receives. Adding
+        // the sparkle's own offset to it must not be what stops the display.
+        let star = Mascot::star();
+        let sparkle = star
+            .quadrants
+            .iter()
+            .find(|cell| cell.sparkle)
+            .copied()
+            .expect("the star has sparkles");
+
+        let brightness = star.brightness(sparkle, u32::MAX);
+        assert!((0.0..=1.0).contains(&brightness), "{brightness}");
     }
 }

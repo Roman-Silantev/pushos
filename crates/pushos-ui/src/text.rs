@@ -622,14 +622,18 @@ mod tests {
         // A name in an alphabet of its own is drawn like any other, and a
         // surface left running for a week must not end up holding every
         // glyph and line it has ever been shown.
+        // Drawn at every size a theme could ask for rather than in every
+        // alphabet: the typeface substitutes what it cannot draw, so a
+        // character it has no glyph for never reaches the cache at all.
         let mut text = renderer();
-        let many = u32::try_from(REMEMBERED_GLYPHS).expect("a sensible bound") + 200;
-        for point in 0x4E00..0x4E00 + many {
-            let character = char::from_u32(point).expect("a character");
-            let line = character.to_string();
-            text.width(&line, 18.0);
-            text.truncate(&line, 18.0, 100.0);
+        let many = REMEMBERED_GLYPHS + 200;
+        for step in 0..many {
+            #[allow(clippy::cast_precision_loss)]
+            let size = 8.0 + step as f32 / 10.0;
+            text.width("a", size);
+            text.truncate(&format!("line {step}"), size, 100.0);
         }
+        assert!(text.cached_glyphs() > 0, "something was actually drawn");
 
         assert!(text.cached_glyphs() <= REMEMBERED_GLYPHS);
         assert!(text.remembered <= REMEMBERED_LINES);

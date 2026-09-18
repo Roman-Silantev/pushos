@@ -27,7 +27,12 @@ const LINE_GAP: f32 = 3.0;
 /// Width of the mark standing in for an unassigned column.
 const EMPTY_MARK_WIDTH: f32 = 14.0;
 /// How many frames one sweep of a working bar takes.
-const SWEEP: u32 = 44;
+///
+/// A second and a half, whatever the frame rate is, and the same bar as the
+/// one the focus panel draws: the two are side by side as an operator moves
+/// between pages, and a pair that crossed at different speeds would read as
+/// two different states.
+const SWEEP: u32 = crate::FRAMES_A_SECOND * 3 / 2;
 /// How much of a working bar the moving part covers.
 const SWEEP_WIDTH: f32 = 0.34;
 
@@ -247,5 +252,20 @@ fn draw_slot(canvas: &mut Canvas, text: &mut TextRenderer, theme: &Theme, area: 
             (inner.x, cursor),
             TextStyle::left(theme.sizes.caption, theme.muted, inner.width),
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::SWEEP;
+
+    #[test]
+    fn a_column_bar_sweeps_at_the_pace_it_was_tuned_to() {
+        // The bar counts frames, so its constant has to be written against the
+        // frame rate like every other animation. Left as a bare 44 it was
+        // tuned for thirty frames a second and crosses in twice the time at
+        // fifteen, which is the bug the focus panel's identical bar was fixed
+        // for.
+        assert_eq!(SWEEP, crate::FRAMES_A_SECOND * 3 / 2);
     }
 }
