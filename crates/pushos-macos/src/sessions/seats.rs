@@ -32,6 +32,13 @@ pub(super) enum Held {
         keeper: String,
         /// What they call it.
         session: String,
+        /// The seat's name as the operator wrote it.
+        ///
+        /// A seat is found however it was capitalised, so the book is kept
+        /// under a flattened name; this is what a pad is labelled with, which
+        /// should be what they typed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
     },
     /// A session written down before the book said who kept it.
     Session(String),
@@ -49,6 +56,14 @@ impl Held {
     fn keeper(&self) -> Option<Keeper> {
         match self {
             Self::By { keeper, .. } => keeper.parse().ok(),
+            Self::Session(_) => None,
+        }
+    }
+
+    /// The seat's name as it was written, when the book kept it.
+    fn name(&self) -> Option<&str> {
+        match self {
+            Self::By { name, .. } => name.as_deref(),
             Self::Session(_) => None,
         }
     }
@@ -84,12 +99,14 @@ impl Seats {
     }
 
     /// The seat a session is held by, if any seat holds it.
+    ///
+    /// Named as the operator wrote it, which is what a pad is labelled with.
     pub(super) async fn seat_of(&self, session: &str) -> Option<String> {
         self.read()
             .await
             .iter()
             .find(|(_, held)| held.session() == session)
-            .map(|(seat, _)| seat.clone())
+            .map(|(flattened, held)| held.name().unwrap_or(flattened).to_owned())
     }
 
     /// Whether any seat is held by this keeper, or by one the book does not
@@ -123,6 +140,7 @@ impl Seats {
             Held::By {
                 keeper: keeper.as_str().to_owned(),
                 session: session.to_owned(),
+                name: Some(seat.trim().to_owned()),
             },
         );
         debug!(
@@ -281,6 +299,34 @@ mod tests {
             Some("9db46d48"),
             "the one that still exists is kept"
         );
+    }
+
+    #[tokio::test]
+    async fn a_seat_is_labelled_the_way_the_operator_wrote_it() {
+        // Found however it was capitalised, and shown as they typed it.
+        let seats = Seats::kept_in(None);
+        seats.took("ReviewCheck", Keeper::CodexThreads, "abc").await;
+
+        assert_eq!(seats.holding("reviewcheck").await.as_deref(), Some("abc"));
+        assert_eq!(seats.holding("REVIEWCHECK").await.as_deref(), Some("abc"));
+        assert_eq!(
+            seats.seat_of("abc").await.as_deref(),
+            Some("ReviewCheck"),
+            "the pad says what they wrote"
+        );
+    }
+
+    #[tokio::test]
+    async fn a_seat_written_before_the_book_kept_names_is_still_labelled() {
+        let scratch = Scratch::new("unnamed");
+        std::fs::write(
+            scratch.book(),
+            r#"{"builder": {"keeper": "claude", "session": "55c88714"}}"#,
+        )
+        .expect("writable");
+        let seats = Seats::kept_in(Some(scratch.book()));
+
+        assert_eq!(seats.seat_of("55c88714").await.as_deref(), Some("builder"));
     }
 
     #[tokio::test]
