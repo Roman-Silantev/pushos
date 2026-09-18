@@ -22,7 +22,7 @@ use tokio::sync::Mutex;
 use tokio::time::Instant;
 use tracing::debug;
 
-use self::rpc::AppServer;
+use self::rpc::{AppServer, Trouble};
 
 /// How long a listing is believed before the server is asked again.
 ///
@@ -74,7 +74,18 @@ pub(super) struct Listing {
 pub(super) struct CodexThreads {
     server: AppServer,
     /// The last listing, and when it was asked for.
-    listed: Mutex<Option<(Vec<Thread>, Instant)>>,
+    listed: Mutex<Option<Asked>>,
+}
+
+/// A listing the server gave, kept until it is stale.
+#[derive(Debug)]
+struct Asked {
+    /// What it said, newest first.
+    threads: Vec<Thread>,
+    /// Whether the server said that was every thread it has.
+    complete: bool,
+    /// When it said so.
+    when: Instant,
 }
 
 impl Listing {
@@ -125,11 +136,17 @@ impl CodexThreads {
         let mut listed = self.listed.lock().await;
         let fresh = listed
             .as_ref()
-            .is_some_and(|(_, asked)| asked.elapsed() < LISTING_LASTS);
+            .is_some_and(|asked| asked.when.elapsed() < LISTING_LASTS);
         let mut answered = true;
         if !fresh {
             match self.ask_for_threads().await {
-                Ok(threads) => *listed = Some((threads, Instant::now())),
+                Ok((threads, complete)) => {
+                    *listed = Some(Asked {
+                        threads,
+                        complete,
+                        when: Instant::now(),
+                    });
+                }
                 Err(error) => {
                     debug!(%error, "Codex did not say what its threads are doing");
                     // What was known before is better than nothing, and a
@@ -139,11 +156,10 @@ impl CodexThreads {
             }
         }
 
-        let Some((threads, _)) = listed.as_mut() else {
+        let Some(asked) = listed.as_mut() else {
             return Listing::default();
         };
-        // The listing asks for a page, so a shorter answer is all of them.
-        let complete = u64::try_from(threads.len()).is_ok_and(|held| held < LISTED);
+        let (threads, complete) = (&mut asked.threads, asked.complete);
 
         // What the server has said since is newer than any listing.
         let mut heard = self.server.heard().lock().await;
@@ -166,19 +182,50 @@ impl CodexThreads {
         }
     }
 
-    /// Whether Codex still knows a thread it did not list.
+    /// Whether Codex might still have a thread it did not list.
     ///
     /// For a seat whose thread is older than the page the listing returns:
     /// absent from a page is not gone, and dropping it would have the pad
-    /// start a new thread and leave the old one unreachable.
-    pub(super) async fn knows(&self, thread: &str) -> bool {
-        self.server
+    /// start a new thread and leave the old one unreachable. Only a server
+    /// that answers that it has no such thread is taken for gone; one that
+    /// could not be reached has said nothing at all.
+    pub(super) async fn may_still_have(&self, thread: &str) -> bool {
+        match self
+            .server
             .call(
                 "thread/read",
                 json!({"threadId": thread, "includeTurns": false}),
             )
             .await
-            .is_ok()
+        {
+            Ok(answer) => {
+                self.also_listing(answer.get("thread").and_then(read_thread))
+                    .await;
+                true
+            }
+            Err(Trouble::Said(error)) => {
+                debug!(%error, thread, "Codex no longer has that thread");
+                false
+            }
+            Err(Trouble::Unreachable(error)) => {
+                debug!(%error, thread, "Codex could not say whether it still has that thread");
+                true
+            }
+        }
+    }
+
+    /// Adds a thread asked after by name to the listing it was missing from.
+    ///
+    /// So a seat older than the page costs one question a minute, like the
+    /// listing itself, rather than one on every look — and shows what it is
+    /// called and doing while it is there.
+    async fn also_listing(&self, thread: Option<Thread>) {
+        let Some(thread) = thread else { return };
+        if let Some(asked) = self.listed.lock().await.as_mut()
+            && !asked.threads.iter().any(|held| held.id == thread.id)
+        {
+            asked.threads.push(thread);
+        }
     }
 
     /// Forgets the last listing, so the next look asks the server.
@@ -186,7 +233,8 @@ impl CodexThreads {
         *self.listed.lock().await = None;
     }
 
-    async fn ask_for_threads(&self) -> Result<Vec<Thread>, AttachError> {
+    /// Asks the server for its threads, and whether that was all of them.
+    async fn ask_for_threads(&self) -> Result<(Vec<Thread>, bool), AttachError> {
         // From what the server has written down rather than by reading every
         // conversation on disk: PushOS wants names and states, not history.
         let listed = self
@@ -196,6 +244,11 @@ impl CodexThreads {
                 json!({"limit": LISTED, "useStateDbOnly": true}),
             )
             .await?;
+        // The server says where the next page would start, and says nothing
+        // there when the page it gave was the last one. Counting the rows
+        // instead would call a full page short whenever the operator happened
+        // to have exactly as many threads as PushOS asked for.
+        let complete = listed.get("nextCursor").is_none_or(Value::is_null);
         // What the server is holding now. A thread it started this minute is
         // here and not yet in the listing, which is written when the thread
         // has something in it; without this, a seat just started would show
@@ -253,7 +306,7 @@ impl CodexThreads {
                 },
             ));
         }
-        Ok(threads)
+        Ok((threads, complete))
     }
 
     /// Starts a thread under a name, on the work it is for.
@@ -326,6 +379,7 @@ impl CodexThreads {
             )
             .await
             .map(drop)
+            .map_err(AttachError::from)
     }
 
     /// Stops following a thread, so the server may give its memory back.
@@ -540,6 +594,46 @@ for line in sys.stdin:
         (directory, script, asked)
     }
 
+    /// A stand-in app server that answers the way this test needs it to.
+    ///
+    /// `cases` is Python run inside the request loop, with `method` and
+    /// `request` in hand: it either sets `result`, or writes its own answer
+    /// and moves on.
+    fn speaking(label: &str, cases: &str) -> (PathBuf, PathBuf, PathBuf) {
+        let directory = std::env::temp_dir().join(format!(
+            "pushos-codex-{label}-{}",
+            pushos_domain::ids::ExecutionId::generate()
+        ));
+        std::fs::create_dir_all(&directory).expect("writable");
+        let script = directory.join("server.py");
+        let asked = directory.join("asked.jsonl");
+        let mut indented = String::new();
+        for line in cases.lines() {
+            indented.push_str("    ");
+            indented.push_str(line);
+            indented.push('\n');
+        }
+        let source = r#"import json, sys
+asked = open("{ASKED}", "a")
+for line in sys.stdin:
+    request = json.loads(line)
+    print(json.dumps(request), file=asked, flush=True)
+    method = request["method"]
+    result = {}
+{CASES}
+    print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "result": result}), flush=True)
+"#
+        .replace("{ASKED}", &asked.to_string_lossy())
+        .replace("{CASES}\n", &indented);
+        std::fs::write(&script, source).expect("writable");
+        (directory, script, asked)
+    }
+
+    /// Which program and arguments run a stand-in server.
+    fn served_by(script: &Path) -> CodexThreads {
+        CodexThreads::served_by("/usr/bin/python3", &[&script.to_string_lossy()])
+    }
+
     fn requests(asked: &Path) -> Vec<Value> {
         std::fs::read_to_string(asked)
             .unwrap_or_default()
@@ -686,6 +780,82 @@ for line in sys.stdin:
         let said = codex.read("thread-1", 1_000).await.expect("read");
 
         assert_eq!(said, "first\nsecond", "the server lists newest first");
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    #[tokio::test]
+    async fn a_page_the_server_has_more_after_is_not_taken_for_every_thread() {
+        // The server says where the next page would start. Counting the rows
+        // instead would call a full page short whenever an operator happened
+        // to have exactly as many threads as PushOS asked for, and every seat
+        // older than the page would be given up on.
+        let (directory, script, _asked) = speaking(
+            "paged",
+            r#"if method == "thread/list":
+    result = {"data": [{"id": "thread-1", "status": {"type": "idle"}}], "nextCursor": "2026-09-17T13:51:57.523Z"}"#,
+        );
+        let codex = served_by(&script);
+
+        let listing = codex.threads().await;
+
+        assert!(listing.answered);
+        assert!(!listing.complete, "there is another page of them");
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    #[tokio::test]
+    async fn a_thread_the_server_says_it_has_no_longer_is_given_up_on() {
+        let (directory, script, _asked) = speaking(
+            "forgotten",
+            r#"if method == "thread/read":
+    print(json.dumps({"jsonrpc": "2.0", "id": request["id"], "error": {"code": -32602, "message": "no such thread"}}), flush=True)
+    continue"#,
+        );
+        let codex = served_by(&script);
+
+        assert!(
+            !codex.may_still_have("thread-9").await,
+            "the server considered it and said it is gone"
+        );
+        std::fs::remove_dir_all(directory).ok();
+    }
+
+    #[tokio::test]
+    async fn a_seat_is_kept_when_codex_cannot_say_whether_it_still_has_the_thread() {
+        // A server that will not run has not said that anything ended, and a
+        // seat given up on here is a pad that starts a second thread and
+        // leaves the operator's work where nobody will look.
+        let codex = CodexThreads::served_by("/usr/bin/python3", &["-c", "raise SystemExit(1)"]);
+
+        assert!(codex.may_still_have("thread-9").await);
+    }
+
+    #[tokio::test]
+    async fn a_thread_older_than_the_page_is_asked_after_once_rather_than_every_look() {
+        let (directory, script, asked) = speaking(
+            "older",
+            r#"if method == "thread/list":
+    result = {"data": [{"id": "thread-1", "status": {"type": "idle"}}], "nextCursor": "2026-09-17T13:51:57.523Z"}
+elif method == "thread/read":
+    result = {"thread": {"id": "thread-9", "name": "invoices", "status": {"type": "idle"}}}"#,
+        );
+        let codex = served_by(&script);
+        assert_eq!(codex.threads().await.threads.len(), 1);
+
+        assert!(codex.may_still_have("thread-9").await);
+
+        let threads = codex.threads().await.threads;
+        assert_eq!(threads.len(), 2, "it is part of the listing now");
+        assert_eq!(
+            threads[1].name, "invoices",
+            "and the pad shows what it is called, not its identifier"
+        );
+        assert!(codex.may_still_have("thread-9").await);
+        let reads = requests(&asked)
+            .iter()
+            .filter(|request| request["method"] == "thread/read")
+            .count();
+        assert_eq!(reads, 2, "asked for, not worked out again from scratch");
         std::fs::remove_dir_all(directory).ok();
     }
 

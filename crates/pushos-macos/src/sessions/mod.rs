@@ -478,7 +478,7 @@ impl AttachedSessions for MacSessions {
             // is given up on.
             if !threads.complete {
                 for held in self.seats.held_by(Keeper::CodexThreads).await {
-                    if !codex_kept.contains(&held) && self.codex.knows(&held).await {
+                    if !codex_kept.contains(&held) && self.codex.may_still_have(&held).await {
                         codex_kept.push(held);
                     }
                 }

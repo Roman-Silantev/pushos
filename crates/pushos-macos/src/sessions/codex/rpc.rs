@@ -229,16 +229,14 @@ impl AppServer {
     ///
     /// A server that has gone is started again by the next call: what it held
     /// was on disk all along.
-    pub(super) async fn call(&self, method: &str, params: Value) -> Result<Value, AttachError> {
+    pub(super) async fn call(&self, method: &str, params: Value) -> Result<Value, Trouble> {
         match self.attempt(method, params.clone()).await {
             Err(gone) if gone.retry => {
                 debug!(method, "the app server went away; starting another");
                 self.forget_connection(gone.generation).await;
-                self.attempt(method, params)
-                    .await
-                    .map_err(|failed| failed.error)
+                self.attempt(method, params).await.map_err(Trouble::from)
             }
-            Err(failed) => Err(failed.error),
+            Err(failed) => Err(Trouble::from(failed)),
             Ok(answer) => Ok(answer),
         }
     }
@@ -331,7 +329,7 @@ impl AppServer {
 
         match tokio::time::timeout(PATIENCE, answer).await {
             Ok(Ok(Ok(result))) => Ok(result),
-            Ok(Ok(Err(said))) => Err(Failed::final_answer(AttachError::unavailable(said))),
+            Ok(Ok(Err(said))) => Err(Failed::said(AttachError::unavailable(said))),
             // The reader dropped the sender: the server ended mid-question.
             Ok(Err(_)) => Err(Failed::worth_another_go_on(generation)),
             Err(_) => {
@@ -488,12 +486,55 @@ fn read_notification(line: &str) -> Option<(String, Value)> {
     ))
 }
 
+/// Why a call gave no answer.
+///
+/// Worth telling apart wherever silence would be read as news: a server that
+/// says it has no such thread has told PushOS something, and a server that
+/// could not be reached has not.
+#[derive(Debug, thiserror::Error)]
+pub(super) enum Trouble {
+    /// The server considered the question and refused it.
+    #[error("{0}")]
+    Said(AttachError),
+    /// The server could not be reached, started, or made to answer.
+    #[error("{0}")]
+    Unreachable(AttachError),
+}
+
+impl Trouble {
+    /// What went wrong, whichever kind it was.
+    pub(super) fn error(self) -> AttachError {
+        match self {
+            Self::Said(error) | Self::Unreachable(error) => error,
+        }
+    }
+}
+
+impl From<Failed> for Trouble {
+    fn from(failed: Failed) -> Self {
+        if failed.from_server {
+            Self::Said(failed.error)
+        } else {
+            Self::Unreachable(failed.error)
+        }
+    }
+}
+
+impl From<Trouble> for AttachError {
+    fn from(trouble: Trouble) -> Self {
+        trouble.error()
+    }
+}
+
 /// A request that did not work, and whether starting the server again is worth
 /// trying.
 #[derive(Debug)]
 struct Failed {
     error: AttachError,
     retry: bool,
+    /// Whether the server itself answered with this, rather than PushOS being
+    /// unable to ask.
+    from_server: bool,
     /// Which connection was being used, for a retry that must not throw away
     /// a newer one.
     generation: Option<u64>,
@@ -504,6 +545,17 @@ impl Failed {
         Self {
             error,
             retry: false,
+            from_server: false,
+            generation: None,
+        }
+    }
+
+    /// The server considered the question and refused it.
+    const fn said(error: AttachError) -> Self {
+        Self {
+            error,
+            retry: false,
+            from_server: true,
             generation: None,
         }
     }
@@ -512,6 +564,7 @@ impl Failed {
         Self {
             error: AttachError::unavailable("the Codex app server stopped answering"),
             retry: true,
+            from_server: false,
             generation,
         }
     }
