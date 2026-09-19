@@ -35,6 +35,51 @@ jobs:
         env:
           RUSTDOCFLAGS: -D warnings
 
+  # What ships must stay small. PushOS starts at login and sits there all day
+  # watching sixty-four pads, so its size is not an implementation detail; and
+  # growth nobody measures is growth nobody argues with. These are ceilings,
+  # not targets: when one is hit, either make it smaller or raise it in this
+  # job, in a commit that says what was worth the room.
+  lean:
+    name: the app stays lean
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install the pinned toolchain
+        run: rustup show active-toolchain || rustup toolchain install
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Build what actually ships
+        run: cargo build --release -p pushos-cli
+
+      - name: Measure it
+        run: |
+          set -euo pipefail
+
+          # Measured on an M4 in September 2026: 5 MB and 186 crates, running
+          # at an 8 MB footprint. The ceilings leave room to work and still
+          # catch a doubling.
+          most_mb=8
+          most_crates=220
+
+          mb=$(( $(stat -f%z target/release/pushos) / 1024 / 1024 ))
+          crates=$(cargo tree --workspace --edges normal --prefix none \
+            | awk '{print $1}' | sort -u | wc -l | tr -d ' ')
+
+          echo "binary: ${mb} MB (ceiling ${most_mb} MB)"
+          echo "crates: ${crates} (ceiling ${most_crates})"
+
+          if [ "$mb" -gt "$most_mb" ]; then
+            echo "::error::what ships is ${mb} MB, past the ${most_mb} MB ceiling. Make it smaller, or raise the ceiling in this job and say what was worth it."
+            exit 1
+          fi
+          if [ "$crates" -gt "$most_crates" ]; then
+            echo "::error::the tree is ${crates} crates, past the ${most_crates} ceiling. Drop one, or raise the ceiling in this job and say what was worth it."
+            exit 1
+          fi
+
   # The whole core must build and be testable on a machine with no Push 2
   # attached and no agent provider installed.
   hardware-free:

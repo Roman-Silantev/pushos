@@ -885,6 +885,36 @@ within minutes.
 
 ---
 
+# 49a. What ships stays lean
+
+PushOS starts at login and sits there all day watching sixty-four pads. Its
+size is not an implementation detail; it is the reason it can do that without
+anyone noticing.
+
+Measured on an M4 in September 2026, and the numbers to hold:
+
+```text
+binary            5 MB
+dependencies      186 crates
+idle footprint    8 MB, peak 8 MB, after seven hours
+idle CPU          0%
+```
+
+CI fails when the binary passes 8 MB or the tree passes 220 crates. Those are
+ceilings, not targets: when one is hit, either make it smaller or raise it in
+the same commit, and say what was worth the room.
+
+Before reaching for a dependency, check whether the standard library or
+something already in the tree does it. A crate that arrives with twenty of its
+own is twenty more things that ship, build and have to be trusted.
+
+The same applies at runtime. Every store, cache, queue, poll and buffer gets a
+bound, and growth without one is a bug rather than a shortcoming — see the
+limits on the seat book, the thread listing, the glyph cache, the work queue
+and the log.
+
+---
+
 # 50. Final rule
 
 When adding functionality, ask:
