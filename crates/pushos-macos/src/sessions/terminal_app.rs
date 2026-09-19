@@ -39,6 +39,13 @@ const RECORD: char = '\u{1e}';
 /// in all day holds megabytes of it. The screen is a few thousand characters
 /// however long the tab has been open, ending in the rows below the last line
 /// written, which are skipped.
+/// Terminal's scripts walk windows and tabs by index rather than with
+/// `repeat with t in tabs of w`, which reads better and does not work: in that
+/// form `t` is a reference, and `contents of t` is then AppleScript's own
+/// `contents` keyword dereferencing it rather than Terminal's `contents`
+/// property. It returns the tab itself, and reading a screen fails — silently
+/// in the listing, which wraps it in a `try`. Indexing gives a specifier the
+/// property actually resolves against.
 macro_rules! tail_handler {
     () => {
         r#"on tail(shown, most)
@@ -69,14 +76,14 @@ const DISCOVER: &str = concat!(
   if application "Terminal" is not running then return ""
   set out to ""
   tell application "Terminal"
-    repeat with w in windows
-      repeat with t in tabs of w
+    repeat with wi from 1 to count of windows
+      repeat with ti from 1 to count of tabs of window wi
         try
           set seen to ""
           try
-            set seen to my tail(contents of t, most)
+            set seen to my tail(contents of tab ti of window wi, most)
           end try
-          set out to out & ((tty of t) as text) & (ASCII character 31) & ((custom title of t) as text) & (ASCII character 31) & seen & (ASCII character 30)
+          set out to out & ((tty of tab ti of window wi) as text) & (ASCII character 31) & ((custom title of tab ti of window wi) as text) & (ASCII character 31) & seen & (ASCII character 30)
         end try
       end repeat
     end repeat
@@ -114,10 +121,10 @@ const READ: &str = concat!(
   set wanted to item 1 of argv
   set most to (item 2 of argv) as integer
   tell application "Terminal"
-    repeat with w in windows
-      repeat with t in tabs of w
-        if ((tty of t) as text) is wanted then
-          return my tail(contents of t, most)
+    repeat with wi from 1 to count of windows
+      repeat with ti from 1 to count of tabs of window wi
+        if ((tty of tab ti of window wi) as text) is wanted then
+          return my tail(contents of tab ti of window wi, most)
         end if
       end repeat
     end repeat
@@ -465,11 +472,48 @@ mod tests {
     #[test]
     fn a_screen_is_read_from_its_last_written_line_and_not_its_history() {
         assert!(!DISCOVER.contains("history") && !READ.contains("history"));
-        assert!(DISCOVER.contains("my tail(contents of t, most)"));
+        assert!(DISCOVER.contains("my tail(contents of tab ti of window wi, most)"));
+
+        // Never `contents of t` over `repeat with t in tabs`: there `t` is a
+        // reference, `contents` is AppleScript's own keyword rather than
+        // Terminal's property, and reading a screen quietly returns nothing.
+        for script in [DISCOVER, READ] {
+            assert!(
+                !script.contains("contents of t,") && !script.contains("contents of t)"),
+                "a screen must be read from an indexed tab"
+            );
+        }
 
         assert_eq!(tail_of("one\ntwo\n> \n\n\n   \n", 5), "two\n>");
         assert_eq!(tail_of("short\n\n", 220), "short");
         assert_eq!(tail_of("\n\n\n", 220), "", "a blank screen is nothing");
+    }
+
+    /// Against the Terminal running on this Mac, rather than a compile.
+    ///
+    /// Compiling a script proves it parses, not that a property resolves, and
+    /// what was wrong here resolved to the wrong thing at run time. Ignored
+    /// because it needs Terminal open with a tab, and permission to read it:
+    ///
+    /// ```text
+    /// cargo test -p pushos-macos -- --ignored a_real_terminal_tab
+    /// ```
+    #[tokio::test]
+    #[ignore = "needs Terminal open, with permission to read it"]
+    async fn a_real_terminal_tab_can_actually_be_read() {
+        let terminal = TerminalApp::new(std::sync::Arc::new(crate::process::SystemProcessRunner));
+        let tabs = terminal.tabs().await.expect("Terminal answered");
+        let tab = tabs.first().expect("a tab is open");
+
+        let screen = terminal
+            .read(&tab.device, 400)
+            .await
+            .expect("its screen was readable");
+
+        assert!(
+            !screen.is_empty(),
+            "a tab with a prompt on it is never an empty screen"
+        );
     }
 
     #[test]
