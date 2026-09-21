@@ -18,6 +18,24 @@ use crate::schema::{MIGRATIONS, target_version};
 const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Opens the database at `path`, creating and migrating it as needed.
+/// Keeps the database to its owner.
+///
+/// What is in here is the operator's: their notes, their workspace memory, and
+/// the trail of what their sessions did. A Mac's home directory is readable by
+/// the `staff` group that every local account joins, so a file left at the
+/// usual mode is one another account can read. Best effort — a volume with no
+/// permissions to speak of is still one PushOS should work on.
+fn keep_to_yourself(path: &Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        if let Err(error) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
+            tracing::debug!(%error, path = %path.display(), "could not keep the database to its owner");
+        }
+    }
+}
+
 pub(crate) fn open(path: &Path) -> Result<Connection, StorageError> {
     if let Some(parent) = path.parent()
         && !parent.as_os_str().is_empty()
@@ -29,6 +47,7 @@ pub(crate) fn open(path: &Path) -> Result<Connection, StorageError> {
     }
 
     let connection = Connection::open(path).map_err(StorageError::open)?;
+    keep_to_yourself(path);
     configure(&connection)?;
     migrate(&connection)?;
     // A file that grew while PushOS was stopped, or before its record had a

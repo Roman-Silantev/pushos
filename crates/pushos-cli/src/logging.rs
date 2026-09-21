@@ -44,6 +44,10 @@ pub(crate) fn install(default: &str) {
     // started again every few seconds still cannot grow the file past the cap.
     if let Some(keeper) = &keeper {
         keeper.keep();
+        // launchd makes this file, and makes it readable by anyone on the
+        // machine. What goes in it is which agent asked for what and what the
+        // operator was doing, so it is taken back to its owner at every start.
+        pushos_config::paths::keep_to_yourself(&keeper.path);
     }
 
     let filter = std::env::var("RUST_LOG")

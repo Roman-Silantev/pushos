@@ -156,7 +156,7 @@ impl Transcriber for WhisperSpeech {
         .await
         .map_err(|error| VoiceError::backend("Whisper stopped", ErrorClass::Retryable, error))??;
 
-        debug!(%text, "Whisper finished");
+        debug!(words = text.len(), "Whisper finished");
         Ok(Utterance::new(text, held))
     }
 }

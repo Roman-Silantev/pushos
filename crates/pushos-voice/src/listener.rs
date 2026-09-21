@@ -149,7 +149,9 @@ impl VoiceListener {
         })?;
 
         let routing = self.router.route(&said);
-        info!(heard = %said.text, routed = %routing, "voice");
+        // How much was heard and where it went, never the words: this is the
+        // operator dictating, and the log is a file that outlives the moment.
+        info!(words = said.text.len(), routed = %routing, "voice");
 
         // Held here rather than run, so that the thing which finally runs it is
         // a press. Transcription is not authorisation.

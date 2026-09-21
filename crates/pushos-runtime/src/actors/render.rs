@@ -10,7 +10,7 @@ use std::time::Duration;
 use pushos_domain::ports::{DisplayFrame, PushOutput};
 use pushos_ui::{LedPlan, PushRenderer, UiSnapshot};
 use tokio::sync::watch;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 
 use crate::actors::SurfaceView;
 use crate::shutdown::Shutdown;
@@ -53,6 +53,13 @@ pub struct RenderTask {
     /// `None` until the first draw, because a Push 2 comes up at whatever its
     /// firmware chose, which is not what PushOS chose.
     brightness: Option<pushos_domain::rest::Levels>,
+    /// Whether the surface has gone, rather than merely failed a frame.
+    ///
+    /// `midir`'s `CoreMIDI` backend registers no device-removal notification, so
+    /// nothing ever closes the input channel when a Push 2 is unplugged: the
+    /// pipeline waits on a device that will never speak again. The display is
+    /// the one part that finds out, so it is the one that has to say so.
+    gone: bool,
     /// Whether the screen is showing the dark frame of a sleeping surface.
     dark: bool,
     /// How long until the next animation frame, which depends on whether the
@@ -85,6 +92,7 @@ impl RenderTask {
             output,
             renderer,
             frame: DisplayFrame::blank(),
+            gone: false,
             lit: LedPlan::new(),
             view,
             animation: 0,
@@ -100,6 +108,9 @@ impl RenderTask {
     pub async fn run(mut self, shutdown: Shutdown) {
         // The surface comes up blank, so the first pass always draws.
         self.draw().await;
+        if self.went_away(&shutdown) {
+            return;
+        }
 
         loop {
             tokio::select! {
@@ -113,11 +124,17 @@ impl RenderTask {
                         break;
                     }
                     self.draw().await;
+                    if self.went_away(&shutdown) {
+                        break;
+                    }
                 }
 
                 () = next_frame(self.animating, self.frame_interval) => {
                     self.animation = self.animation.wrapping_add(1);
                     self.draw().await;
+                    if self.went_away(&shutdown) {
+                        break;
+                    }
                 }
             }
         }
@@ -125,6 +142,20 @@ impl RenderTask {
         if let Err(error) = self.output.clear().await {
             debug!(%error, "could not clear the surface on the way out");
         }
+    }
+
+    /// Whether the Push 2 has gone, ending the surface if it has.
+    ///
+    /// Ending it is what lets the loop outside notice: the input pipeline is
+    /// waiting on a channel nothing will ever close, and would otherwise wait
+    /// for ever while the display drew frames at a device that is not there.
+    fn went_away(&self, shutdown: &Shutdown) -> bool {
+        if !self.gone {
+            return false;
+        }
+        info!("the Push 2 stopped answering; letting go of it so it can be found again");
+        shutdown.begin();
+        true
     }
 
     /// Tells the renderer the panel has gone blank and must be redrawn.
@@ -232,6 +263,13 @@ impl RenderTask {
             match self.output.present(&self.frame).await {
                 Ok(()) => self.reported.frame = false,
                 Err(error) => {
+                    // A surface that has been unplugged is not a frame that
+                    // failed. Nothing else finds out, so this ends the surface
+                    // and lets the loop outside wait for it to come back.
+                    if error.is_disconnect() {
+                        self.gone = true;
+                        return false;
+                    }
                     if !std::mem::replace(&mut self.reported.frame, true) {
                         warn!(%error, "could not present a frame; saying so again only once it recovers");
                     }

@@ -227,7 +227,7 @@ fn work_out(samples: &[f32], held: Duration) -> Result<Utterance, VoiceError> {
     loop {
         match result.recv_timeout(PATIENCE) {
             Ok((Some((text, true)), _)) => {
-                debug!(%text, "macOS worked out what was said");
+                debug!(words = text.len(), "macOS worked out what was said");
                 return Ok(Utterance::new(text, held));
             }
             // Something arrived that is not the final answer; keep waiting.

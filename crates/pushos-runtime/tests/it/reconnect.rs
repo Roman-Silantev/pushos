@@ -268,3 +268,37 @@ async fn the_socket_keeps_answering_across_a_surface_coming_and_going() {
 
     harness.stop().await;
 }
+
+#[tokio::test]
+async fn an_unplugged_push_lets_go_even_though_its_input_never_closes() {
+    // The one that matters, and the one the other tests here cannot catch.
+    // A real Push 2 going away closes nothing: midir reports no removal, so
+    // the input channel stays open for ever and only the display finds out.
+    // If nothing acts on that, `serve` never returns, the reconnect loop is
+    // never reached, and PushOS is wedged until it is restarted.
+    let harness = Harness::start().await;
+
+    let (surface, input) = FakePush::new();
+    let output: Arc<dyn PushOutput> = Arc::new(surface.clone());
+    let renderer = PushRenderer::new().expect("the renderer builds");
+
+    let serving = harness
+        .running
+        .serve(Box::new(input), output, renderer, &harness.shutdown);
+
+    let unplugging = async {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        surface.unplug().await;
+    };
+
+    let (served, ()) = tokio::join!(
+        tokio::time::timeout(Duration::from_secs(5), serving),
+        unplugging
+    );
+    assert!(
+        served.is_ok(),
+        "serving must end when the surface goes, or the Push can never be found again"
+    );
+
+    harness.stop().await;
+}

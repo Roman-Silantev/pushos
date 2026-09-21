@@ -182,6 +182,28 @@ pub fn files_in_pack(pack: &Path) -> Vec<PathBuf> {
     found
 }
 
+/// Keeps a file to its owner, as far as the platform allows.
+///
+/// PushOS writes down what the operator dictated, what their agents were about
+/// to run, and the notes they keep. On a Mac shared with another account, a
+/// home directory is readable by the `staff` group that every local account
+/// joins, so a file left at the usual mode is a file that account can read.
+///
+/// Best effort on purpose: a file on a volume with no permissions to speak of
+/// is still a file PushOS should use.
+pub fn keep_to_yourself(path: &std::path::Path) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        if let Err(error) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600)) {
+            tracing::debug!(%error, path = %path.display(), "could not keep a file to its owner");
+        }
+    }
+    #[cfg(not(unix))]
+    let _ = path;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -131,6 +131,18 @@ impl FakePush {
         state.input = None;
     }
 
+    /// Simulates the cable being pulled out the way the hardware reports it.
+    ///
+    /// Output fails from here on, and no further input arrives — but the input
+    /// channel is deliberately left open, because that is what really happens:
+    /// `midir`'s `CoreMIDI` backend registers no device-removal notification, so
+    /// nothing ever closes it. A test that drops the input sender instead is
+    /// testing a courtesy the real adapter does not extend, and will pass
+    /// while a real unplug wedges PushOS on a channel that never speaks again.
+    pub async fn unplug(&self) {
+        self.state.lock().await.connected = false;
+    }
+
     /// Simulates the panel becoming reachable again.
     ///
     /// Output works once more and the lights come back blank, so the renderer

@@ -136,7 +136,15 @@ impl SessionProvider {
     /// `None` when no answer came from here: nobody pressed anything in time,
     /// or it was answered in the session's own window first.
     pub async fn ask(&self, question: SessionQuestion) -> Option<Decision> {
-        info!(question = %question.describe(), "a session is asking the operator");
+        // The agent, the tool and nothing it was given: the detail is what
+        // the operator reads on the Push, and it carries whatever the agent
+        // was about to run — a command line, a URL, a query. The log is a file
+        // on disk that outlives the question.
+        info!(
+            agent = %question.agent,
+            tool = %question.tool,
+            "a session is asking the operator"
+        );
         self.questions.ask(question, questions::PATIENCE).await
     }
 
@@ -173,7 +181,7 @@ impl SessionProvider {
             Decision::Allow => "allowed",
             Decision::Deny => "denied",
         };
-        info!(question = %answered.describe(), said, "answered from the Push");
+        info!(agent = %answered.agent, tool = %answered.tool, said, "answered from the Push");
         Ok(ActionResult {
             status: ActionStatus::Completed,
             message: Some(format!("{said}: {}", answered.describe())),

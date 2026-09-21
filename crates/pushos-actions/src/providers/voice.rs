@@ -139,7 +139,7 @@ impl VoiceProvider {
                                 action: definition,
                             })
                             .await;
-                        info!(heard = %text, "waiting to be sent");
+                        info!(words = text.len(), "waiting to be sent");
                         return ActionResult {
                             status: ActionStatus::Waiting,
                             message: Some(text.clone()),
@@ -180,7 +180,10 @@ impl VoiceProvider {
         let Some(runner) = self.actions.lock().await.upgrade() else {
             // Only reachable if the dispatcher is gone, which means PushOS is
             // stopping. Nothing useful is left to do about it.
-            warn!(%said, "heard something with nothing left to run it");
+            warn!(
+                words = said.len(),
+                "heard something with nothing left to run it"
+            );
             return ActionResult {
                 status: ActionStatus::Failed,
                 message: Some("voice is not connected to anything".to_owned()),
@@ -188,7 +191,7 @@ impl VoiceProvider {
             };
         };
 
-        info!(%said, action = %definition.selector, "running what was said");
+        info!(words = said.len(), action = %definition.selector, "running what was said");
         match runner.run(definition, surface.clone()).await {
             Ok(result) => ActionResult {
                 status: result.status,
@@ -201,7 +204,7 @@ impl VoiceProvider {
                 }),
             },
             Err(error) => {
-                warn!(%error, %said, "what was said could not be carried out");
+                warn!(%error, words = said.len(), "what was said could not be carried out");
                 ActionResult {
                     status: ActionStatus::Failed,
                     message: Some(error.to_string()),

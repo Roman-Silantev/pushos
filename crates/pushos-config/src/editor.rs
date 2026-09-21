@@ -479,6 +479,10 @@ fn write_atomically(path: &Path, contents: &str) -> Result<(), ConfigError> {
         path: temporary.clone(),
         source,
     })?;
+    // Before it is in place, so there is no moment when the finished file is
+    // readable by anyone else. A project's environment is written here, and
+    // operators put things in it that they would not put in a shared file.
+    crate::paths::keep_to_yourself(&temporary);
     std::fs::rename(&temporary, path).map_err(|source| ConfigError::Unwritable {
         path: path.to_path_buf(),
         source,

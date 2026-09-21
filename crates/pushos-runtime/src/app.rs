@@ -290,9 +290,14 @@ impl Runtime {
     /// attached must still be configurable, or Studio could not reach a machine
     /// whose device is in a bag.
     pub async fn start(self, shutdown: &Shutdown) -> RunningRuntime {
-        let granted = self.config.current().permissions.clone();
         let providers = Arc::new(self.providers);
-        let dispatcher = Arc::new(ActionDispatcher::new(Arc::clone(&providers), granted));
+        // Read at every action rather than once here: a capability the
+        // operator takes out of the file must stop working when they take it
+        // out, not at the next restart.
+        let permissions = Arc::clone(&self.config);
+        let dispatcher = Arc::new(ActionDispatcher::new(Arc::clone(&providers), move || {
+            permissions.current().permissions.clone()
+        }));
 
         // Given after construction, because the dispatcher this points at
         // contains the provider that points back at the engine.

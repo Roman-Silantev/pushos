@@ -23,19 +23,40 @@ use crate::registry::ProviderRegistry;
 pub const DEFAULT_ACTION_BUDGET: Duration = Duration::from_secs(30);
 
 /// Runs actions on behalf of resolved bindings.
-#[derive(Debug)]
 pub struct ActionDispatcher {
     registry: Arc<ProviderRegistry>,
-    granted: PermissionSet,
+    /// Asked at every action rather than held, so that a permission the
+    /// operator takes away is actually taken away.
+    ///
+    /// A snapshot would mean a capability revoked in the file stayed in force
+    /// until PushOS was restarted, while the surface said the configuration
+    /// had been reloaded — the one direction in which being out of date is not
+    /// an inconvenience but a promise broken.
+    granted: Box<dyn Fn() -> PermissionSet + Send + Sync>,
     budget: Duration,
+}
+
+impl std::fmt::Debug for ActionDispatcher {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ActionDispatcher")
+            .field("budget", &self.budget)
+            .finish_non_exhaustive()
+    }
 }
 
 impl ActionDispatcher {
     /// Builds a dispatcher over a registry and the permissions in force.
-    pub fn new(registry: Arc<ProviderRegistry>, granted: PermissionSet) -> Self {
+    ///
+    /// The permissions are read again for every action, so pass something that
+    /// looks them up rather than a value read once.
+    pub fn new(
+        registry: Arc<ProviderRegistry>,
+        granted: impl Fn() -> PermissionSet + Send + Sync + 'static,
+    ) -> Self {
         Self {
             registry,
-            granted,
+            granted: Box::new(granted),
             budget: DEFAULT_ACTION_BUDGET,
         }
     }
@@ -47,9 +68,9 @@ impl ActionDispatcher {
         self
     }
 
-    /// The permissions actions run under.
-    pub const fn granted(&self) -> &PermissionSet {
-        &self.granted
+    /// The permissions actions run under, as they stand now.
+    pub fn granted(&self) -> PermissionSet {
+        (self.granted)()
     }
 
     /// Runs one action.
@@ -67,11 +88,12 @@ impl ActionDispatcher {
         // What this verb needs, not what the namespace as a whole could need:
         // a verb that starts nothing should not be gated behind the permission
         // a sibling needs.
+        let granted = self.granted();
         for permission in provider
             .capabilities()
             .required_for(&definition.selector.verb)
         {
-            self.granted.require(permission)?;
+            granted.require(permission)?;
         }
 
         let selector = definition.selector.to_string();
@@ -162,6 +184,14 @@ mod tests {
         providers: Vec<Arc<dyn ActionProvider>>,
         granted: PermissionSet,
     ) -> ActionDispatcher {
+        built_over(providers, move || granted.clone())
+    }
+
+    /// The same, where what is granted can change under the dispatcher.
+    fn built_over(
+        providers: Vec<Arc<dyn ActionProvider>>,
+        granted: impl Fn() -> PermissionSet + Send + Sync + 'static,
+    ) -> ActionDispatcher {
         let mut registry = ProviderRegistry::new();
         for provider in providers {
             registry
@@ -230,5 +260,34 @@ mod tests {
             error.is_retryable(),
             "a timeout may be retried, subject to idempotency"
         );
+    }
+
+    #[tokio::test]
+    async fn a_capability_the_operator_takes_away_stops_working_at_once() {
+        // The surface says the configuration was reloaded. If a capability
+        // removed from the file stayed in force until the next restart, that
+        // message would be a lie about the one thing it must not lie about.
+        use std::sync::atomic::{AtomicBool, Ordering};
+
+        let granted = Arc::new(AtomicBool::new(true));
+        let reading = Arc::clone(&granted);
+        let dispatcher = built_over(vec![Arc::new(GuardedProvider)], move || {
+            if reading.load(Ordering::Relaxed) {
+                PermissionSet::from_iter([Permission::ShellExecute])
+            } else {
+                PermissionSet::empty()
+            }
+        });
+
+        dispatch(&dispatcher, "guarded.run")
+            .await
+            .expect("granted, so it runs");
+
+        granted.store(false, Ordering::Relaxed);
+
+        let refused = dispatch(&dispatcher, "guarded.run")
+            .await
+            .expect_err("taken away, so it must not");
+        assert_eq!(refused.class(), ErrorClass::Permission);
     }
 }
