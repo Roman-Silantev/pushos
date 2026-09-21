@@ -18,11 +18,20 @@ use pushos_domain::error::ErrorClass;
 use pushos_domain::ports::{ProcessRunner, ProcessSpec, Repository, RepositoryError, Worktree};
 use tracing::debug;
 
-/// How long a git command may take.
+/// How long a git command that moves files may take.
 ///
-/// Adding a working tree copies a checkout, which on a large repository is not
-/// instant, but nor should it take minutes.
-const BUDGET: Duration = Duration::from_secs(90);
+/// Adding or removing a working tree copies or deletes a checkout, which on a
+/// large repository is not instant, but nor should it take minutes.
+const A_CHECKOUT: Duration = Duration::from_secs(90);
+
+/// How long a git command that only answers a question may take.
+///
+/// Listing the working trees takes hundredths of a second; the budget is for a
+/// Mac that is busy, not for a git that has stopped. Measured on this one, a
+/// starved `worktree list` sat for the whole ninety seconds of the old shared
+/// budget, holding a process and its pipes for a question PushOS asks at every
+/// start. Being killed costs nothing here — the answer is asked for again.
+const A_QUESTION: Duration = Duration::from_secs(20);
 
 /// The operator's own git.
 #[derive(Debug)]
@@ -47,14 +56,30 @@ impl GitRepository {
         self
     }
 
+    /// Asks git something. For the commands that only read.
+    async fn ask(&self, root: &Path, args: &[&str]) -> Result<String, RepositoryError> {
+        self.run(root, args, A_QUESTION).await
+    }
+
+    /// Has git move files about. For the commands that take as long as the
+    /// repository is large.
+    async fn work(&self, root: &Path, args: &[&str]) -> Result<String, RepositoryError> {
+        self.run(root, args, A_CHECKOUT).await
+    }
+
     /// Runs a git command in a directory.
-    async fn run(&self, root: &Path, args: &[&str]) -> Result<String, RepositoryError> {
+    async fn run(
+        &self,
+        root: &Path,
+        args: &[&str],
+        budget: Duration,
+    ) -> Result<String, RepositoryError> {
         // `-C` rather than a working directory, so the command says in its own
         // arguments where it ran. That is what appears in a log.
         let mut full = vec!["-C".to_owned(), root.display().to_string()];
         full.extend(args.iter().map(|arg| (*arg).to_owned()));
 
-        let spec = ProcessSpec::new(&self.program, full).within(BUDGET);
+        let spec = ProcessSpec::new(&self.program, full).within(budget);
         let outcome = self.processes.run(&spec).await.map_err(|error| {
             RepositoryError::backend(
                 format!("could not run git in `{}`", root.display()),
@@ -83,12 +108,12 @@ impl GitRepository {
 #[async_trait]
 impl Repository for GitRepository {
     async fn is_repository(&self, root: &Path) -> bool {
-        self.run(root, &["rev-parse", "--git-dir"]).await.is_ok()
+        self.ask(root, &["rev-parse", "--git-dir"]).await.is_ok()
     }
 
     async fn worktrees(&self, root: &Path) -> Result<Vec<Worktree>, RepositoryError> {
-        let listing = self.run(root, &["worktree", "list", "--porcelain"]).await?;
-        let main = self.run(root, &["rev-parse", "--show-toplevel"]).await?;
+        let listing = self.ask(root, &["worktree", "list", "--porcelain"]).await?;
+        let main = self.ask(root, &["rev-parse", "--show-toplevel"]).await?;
         Ok(parse_worktrees(&listing, Path::new(main.trim())))
     }
 
@@ -103,14 +128,14 @@ impl Repository for GitRepository {
         // A branch left from a tree removed earlier still holds what that role
         // committed, so it is picked up again rather than refused.
         if self
-            .run(root, &["rev-parse", "--verify", "--quiet", &reference])
+            .ask(root, &["rev-parse", "--verify", "--quiet", &reference])
             .await
             .is_ok()
         {
-            self.run(root, &["worktree", "add", &target, branch])
+            self.work(root, &["worktree", "add", &target, branch])
                 .await?;
         } else {
-            self.run(root, &["worktree", "add", "-b", branch, &target])
+            self.work(root, &["worktree", "add", "-b", branch, &target])
                 .await?;
         }
 
@@ -132,16 +157,16 @@ impl Repository for GitRepository {
                 // Without `--force`: git checks again, and refuses anything
                 // that changed since.
                 let target = tree.path.display().to_string();
-                self.run(root, &["worktree", "remove", &target]).await?;
+                self.work(root, &["worktree", "remove", &target]).await?;
             }
             // Already deleted by hand; git only needs to forget it.
             None => {
-                self.run(root, &["worktree", "prune"]).await?;
+                self.ask(root, &["worktree", "prune"]).await?;
             }
         }
         if let Some(branch) = &tree.branch {
             // `-d`, never `-D`: refused unless everything on it is merged.
-            let _ = self.run(root, &["branch", "-d", branch]).await;
+            let _ = self.ask(root, &["branch", "-d", branch]).await;
         }
         debug!(root = %root.display(), path = %tree.path.display(), "removed a working tree");
         Ok(true)
@@ -158,7 +183,7 @@ impl GitRepository {
         if !tree.is_dir() {
             return None;
         }
-        match self.run(tree, &["status", "--porcelain"]).await {
+        match self.ask(tree, &["status", "--porcelain"]).await {
             Ok(status) => Some(!status.trim().is_empty()),
             // Unreadable is treated as holding work: nothing is removed on a
             // guess.
@@ -296,6 +321,18 @@ detached
             }
         });
         (GitRepository::new(Arc::new(processes.clone())), processes)
+    }
+
+    #[test]
+    fn a_question_is_not_given_a_checkout_s_worth_of_time() {
+        // Listing the trees takes hundredths of a second. Sharing a budget
+        // with `worktree add` meant a starved one held a process and its pipes
+        // for ninety seconds, for a question asked at every start.
+        assert!(A_QUESTION < A_CHECKOUT);
+        assert!(
+            A_QUESTION <= Duration::from_secs(30),
+            "a read that has not answered in this long has stopped"
+        );
     }
 
     #[tokio::test]
