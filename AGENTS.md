@@ -913,6 +913,27 @@ bound, and growth without one is a bug rather than a shortcoming — see the
 limits on the seat book, the thread listing, the glyph cache, the work queue
 and the log.
 
+## What belongs to the Mac, not to PushOS
+
+Memory is not the only thing a surface can exhaust, and the others are worse
+because they break everything else on the machine rather than only PushOS:
+
+```text
+pseudo-terminals   511 for the whole Mac; PushOS holds at most 64
+disk               a working tree is as large as the project in it;
+                   none is made below 2 GB free
+processes          2666 per user; every child is waited on and killed on drop
+memory             limits tighten on the Mac's own pressure signal
+```
+
+A shared resource gets two things: a bound on what PushOS takes, and headroom
+left for everything else. When one runs out, say which limit was hit and what
+it means — a user whose Mac has stopped opening terminals needs to know it was
+the pty table, not that "a terminal could not be opened".
+
+When the host will not answer how much of something is left, assume there is
+room. Refusing an operator their work on no evidence is the worse mistake.
+
 ---
 
 # 50. Final rule
