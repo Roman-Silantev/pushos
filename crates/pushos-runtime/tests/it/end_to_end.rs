@@ -715,3 +715,31 @@ async fn a_sleeping_computer_puts_every_light_out_first() {
     );
     harness.stop().await;
 }
+
+#[tokio::test]
+async fn the_surface_keeps_answering_while_an_action_runs() {
+    // An agent thinking for half a minute is ordinary. Awaiting it inside the
+    // input loop stopped that loop: no further presses, no hold or double-tap
+    // deadlines, no configuration reload and no shutdown, for the whole of the
+    // action's budget. A surface that stops answering while an agent works
+    // looks broken at exactly the moment it is working.
+    let harness = Harness::start(CONFIG);
+    harness
+        .provider
+        .will(ScriptedOutcome::Dawdle(Duration::from_secs(30)));
+
+    harness.tap(0).await;
+    harness.wait_for_calls(1).await;
+
+    // The slow one is still running. A second press must still be read, and
+    // what it asks for must still happen.
+    harness.provider.will(ScriptedOutcome::Complete);
+    tokio::time::timeout(Duration::from_secs(2), harness.tap(2))
+        .await
+        .expect("the surface answered the next press");
+    tokio::time::timeout(Duration::from_secs(5), harness.wait_for_calls(2))
+        .await
+        .expect("and carried it out while the first was still going");
+
+    harness.stop().await;
+}

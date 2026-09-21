@@ -23,7 +23,7 @@ use pushos_domain::ids::CorrelationId;
 use pushos_domain::input::ControlEvent;
 use pushos_domain::ports::PushInput;
 use pushos_ui::{SurfacePresence, Tone, UiSnapshot};
-use tokio::sync::watch;
+use tokio::sync::{mpsc, watch};
 use tracing::{debug, info, warn};
 
 use crate::actors::SurfaceState;
@@ -65,8 +65,36 @@ impl SurfaceView {
 }
 
 /// Runs the input pipeline.
+/// An action that has run, on its way back to the task that owns the surface.
+struct Finished {
+    selector: pushos_domain::action::ActionSelector,
+    correlation: CorrelationId,
+    outcome: Result<ActionResult, pushos_domain::error::ActionError>,
+    /// Reported once the action has resolved, so the trail reads in the order
+    /// things actually happened.
+    key: BindingKey,
+}
+
 pub struct InputTask {
     input: Box<dyn PushInput>,
+    /// Who owns the tasks the actions run on, set when the loop starts.
+    ///
+    /// Every spawned task has an owner, so an action still running when PushOS
+    /// stops is cancelled with everything else rather than left detached.
+    owner: Option<Shutdown>,
+    /// Actions that have finished, on their way back to this loop.
+    ///
+    /// An action is run off this task and its result returned here, because
+    /// awaiting it in the loop stops the loop: no further presses, no hold or
+    /// double-tap deadlines, no configuration reload and no shutdown, for as
+    /// long as the action takes — up to the whole thirty-second budget. A
+    /// surface that stops answering while an agent thinks is a surface that
+    /// looks broken at exactly the moment it is working.
+    ///
+    /// The result comes back here rather than being handled where it finished,
+    /// because what happens next is a change to the surface, and this task is
+    /// the one thing that owns that.
+    finished: (mpsc::Sender<Finished>, mpsc::Receiver<Finished>),
     surface_kind: SurfacePresence,
     recognizer: GestureRecognizer,
     surface: SurfaceState,
@@ -147,6 +175,10 @@ impl InputTask {
 
         Self {
             input,
+            owner: None,
+            // One per pad and some to spare. Full means sixty-four actions
+            // finished while this loop was busy, which it never is for long.
+            finished: mpsc::channel(96),
             surface_kind,
             recognizer,
             surface,
@@ -242,6 +274,9 @@ impl InputTask {
 
     /// Runs until the surface goes away or shutdown begins.
     pub async fn run(mut self, shutdown: Shutdown) {
+        // So an action still running when PushOS stops is cancelled with
+        // everything else rather than left to finish unattended.
+        self.owner = Some(shutdown.clone());
         self.surface.set_surface(self.surface_kind, Instant::now());
 
         // Taken up front rather than waited for: a surface plugged in while a
@@ -285,16 +320,22 @@ impl InputTask {
                     }
                 }
 
+                // Ahead of input: what an action came to changes the surface,
+                // and the operator should see it before the next press is read.
+                Some(finished) = self.finished.1.recv() => {
+                    self.on_finished(finished);
+                }
+
                 event = self.input.next_event() => {
                     let Some(event) = event else {
                         info!("the surface stopped producing input");
                         break;
                     };
-                    self.on_input(event).await;
+                    self.on_input(event);
                 }
 
                 () = sleep_until(deadline) => {
-                    self.on_deadline(Instant::now()).await;
+                    self.on_deadline(Instant::now());
                 }
 
                 () = wait_for_sessions(&mut self.sessions) => {
@@ -394,7 +435,7 @@ impl InputTask {
         self.publish();
     }
 
-    async fn on_input(&mut self, event: ControlEvent) {
+    fn on_input(&mut self, event: ControlEvent) {
         let (heard, changed) = self.rest.on_input(&event);
         if changed {
             self.publish();
@@ -408,16 +449,16 @@ impl InputTask {
         self.recognizer.observe(event, &mut self.gestures);
 
         for gesture in std::mem::take(&mut self.gestures) {
-            self.on_gesture(gesture).await;
+            self.on_gesture(gesture);
         }
     }
 
-    async fn on_deadline(&mut self, now: Instant) {
+    fn on_deadline(&mut self, now: Instant) {
         self.gestures.clear();
         self.recognizer.poll(now, &mut self.gestures);
 
         for gesture in std::mem::take(&mut self.gestures) {
-            self.on_gesture(gesture).await;
+            self.on_gesture(gesture);
         }
 
         let expired = self.surface.expire(now);
@@ -427,7 +468,7 @@ impl InputTask {
         }
     }
 
-    async fn on_gesture(&mut self, gesture: GestureEvent) {
+    fn on_gesture(&mut self, gesture: GestureEvent) {
         let correlation = CorrelationId::generate();
         let context = self.surface.context(self.recognizer.shift_held());
         let config = Arc::clone(self.surface.config());
@@ -456,10 +497,39 @@ impl InputTask {
         ));
 
         let selector = binding.action.selector.clone();
-        let outcome = self
-            .dispatcher
-            .dispatch(binding.action.clone(), context, correlation)
-            .await;
+        let key = BindingKey::new(gesture.control, gesture.gesture);
+        let dispatcher = Arc::clone(&self.dispatcher);
+        let action = binding.action.clone();
+        let back = self.finished.0.clone();
+
+        // Off this task, so the surface keeps answering while it runs. What it
+        // came to is handled back here, where the surface is owned.
+        let running = async move {
+            let outcome = dispatcher.dispatch(action, context, correlation).await;
+            let _ = back
+                .send(Finished {
+                    selector,
+                    correlation,
+                    outcome,
+                    key,
+                })
+                .await;
+        };
+        match &self.owner {
+            Some(owner) => drop(owner.spawn(running)),
+            // Only before the loop has started, which is nowhere in practice.
+            None => drop(tokio::spawn(running)),
+        }
+    }
+
+    /// Takes in what an action came to, once it has finished.
+    fn on_finished(&mut self, finished: Finished) {
+        let Finished {
+            selector,
+            correlation,
+            outcome,
+            key,
+        } = finished;
 
         match outcome {
             Ok(result) => self.on_result(&selector, result, correlation),
@@ -485,9 +555,7 @@ impl InputTask {
         self.bus.publish(EventEnvelope::root(
             EventSource::Gestures,
             correlation,
-            DomainEvent::GestureRecognised {
-                key: BindingKey::new(gesture.control, gesture.gesture),
-            },
+            DomainEvent::GestureRecognised { key },
         ));
     }
 

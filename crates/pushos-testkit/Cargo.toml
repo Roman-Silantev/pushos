@@ -11,7 +11,7 @@ authors.workspace = true
 [dependencies]
 pushos-domain = { workspace = true }
 async-trait = { workspace = true }
-tokio = { workspace = true, features = ["sync", "rt"] }
+tokio = { workspace = true, features = ["sync", "rt", "time"] }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }

@@ -1,6 +1,6 @@
 [package]
 name = "pushos-acp"
-description = "The Agent Client Protocol adapter: PushOS's connection to Claude, Codex, Cursor and any other ACP agent."
+description = "The Agent Client Protocol adapter: PushOS's connection to Claude Code, Codex, and any other agent that speaks ACP over stdio."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

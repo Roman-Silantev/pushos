@@ -19,6 +19,12 @@ pub enum ScriptedOutcome {
     Wait,
     /// Fail with the given classification.
     Fail(ErrorClass),
+    /// Take this long, then report success.
+    ///
+    /// For proving that a surface keeps answering while an action runs: an
+    /// agent thinking for half a minute is ordinary, and the pads must not
+    /// stop working for it.
+    Dawdle(std::time::Duration),
 }
 
 /// A provider that answers to any verb it was declared with, and remembers
@@ -118,6 +124,10 @@ impl ActionProvider for RecordingProvider {
                 class,
                 std::io::Error::other("injected failure"),
             )),
+            ScriptedOutcome::Dawdle(how_long) => {
+                tokio::time::sleep(how_long).await;
+                Ok(ActionResult::completed())
+            }
         }
     }
 }

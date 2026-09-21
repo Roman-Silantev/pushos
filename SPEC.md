@@ -2256,7 +2256,7 @@ MVP means:
 9. shell action can run.
 10. Claude works.
 11. Codex works.
-12. Cursor Agent works.
+12. any other agent speaking ACP over stdio can be named in configuration.
 13. active agent/session can be assigned to a pad.
 14. terminal session can be assigned to a pad.
 15. hold-to-talk can prompt selected agent.
