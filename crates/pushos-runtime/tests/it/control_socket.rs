@@ -723,3 +723,91 @@ async fn the_packs_pushos_ships_are_on_offer_before_anything_is_put_beside_it() 
     assert!(review.problems.is_empty(), "{:?}", review.problems);
     harness.stop().await;
 }
+
+#[tokio::test]
+async fn the_dials_can_be_read_and_turned_over_the_socket() {
+    // The settings an operator wants to try, look at, and try again. Studio
+    // reads them, shows them, and sends back what they left.
+    let mut harness = Harness::start().await;
+
+    let Response::Settings(before) = harness
+        .client
+        .send(&Request::Settings)
+        .await
+        .expect("answered")
+    else {
+        panic!("expected the dials");
+    };
+    assert_eq!(before.settings.sessions.most_live, None, "nobody has said");
+    assert_eq!(
+        before.defaults.most_live,
+        Some(20),
+        "and a panel can say what happens when nobody has"
+    );
+
+    let mut settings = before.settings.clone();
+    settings.sessions.most_live = Some(12);
+    settings.surface.brightness = Some(45);
+    let Response::Settings(after) = harness
+        .client
+        .send(&Request::SetSettings {
+            settings: Box::new(settings),
+        })
+        .await
+        .expect("answered")
+    else {
+        panic!("expected the dials back");
+    };
+
+    assert_eq!(after.settings.sessions.most_live, Some(12));
+    assert!(after.file.is_some_and(|file| file.ends_with("pushos.toml")));
+
+    let saved = harness.read_config();
+    assert!(saved.contains("most_live = 12"), "{saved}");
+    assert!(saved.contains("brightness = 45"), "{saved}");
+
+    // And the running PushOS is using them, not just the file.
+    let Response::Settings(reread) = harness
+        .client
+        .send(&Request::Settings)
+        .await
+        .expect("answered")
+    else {
+        panic!("expected the dials");
+    };
+    assert_eq!(reread.settings.sessions.most_live, Some(12));
+
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn a_dial_turned_back_to_nothing_stops_being_written_down() {
+    // Silence is not the same as agreeing with today's default: a dial nobody
+    // has set must leave the file saying nothing about it.
+    let mut harness = Harness::start().await;
+
+    let mut settings = pushos_config::Settings::default();
+    settings.sessions.most_live = Some(12);
+    harness
+        .client
+        .send(&Request::SetSettings {
+            settings: Box::new(settings.clone()),
+        })
+        .await
+        .expect("answered");
+    assert!(harness.read_config().contains("most_live"));
+
+    settings.sessions.most_live = None;
+    harness
+        .client
+        .send(&Request::SetSettings {
+            settings: Box::new(settings),
+        })
+        .await
+        .expect("answered");
+
+    let saved = harness.read_config();
+    assert!(!saved.contains("most_live"), "{saved}");
+
+    harness.stop().await;
+}

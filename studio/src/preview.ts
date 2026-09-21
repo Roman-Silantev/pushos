@@ -14,6 +14,7 @@ import type {
   PackEntry,
   PackReview,
   SessionInfo,
+  SettingsReport,
   StatusReport,
   TestReport,
   Vocabulary,
@@ -265,10 +266,32 @@ const refused = () => {
 };
 
 /** The same shape as the real client, backed by sample data. */
+/** Dials as a Mac that has been tuned a little would have them. */
+const settings: SettingsReport = {
+  settings: {
+    sessions: { most_live: 12, watch: true },
+    surface: { brightness: 70 },
+    gestures: {},
+  },
+  defaults: {
+    most_live: 20,
+    most_threads: 64,
+    working_at_once: 6,
+    put_away_after_minutes: 20,
+    brightness: 70,
+    dim_after_minutes: 10,
+    sleep_after_minutes: 30,
+    hold_threshold_ms: 350,
+    double_tap_window_ms: 300,
+  },
+};
+
 export const preview = {
   status: (): Promise<StatusReport> => Promise.resolve(status),
   describe: (): Promise<Vocabulary> => Promise.resolve(vocabulary),
   bindings: (): Promise<{ bindings: BindingSpec[] }> => Promise.resolve({ bindings }),
+  settings: (): Promise<SettingsReport> => Promise.resolve(settings),
+  setSettings: (): Promise<SettingsReport> => refused(),
   bind: (): Promise<EditReport> => refused(),
   unbind: (): Promise<EditReport> => refused(),
   test: (): Promise<TestReport> => refused(),

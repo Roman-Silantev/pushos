@@ -19,8 +19,11 @@ import {
   type StatusReport,
   type Vocabulary,
   type WorkspaceInfo,
+  type Settings,
+  type SettingsReport,
 } from "./api";
 import { usePreview } from "./bridge";
+import { renderDials } from "./ui/dials";
 import { renderInspector } from "./ui/inspector";
 import { renderStore } from "./ui/store";
 import { element, renderSurface } from "./ui/surface";
@@ -46,11 +49,13 @@ interface State {
    *  rest of the screen is being edited. */
   sessions: SessionInfo[];
   /** Whether the surface or the store fills the main area. */
-  view: "surface" | "store";
+  view: "surface" | "store" | "settings";
   /** The packs on offer, read when the store is opened. */
   packs: PackEntry[];
   /** The pack being looked at closely. */
   review: PackReview | null;
+  /** The dials as PushOS last reported them, once they have been read. */
+  settings: SettingsReport | null;
   /** The pack whose review or install is under way. */
   busy: string | null;
 }
@@ -76,6 +81,7 @@ const state: State = {
   view: "surface",
   packs: [],
   review: null,
+  settings: null,
   busy: null,
 };
 
@@ -236,6 +242,39 @@ function test(address: BindingAddress): void {
   })();
 }
 
+/** Opens the settings, reading what the dials are set to now. */
+function openSettings(): void {
+  state.view = "settings";
+  draw();
+  void loadSettings();
+}
+
+async function loadSettings(): Promise<void> {
+  try {
+    state.settings = await (await client()).settings();
+  } catch (error) {
+    const failure = describeError(error);
+    state.notice = { text: failure.message, detail: failure.problems, tone: "bad" };
+  }
+  draw();
+}
+
+/** Turns the dials, and says what PushOS made of it. */
+function saveSettings(settings: Settings): void {
+  void (async () => {
+    try {
+      state.settings = await (await client()).setSettings(settings);
+      state.notice = { text: "Settings applied", detail: [], tone: "good" };
+    } catch (error) {
+      // Left exactly as the operator typed them: a refusal means nothing was
+      // written, and clearing the boxes would lose what they were trying.
+      const failure = describeError(error);
+      state.notice = { text: failure.message, detail: failure.problems, tone: "bad" };
+    }
+    draw();
+  })();
+}
+
 /** Opens the store, reading what is on offer. */
 function openStore(): void {
   state.view = "store";
@@ -307,6 +346,16 @@ function draw(): void {
   body.append(sidebar(state.vocabulary));
 
   const main = element("div", "main");
+  if (state.view === "settings") {
+    if (state.settings === null) {
+      main.append(element("p", "dials-waiting", "Reading the settings…"));
+    } else {
+      main.append(renderDials(state.settings, { save: saveSettings }));
+    }
+    body.append(main);
+    root.append(body);
+    return;
+  }
   if (state.view === "store") {
     main.append(
       renderStore(
@@ -478,6 +527,7 @@ function views(): HTMLElement {
         draw();
       },
     },
+    { view: "settings", caption: "Settings", open: openSettings },
     { view: "store", caption: "Store", open: openStore },
   ];
   for (const choice of choices) {

@@ -7,7 +7,7 @@ use async_trait::async_trait;
 
 use crate::protocol::{
     Answer, BindingList, EditReport, Failure, FailureKind, PackList, PackReview, SessionList,
-    StatusReport, TestReport, Vocabulary, WorkspaceList,
+    SettingsReport, StatusReport, TestReport, Vocabulary, WorkspaceList,
 };
 use pushos_config::{BindingAddress, BindingSpec, PageSpec};
 
@@ -37,6 +37,15 @@ pub trait ControlPlane: Send + Sync + std::fmt::Debug {
 
     /// Runs a configured binding's action once.
     async fn test(&self, address: BindingAddress) -> Result<TestReport, Failure>;
+
+    /// Every dial an operator can turn, and what PushOS does without them.
+    async fn settings(&self) -> Result<SettingsReport, Failure>;
+
+    /// Turns the dials, writing them into the configuration.
+    async fn set_settings(
+        &self,
+        settings: pushos_config::Settings,
+    ) -> Result<SettingsReport, Failure>;
 
     /// Every live agent and terminal session.
     ///

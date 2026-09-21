@@ -12,7 +12,8 @@ use pushos_actions::{ActionDispatcher, ProviderRegistry};
 use pushos_api::protocol::{
     BindingList, ControlInfo, EditReport, Failure, FailureKind, GridPosition, PROTOCOL_VERSION,
     PackAvailability, PackEntry, PackList, PackReview, PageInfo, ProviderInfo, SessionList,
-    StatusReport, SurfaceReport, TestReport, Vocabulary, WorkspaceInfo, WorkspaceList,
+    SettingsReport, StatusReport, SurfaceReport, TestReport, Vocabulary, WorkspaceInfo,
+    WorkspaceList,
 };
 use pushos_api::{ControlPlane, SessionSource};
 use pushos_config::{
@@ -299,6 +300,34 @@ impl ControlPlane for RuntimeControl {
 
         info!(control = %spec.address.control, action = %spec.action, "binding written by a client");
         Ok(counts.report(edit.file.display().to_string(), edit.replaced, 0))
+    }
+
+    async fn settings(&self) -> Result<SettingsReport, Failure> {
+        let documents = self.documents()?;
+        Ok(SettingsReport {
+            settings: documents.settings().map_err(|error| rejected(&error))?,
+            defaults: pushos_config::Defaults::current(),
+            file: None,
+        })
+    }
+
+    async fn set_settings(
+        &self,
+        settings: pushos_config::Settings,
+    ) -> Result<SettingsReport, Failure> {
+        let mut documents = self.documents()?;
+        let file = documents.set_settings(&settings);
+        // Through the same gate as every other edit: nothing reaches the disk
+        // unless the whole configuration still builds, and the runtime picks
+        // the new dials up from the reload rather than being told twice.
+        self.commit(documents)?;
+
+        info!(file = %file.display(), "dials turned by a client");
+        Ok(SettingsReport {
+            settings,
+            defaults: pushos_config::Defaults::current(),
+            file: Some(file.display().to_string()),
+        })
     }
 
     async fn unbind(&self, address: BindingAddress) -> Result<EditReport, Failure> {

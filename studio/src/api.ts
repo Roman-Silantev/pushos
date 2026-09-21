@@ -140,6 +140,52 @@ export interface EditReport {
   bindings_removed?: number;
 }
 
+/**
+ * Every dial an operator can turn.
+ *
+ * A dial nobody has set is absent rather than zero: silence means PushOS uses
+ * its default and may change what that is, which is a different thing from
+ * having been told a number.
+ */
+export interface Settings {
+  sessions: {
+    watch?: boolean;
+    most_live?: number;
+    most_threads?: number;
+    working_at_once?: number;
+    put_away_after_minutes?: number;
+  };
+  surface: {
+    brightness?: number;
+    dim_after_minutes?: number;
+    sleep_after_minutes?: number;
+  };
+  gestures: {
+    hold_threshold_ms?: number;
+    double_tap_window_ms?: number;
+  };
+}
+
+/** What PushOS does with a dial nobody has turned. */
+export interface SettingsDefaults {
+  most_live?: number;
+  most_threads?: number;
+  working_at_once?: number;
+  put_away_after_minutes?: number;
+  brightness: number;
+  dim_after_minutes?: number;
+  sleep_after_minutes?: number;
+  hold_threshold_ms: number;
+  double_tap_window_ms: number;
+}
+
+export interface SettingsReport {
+  settings: Settings;
+  defaults: SettingsDefaults;
+  /** The file they were written to, once they have been. */
+  file?: string;
+}
+
 export interface TestReport {
   action: string;
   status: string;
@@ -206,6 +252,9 @@ const live = {
   status: () => invoke<StatusReport>("status"),
   describe: () => invoke<Vocabulary>("describe"),
   bindings: () => invoke<{ bindings: BindingSpec[] }>("bindings"),
+  settings: () => invoke<SettingsReport>("settings"),
+  setSettings: (settings: Settings) =>
+    invoke<SettingsReport>("set_settings", { settings }),
   bind: (spec: BindingSpec) => invoke<EditReport>("bind", { spec }),
   unbind: (address: BindingAddress) => invoke<EditReport>("unbind", { address }),
   test: (address: BindingAddress) => invoke<TestReport>("test", { address }),

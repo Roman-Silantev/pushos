@@ -89,6 +89,18 @@ pub enum Request {
         /// Which binding to run.
         address: BindingAddress,
     },
+    /// Every dial an operator can turn, and what PushOS does without them.
+    Settings,
+    /// Turn the dials, writing them into the configuration.
+    ///
+    /// The whole set, not one of them: a client reads them, shows them, and
+    /// sends back what the operator left. A dial set to nothing has its key
+    /// removed, so the file goes back to saying nothing about it rather than
+    /// freezing today's default.
+    SetSettings {
+        /// What every dial should now be.
+        settings: Box<pushos_config::Settings>,
+    },
     /// Every live agent and terminal session.
     Sessions,
     /// Every configured project, and which one is in effect.
@@ -151,6 +163,8 @@ pub enum Response {
     ///
     /// Wrapped for the same reason the bindings are: an internally tagged
     /// enum has nowhere to write its tag on a bare sequence.
+    /// Every dial, with what PushOS does when one is not set.
+    Settings(SettingsReport),
     Sessions(SessionList),
     /// The configured projects.
     Workspaces(WorkspaceList),
@@ -447,6 +461,19 @@ pub struct ProviderInfo {
     pub requires: Vec<String>,
     /// Whether those capabilities are currently granted.
     pub permitted: bool,
+}
+
+/// The dials as they stand, and what PushOS does without them.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SettingsReport {
+    /// What the files say, dial by dial. A dial nobody has set is absent.
+    pub settings: pushos_config::Settings,
+    /// What PushOS does when a dial is not set, so a panel can say so rather
+    /// than showing an empty box.
+    pub defaults: pushos_config::Defaults,
+    /// The file the dials were written to, once they have been.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
 }
 
 /// The outcome of an edit.

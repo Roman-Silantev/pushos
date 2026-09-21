@@ -1185,3 +1185,91 @@ body {
   cursor: default;
 }
 
+
+/* The settings panel: the dials that are not bindings. */
+.dials {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  padding: 20px 24px;
+  overflow: hidden auto;
+}
+
+.dials-title {
+  margin: 0 0 4px;
+  font-size: 16px;
+}
+
+.dials-detail,
+.dials-file,
+.dials-waiting {
+  margin: 0;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.dial-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.dial-group-title {
+  margin: 0;
+  font-size: 14px;
+}
+
+.dial-group-detail {
+  margin: 0 0 4px;
+  max-width: 62ch;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+/* Name, box and explanation in one row, so the reason a dial exists is beside
+   the dial rather than somewhere else. */
+.dial {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) 110px 1fr;
+  align-items: baseline;
+  gap: 12px;
+}
+
+.dial-name {
+  font-size: 13px;
+}
+
+.dial-input {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--ground);
+  color: inherit;
+  font: inherit;
+  font-size: 13px;
+}
+
+.dial-detail {
+  max-width: 62ch;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.dials-save {
+  align-self: flex-start;
+  padding: 8px 18px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--accent);
+  color: var(--ground);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+@media (max-width: 900px) {
+  .dial {
+    grid-template-columns: 1fr;
+    gap: 4px;
+  }
+}

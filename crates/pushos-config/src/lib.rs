@@ -16,6 +16,7 @@ mod memory;
 pub mod model;
 pub mod paths;
 mod sequences;
+pub mod settings;
 mod spec;
 mod store;
 mod surface;
@@ -32,6 +33,7 @@ pub use model::{
     BindingEntry, ConfigFile, MemorySection, MemorySourceEntry, PageEntry, SessionSection,
     VoiceCommandEntry, VoiceSection,
 };
+pub use settings::{Defaults, GestureDials, SessionDials, Settings, SurfaceDials};
 pub use spec::{BindingAddress, BindingSpec, PageSpec};
 pub use store::ConfigStore;
 pub use voice::VoiceSettings;

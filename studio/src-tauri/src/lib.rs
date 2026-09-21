@@ -6,11 +6,10 @@
 //! or hold its configuration open.
 
 use pushos_api::protocol::{
-    BindingList, EditReport, PackList, PackReview, Request, Response, SessionList, StatusReport,
-    TestReport, Vocabulary, WorkspaceList,
+    BindingList, EditReport, PackList, PackReview, Request, Response, SessionList, SettingsReport, StatusReport, TestReport, Vocabulary, WorkspaceList,
 };
 use pushos_api::{ClientError, ControlClient};
-use pushos_config::{BindingAddress, BindingSpec, PageSpec};
+use pushos_config::{BindingAddress, BindingSpec, PageSpec, Settings};
 use pushos_domain::permissions::Permission;
 use serde::Serialize;
 
@@ -66,6 +65,30 @@ async fn status() -> Result<StatusReport, StudioError> {
 async fn describe() -> Result<Vocabulary, StudioError> {
     match ask(Request::Describe).await? {
         Response::Vocabulary(vocabulary) => Ok(*vocabulary),
+        Response::Failed(failure) => Err(ClientError::Refused(failure).into()),
+        other => Err(StudioError::unexpected(&other)),
+    }
+}
+
+/// Every dial an operator can turn, and what PushOS does without them.
+#[tauri::command]
+async fn settings() -> Result<SettingsReport, StudioError> {
+    match ask(Request::Settings).await? {
+        Response::Settings(report) => Ok(report),
+        Response::Failed(failure) => Err(ClientError::Refused(failure).into()),
+        other => Err(StudioError::unexpected(&other)),
+    }
+}
+
+/// Turns the dials and makes them take effect.
+#[tauri::command]
+async fn set_settings(settings: Settings) -> Result<SettingsReport, StudioError> {
+    match ask(Request::SetSettings {
+        settings: Box::new(settings),
+    })
+    .await?
+    {
+        Response::Settings(report) => Ok(report),
         Response::Failed(failure) => Err(ClientError::Refused(failure).into()),
         other => Err(StudioError::unexpected(&other)),
     }
@@ -204,6 +227,8 @@ pub fn run() {
             status,
             describe,
             bindings,
+            settings,
+            set_settings,
             bind,
             unbind,
             test,

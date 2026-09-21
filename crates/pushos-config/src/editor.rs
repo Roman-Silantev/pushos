@@ -266,6 +266,41 @@ impl ConfigDocuments {
         Ok(())
     }
 
+    /// Every dial, as the files have them.
+    pub fn settings(&self) -> Result<crate::settings::Settings, ConfigError> {
+        let mut merged = ConfigFile::default();
+        for file in &self.files {
+            let parsed: ConfigFile =
+                toml::from_str(&file.document.to_string()).map_err(|source| {
+                    ConfigError::Malformed {
+                        path: file.path.clone(),
+                        source,
+                    }
+                })?;
+            merged.merge(parsed);
+        }
+        Ok(crate::settings::Settings::read_from(&merged))
+    }
+
+    /// Turns the dials, and says which file was written.
+    ///
+    /// Written where they already live, so a configuration split across files
+    /// keeps them where its author put them; otherwise in the main file. A
+    /// dial set to nothing has its key removed rather than its default
+    /// written, because silence and agreement are different things.
+    pub fn set_settings(&mut self, settings: &crate::settings::Settings) -> PathBuf {
+        let index = self
+            .files
+            .iter()
+            .position(|file| crate::settings::present_in(&file.document))
+            .unwrap_or_else(|| self.main_file_index());
+
+        let file = &mut self.files[index];
+        crate::settings::write_into(&mut file.document, settings);
+        file.dirty = true;
+        file.path.clone()
+    }
+
     /// Checks that the edited configuration would build, without writing.
     pub fn validate(&self) -> Result<RuntimeConfig, ConfigError> {
         let mut merged = ConfigFile::default();
