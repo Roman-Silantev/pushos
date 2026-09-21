@@ -32,6 +32,21 @@ use crate::text::OutputFilter;
 /// thread's stack.
 const READ_CHUNK: usize = 8 * 1024;
 
+/// The most terminals PushOS will hold open at once.
+///
+/// A pseudo-terminal is not PushOS's to spend freely: macOS gives the whole
+/// machine 511 of them (`kern.tty.ptmx_max`), shared by every terminal
+/// emulator, editor and tool on it. A program that took them until they ran
+/// out would not merely stop working — it would stop the operator opening a
+/// terminal anywhere, with `forkpty: Resource temporarily unavailable` and no
+/// hint as to who was responsible.
+///
+/// Sixty-four is one per pad, which is the most a surface can ask for anyway,
+/// and an eighth of what the Mac has. Past this a pad says so and PushOS opens
+/// nothing, because refusing one terminal is a smaller failure than taking the
+/// last one on the machine.
+const MOST_TERMINALS: usize = 64;
+
 /// Runs terminals as pseudo-terminals on this machine.
 pub struct PtyTerminals {
     inner: Arc<Inner>,
@@ -40,6 +55,8 @@ pub struct PtyTerminals {
 struct Inner {
     observer: Arc<dyn TerminalObserver>,
     open: Mutex<HashMap<SessionId, Open>>,
+    /// The most that may be open at once. See [`MOST_TERMINALS`].
+    most: usize,
 }
 
 /// One terminal, from the side that talks to it.
@@ -67,10 +84,19 @@ impl std::fmt::Debug for PtyTerminals {
 impl PtyTerminals {
     /// Builds a host that reports everything to `observer`.
     pub fn new(observer: Arc<dyn TerminalObserver>) -> Self {
+        Self::holding_at_most(observer, MOST_TERMINALS)
+    }
+
+    /// The same, holding a different number at once.
+    ///
+    /// For the test that proves the limit holds, which would otherwise have to
+    /// open sixty-four pseudo-terminals on the machine running it.
+    fn holding_at_most(observer: Arc<dyn TerminalObserver>, most: usize) -> Self {
         Self {
             inner: Arc::new(Inner {
                 observer,
                 open: Mutex::new(HashMap::new()),
+                most,
             }),
         }
     }
@@ -90,12 +116,23 @@ impl TerminalHost for PtyTerminals {
     ) -> Result<TerminalHandle, TerminalError> {
         validate(&spec)?;
 
-        if lock(&self.inner.open).contains_key(&id) {
-            return Err(TerminalError::host(
-                format!("terminal `{id}` is already open"),
-                ErrorClass::Validation,
-                std::io::Error::other("duplicate terminal"),
-            ));
+        {
+            let open = lock(&self.inner.open);
+            if open.contains_key(&id) {
+                return Err(TerminalError::host(
+                    format!("terminal `{id}` is already open"),
+                    ErrorClass::Validation,
+                    std::io::Error::other("duplicate terminal"),
+                ));
+            }
+            if open.len() >= self.inner.most {
+                let most = self.inner.most;
+                return Err(TerminalError::host(
+                    format!("{most} terminals are already open; close one before starting another"),
+                    ErrorClass::UserActionRequired,
+                    std::io::Error::other("the terminal limit was reached"),
+                ));
+            }
         }
 
         // Opening a pty and spawning into it are both blocking calls that talk
@@ -231,7 +268,17 @@ struct Started {
 fn start(spec: &TerminalSpec) -> Result<Started, TerminalError> {
     let pair = native_pty_system()
         .openpty(pty_size(spec.size))
-        .map_err(|error| host_failure("could not open a terminal", &error))?;
+        .map_err(|error| {
+            // The Mac has a few hundred pseudo-terminals for everything on it.
+            // When they are gone every terminal emulator fails the same way,
+            // so saying which limit was hit is the difference between a bug
+            // report and a fix.
+            host_failure(
+                "could not open a terminal: this Mac has no free pseudo-terminals left \
+                 (`sysctl kern.tty.ptmx_max`), which stops any terminal opening, not just this one",
+                &error,
+            )
+        })?;
 
     let mut command = CommandBuilder::new(&spec.program);
     command.args(&spec.args);
@@ -372,4 +419,70 @@ fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
     mutex
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug)]
+    struct Ignored;
+
+    impl TerminalObserver for Ignored {
+        fn observe(&self, _terminal: &SessionId, _event: TerminalEvent) {}
+    }
+
+    fn a_terminal_running(program: &str) -> TerminalSpec {
+        TerminalSpec::new("test", program, "/tmp")
+    }
+
+    #[tokio::test]
+    async fn pushos_refuses_to_take_more_of_the_mac_s_terminals_than_its_share() {
+        // A pseudo-terminal is shared with everything else on the Mac, which
+        // has a few hundred in total. Taking them until they run out stops the
+        // operator opening a terminal anywhere at all, so PushOS stops first.
+        let host = PtyTerminals::holding_at_most(Arc::new(Ignored), 1);
+
+        host.open(SessionId::new("first"), a_terminal_running("/bin/cat"))
+            .await
+            .expect("the first one opens");
+
+        let refused = host
+            .open(SessionId::new("second"), a_terminal_running("/bin/cat"))
+            .await
+            .expect_err("the second is past what PushOS will hold");
+
+        assert_eq!(refused.class(), ErrorClass::UserActionRequired);
+        assert!(
+            refused.to_string().contains("close one"),
+            "it says what to do about it: {refused}"
+        );
+        assert_eq!(host.open_count(), 1, "and nothing was opened for it");
+
+        host.close(&SessionId::new("first")).await.expect("closed");
+    }
+
+    #[tokio::test]
+    async fn closing_one_makes_room_for_another() {
+        // Otherwise the limit would be a lifetime total rather than how many
+        // are open, and a surface would stop working after a day's use.
+        let host = PtyTerminals::holding_at_most(Arc::new(Ignored), 1);
+        host.open(SessionId::new("first"), a_terminal_running("/bin/cat"))
+            .await
+            .expect("opens");
+
+        host.close(&SessionId::new("first")).await.expect("closed");
+        // The reading thread notices the close and takes the entry out.
+        for _ in 0..200 {
+            if host.open_count() == 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+
+        host.open(SessionId::new("second"), a_terminal_running("/bin/cat"))
+            .await
+            .expect("the room its predecessor gave back");
+        host.close(&SessionId::new("second")).await.expect("closed");
+    }
 }
