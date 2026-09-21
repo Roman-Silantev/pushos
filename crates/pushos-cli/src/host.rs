@@ -44,13 +44,17 @@ pub(crate) fn workspaces(
         info!(projects = config.workspaces.len(), "projects configured");
     }
 
-    Arc::new(WorkspaceManager::new(
-        WorkspaceRegistry::new(config.workspaces.clone()),
-        memory,
-        Arc::new(GitRepository::new(processes)),
-        config.workspace_root(),
-        worktree_root,
-    ))
+    Arc::new(
+        WorkspaceManager::new(
+            WorkspaceRegistry::new(config.workspaces.clone()),
+            memory,
+            Arc::new(GitRepository::new(Arc::clone(&processes))),
+            config.workspace_root(),
+            worktree_root,
+        )
+        // So a working tree is never the thing that fills this Mac's disk.
+        .watching_the_disk(Arc::new(pushos_macos::MacFreeSpace::new(processes))),
+    )
 }
 
 /// Builds the agent supervisor from configuration.

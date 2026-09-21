@@ -7,6 +7,7 @@ mod action_provider;
 mod agent;
 mod attached;
 mod clock;
+mod disk;
 mod memory;
 mod memory_pressure;
 mod push;
@@ -25,6 +26,7 @@ pub use attached::{
     AttachError, AttachedSessions, Keeper, Key, OpenSession, Opened, UnknownKeeper, UnknownKey,
 };
 pub use clock::{Clock, SystemClock};
+pub use disk::{FreeSpace, LEAST_FREE, RoomOnDisk, room_at};
 pub use memory::{MemoryError, MemoryStore, NoteIndex, Source};
 pub use memory_pressure::{MemoryPressure, Pressure, RoomToSpare};
 pub use push::{

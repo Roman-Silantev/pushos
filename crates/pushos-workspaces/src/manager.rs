@@ -15,7 +15,7 @@ use pushos_domain::context::{SurfaceContext, WorkspaceMemory};
 use pushos_domain::error::ErrorClass;
 use pushos_domain::ids::{AgentId, PageId, ProviderName, WorkspaceId};
 use pushos_domain::ports::{
-    ClaimError, Repository, WorkspaceContext, WorkspaceMemoryStore, Worktree,
+    ClaimError, FreeSpace, Repository, WorkspaceContext, WorkspaceMemoryStore, Worktree,
 };
 use pushos_domain::workspace::{Workspace, WorkspaceTarget};
 use tokio::sync::{Mutex, watch};
@@ -56,6 +56,8 @@ pub struct WorkspaceManager {
     /// directories inside a project the operator did not put there.
     worktree_root: PathBuf,
     state: Mutex<State>,
+    /// How much room is left where the trees go, asked before making another.
+    space: Arc<dyn FreeSpace>,
     /// What is in effect, published so the surface follows rather than keeping
     /// a second answer of its own. One owner, one value.
     announced: watch::Sender<Option<WorkspaceId>>,
@@ -83,8 +85,18 @@ impl WorkspaceManager {
             fallback_root: fallback_root.into(),
             worktree_root: worktree_root.into(),
             state: Mutex::new(State::default()),
+            space: Arc::new(pushos_domain::ports::RoomOnDisk),
             announced: watch::channel(None).0,
         }
+    }
+
+    /// The same, asking this host how much room is left before making a tree.
+    ///
+    /// Without one, PushOS assumes there is room; see [`FreeSpace`].
+    #[must_use]
+    pub fn watching_the_disk(mut self, space: Arc<dyn FreeSpace>) -> Self {
+        self.space = space;
+        self
     }
 
     /// Follows the project in effect.
@@ -238,6 +250,22 @@ impl WorkspaceManager {
             .worktree_root
             .join(workspace.id.as_str())
             .join(agent.as_str());
+
+        // A working tree is as large as the project in it, and a Mac with no
+        // room left cannot save, swap or log: every application on it starts
+        // failing at once. Reusing a tree is still allowed above, because that
+        // takes no more room; only making another is refused.
+        if !pushos_domain::ports::room_at(self.space.as_ref(), &self.worktree_root).await {
+            return Err(ClaimError::backend(
+                format!(
+                    "this Mac has under {} GB left, so PushOS will not write another working tree here",
+                    pushos_domain::ports::LEAST_FREE / (1024 * 1024 * 1024)
+                ),
+                ErrorClass::UserActionRequired,
+                std::io::Error::other("the disk is nearly full"),
+            ));
+        }
+
         let branch = format!("{BRANCH_PREFIX}/{holder}");
 
         let tree = self
@@ -465,7 +493,27 @@ mod tests {
         vec![sydclaw, pushos]
     }
 
+    /// A disk with a fixed amount left on it.
+    #[derive(Debug)]
+    struct Disk(Option<u64>);
+
+    #[async_trait::async_trait]
+    impl FreeSpace for Disk {
+        async fn at(&self, _path: &std::path::Path) -> Option<u64> {
+            self.0
+        }
+    }
+
     impl Fixture {
+        /// The same, on a machine with this much room left.
+        fn with_room(free: u64) -> Self {
+            let mut fixture = Self::new();
+            fixture.manager = fixture
+                .manager
+                .watching_the_disk(Arc::new(Disk(Some(free))));
+            fixture
+        }
+
         fn new() -> Self {
             let memory = FakeWorkspaceMemory::new();
             let repository = FakeRepository::new("/tmp/pushos");
@@ -657,6 +705,62 @@ mod tests {
             .expect("shared");
         assert_eq!(first, second);
         assert_eq!(fixture.repository.added(), 0);
+    }
+
+    #[tokio::test]
+    async fn a_mac_with_no_room_left_is_not_given_another_working_tree() {
+        // A tree is as large as the project in it. A Mac with a full disk
+        // cannot save, swap or log, and every application on it starts failing
+        // at once — so PushOS stops before it is the one that fills it.
+        let fixture = Fixture::with_room(pushos_domain::ports::LEAST_FREE - 1);
+        fixture.select("pushos", SurfaceContext::empty()).await;
+
+        let refused = fixture
+            .manager
+            .claim(None, &AgentId::new("builder"))
+            .await
+            .expect_err("there is no room for it");
+
+        assert_eq!(refused.class(), ErrorClass::UserActionRequired);
+        assert!(
+            refused.to_string().contains("working tree"),
+            "it says what it would not do: {refused}"
+        );
+    }
+
+    #[tokio::test]
+    async fn room_enough_is_room_enough() {
+        let fixture = Fixture::with_room(pushos_domain::ports::LEAST_FREE);
+        fixture.select("pushos", SurfaceContext::empty()).await;
+
+        fixture
+            .manager
+            .claim(None, &AgentId::new("builder"))
+            .await
+            .expect("there is room");
+    }
+
+    #[tokio::test]
+    async fn a_tree_that_already_exists_is_reused_even_on_a_full_disk() {
+        // Reusing takes no more room, and refusing it would strand the work
+        // already in that tree exactly when the operator most needs to finish
+        // it and free the space.
+        let fixture = Fixture::new();
+        fixture.select("pushos", SurfaceContext::empty()).await;
+        let builder = AgentId::new("builder");
+        let first = fixture
+            .manager
+            .claim(None, &builder)
+            .await
+            .expect("made while there was room");
+
+        let full = fixture.manager.watching_the_disk(Arc::new(Disk(Some(0))));
+        let again = full
+            .claim(None, &builder)
+            .await
+            .expect("the tree it already has");
+
+        assert_eq!(first, again);
     }
 
     #[tokio::test]

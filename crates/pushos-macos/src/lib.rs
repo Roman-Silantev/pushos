@@ -7,6 +7,7 @@
 
 pub mod app;
 mod applications;
+mod disk;
 mod media;
 /// Hearing the Mac go to sleep, so the Push 2 is not left lit all night.
 ///
@@ -23,6 +24,7 @@ mod sessions;
 mod shortcuts;
 
 pub use applications::OpenLauncher;
+pub use disk::MacFreeSpace;
 pub use media::{AppleScriptMedia, DEFAULT_PLAYER};
 #[cfg(target_os = "macos")]
 pub use power::{SleepWatch, SleepWatchError};
