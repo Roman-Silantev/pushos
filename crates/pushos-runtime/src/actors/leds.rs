@@ -164,12 +164,17 @@ fn light_for(
     control: ControlId,
     showing: &Showing<'_>,
 ) -> LedState {
-    // What a session is doing outranks the fact that a pad is bound: the pad
-    // being bound is what the operator already knows. A session at rest, or a
-    // slot with no session in it, is dark rather than glowing as merely bound,
-    // so the lights that are on are the ones worth looking at.
+    // What a session is doing outranks everything else about its pad. A
+    // session at rest still glows, because the operator needs to see which
+    // pads have a session behind them at all: a row where only the busy ones
+    // are lit cannot be told from a row where nothing is there, and reaching
+    // for a dark pad to find out is the thing the surface exists to avoid. A
+    // slot with no session in it stays dark, which is what makes the glow mean
+    // something.
     match session_on(config, context, control, showing.sessions, showing.from) {
-        StandsFor::Session(activity) if activity.is_resting() => return LedState::OFF,
+        StandsFor::Session(activity) if activity.is_resting() => {
+            return LedState::from_status(StatusColor::Idle);
+        }
         StandsFor::Session(activity) => return LedState::from_status(activity.status_color()),
         StandsFor::Absent => return LedState::OFF,
         StandsFor::Nothing => {}
@@ -394,9 +399,11 @@ mod tests {
     }
 
     #[test]
-    fn a_session_with_nothing_happening_leaves_its_pad_dark() {
-        // Not green. A surface left on all day should light what is going on
-        // and who is wanted, not every session for being there.
+    fn a_session_with_nothing_happening_still_shows_that_it_is_there() {
+        // Not its status colour — the busy ones must stand out — but not dark
+        // either. An operator has to see which pads have a session behind them
+        // without pressing one to find out, and a session sitting idle is one
+        // they can use. A put-away session counts: pressing it wakes it.
         let config = config(SESSION_PADS);
         for resting in [Activity::Ready, Activity::Quiet] {
             let plan = plan_showing(
@@ -408,8 +415,29 @@ mod tests {
                     roles: &[],
                 },
             );
-            assert_eq!(light(&plan, pad(56)), LedState::OFF, "{resting:?}");
+            assert_eq!(
+                light(&plan, pad(56)),
+                LedState::from_status(StatusColor::Idle),
+                "{resting:?}"
+            );
         }
+    }
+
+    #[test]
+    fn a_slot_with_no_session_in_it_stays_dark() {
+        // What makes the glow above mean anything: an empty slot and an idle
+        // session must not look the same, or the row says nothing at all.
+        let config = config(SESSION_PADS);
+        let plan = plan_showing(
+            &config,
+            &SurfaceContext::empty(),
+            &Showing {
+                sessions: &[],
+                from: 0,
+                roles: &[],
+            },
+        );
+        assert_eq!(light(&plan, pad(56)), LedState::OFF);
     }
 
     #[test]
