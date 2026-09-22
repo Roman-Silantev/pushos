@@ -20,7 +20,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use pushos_domain::action::{ActionContext, ActionResult, ActionStatus, Depth, DisplayIntent};
 use pushos_domain::attached::{
-    Activity, Attached, AttachedTarget, BANK, Decision, SessionQuestion, is_session_name,
+    Activity, Attached, AttachedTarget, BANK, Decision, SessionQuestion, at_the_prompt,
+    is_session_name,
 };
 use pushos_domain::error::{ActionError, ErrorClass};
 use pushos_domain::ids::{ActionVerb, AttachedId, ProviderName};
@@ -619,6 +620,58 @@ impl SessionProvider {
     /// Believed briefly, for the same reason the list of open sessions is:
     /// spinning a knob through what one said is many questions about a thing
     /// that has not changed.
+    /// Sends whatever a session is holding at its prompt.
+    ///
+    /// After a turn, Claude Code writes the follow-up it would suggest into
+    /// the prompt, dimmed, for a tab to take and a return to send. That is two
+    /// keys on a keyboard the operator is not holding, in a window that is not
+    /// in front of them. This is the same two keys from one press.
+    ///
+    /// The tab goes whether or not the text turns out to be an offer, because
+    /// a screen cannot say which it is: an offer is drawn dimmed and dimming
+    /// is not something a terminal's contents carry. On something the operator
+    /// typed themselves the tab completes nothing and the return sends what
+    /// they wrote, which was their instruction either way.
+    async fn accept(&self, context: &ActionContext) -> Result<ActionResult, ActionError> {
+        let session = self.resolve(context).await?;
+        self.select(&session);
+
+        // Read now rather than from the panel's copy: this decides whether to
+        // press a return in somebody's terminal, so it asks the terminal.
+        let screen = self
+            .sessions
+            .read(&session.id, READ_MOST)
+            .await
+            .map_err(into_action_error)?;
+        let Some(waiting) = at_the_prompt(&screen) else {
+            // Said as what it is doing instead, because that is the next
+            // question: a session that is still working has nothing to send
+            // yet, and one being asked something wants a different button.
+            return Err(nothing_to_send(&session));
+        };
+
+        self.sessions
+            .press(&session.id, Key::Tab)
+            .await
+            .map_err(into_action_error)?;
+        self.sessions
+            .press(&session.id, Key::Enter)
+            .await
+            .map_err(into_action_error)?;
+
+        info!(session = %session.id, "sent what was waiting at the prompt");
+        Ok(ActionResult {
+            status: ActionStatus::Completed,
+            message: Some(waiting.clone()),
+            // What went is worth seeing: the operator sent a sentence they had
+            // only glanced at, and this is the receipt for it.
+            display: Some(DisplayIntent::Toast {
+                title: session.label().to_owned(),
+                detail: Some(waiting),
+            }),
+        })
+    }
+
     async fn history(&self, session: &Attached) -> Result<Vec<String>, ActionError> {
         let now = Instant::now();
         if let Ok(seen) = self.seen.lock()
@@ -699,6 +752,7 @@ impl ActionProvider for SessionProvider {
                 "focus",
                 "send",
                 "press",
+                "accept",
                 "interrupt",
                 "open",
                 "put_away",
@@ -712,6 +766,7 @@ impl ActionProvider for SessionProvider {
         // yes to. Looking at one needs nothing.
         .verb_requiring(ActionVerb::new("send"), [Permission::ShellExecute])
         .verb_requiring(ActionVerb::new("press"), [Permission::ShellExecute])
+        .verb_requiring(ActionVerb::new("accept"), [Permission::ShellExecute])
         .verb_requiring(ActionVerb::new("interrupt"), [Permission::ShellExecute])
         // Starting a session types its command into a shell.
         .verb_requiring(ActionVerb::new("open"), [Permission::ShellExecute])
@@ -843,6 +898,8 @@ impl ActionProvider for SessionProvider {
                 })
             }
 
+            "accept" => self.accept(&context).await,
+
             "send" | "interrupt" => {
                 let session = self.resolve(&context).await?;
                 let interrupting = context.definition.selector.verb.as_str() == "interrupt";
@@ -927,6 +984,20 @@ const READ_MOST: usize = 2_000;
 /// The window an operator reads. Everything behind it is still there and is
 /// what the scroll knobs move through.
 const SHOWN_LINES: usize = 8;
+
+/// Says that a session had nothing at its prompt, and what it was doing.
+fn nothing_to_send(session: &Attached) -> ActionError {
+    let reason = format!(
+        "{} has nothing waiting at its prompt; it is {}",
+        session.label(),
+        session.activity.describe()
+    );
+    ActionError::backend(
+        reason.clone(),
+        ErrorClass::Validation,
+        std::io::Error::other(reason),
+    )
+}
 
 fn invalid(reason: &'static str) -> ActionError {
     ActionError::backend(

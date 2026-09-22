@@ -260,6 +260,19 @@ pub enum AttachError {
         application: String,
     },
 
+    /// The operator has not allowed PushOS to press keys.
+    ///
+    /// Its own kind because it sends them somewhere different. Reading a
+    /// window and pressing a key in it are two permissions on macOS, in two
+    /// panes, and PushOS is normally granted the first and not the second — so
+    /// an operator told only that it "is not allowed" goes to Automation,
+    /// finds PushOS already ticked, and is stuck.
+    #[error(
+        "PushOS is not allowed to press keys; add it in System Settings \
+         under Privacy and Security, Accessibility"
+    )]
+    CannotPressKeys,
+
     /// The session is not there any more.
     ///
     /// Not a fault: a window the operator closed is a fact, and a pad pointing
@@ -310,7 +323,7 @@ impl AttachError {
     pub const fn class(&self) -> crate::error::ErrorClass {
         use crate::error::ErrorClass;
         match self {
-            Self::NotPermitted { .. } => ErrorClass::Permission,
+            Self::NotPermitted { .. } | Self::CannotPressKeys => ErrorClass::Permission,
             Self::Gone { .. } | Self::Unreachable { .. } | Self::Unavailable { .. } => {
                 ErrorClass::Validation
             }

@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use pushos_config::RuntimeConfig;
 use pushos_domain::ports::ProcessRunner;
-use pushos_macos::SystemProcessRunner;
+use pushos_macos::{ScriptRunner, SystemProcessRunner};
 use pushos_push2::{PortRole, Push2Device};
 
 use super::paths;
@@ -414,6 +414,52 @@ fn check_speech(settings: &pushos_config::VoiceSettings) -> Vec<Finding> {
     }
 }
 
+/// Asks macOS whether this process may press keys in other applications.
+///
+/// A separate permission from the one that lets PushOS read a window, granted
+/// in a separate pane, and an operator who has granted Automation has almost
+/// certainly not granted this. Without it every key a pad presses fails, which
+/// an operator would otherwise find out one pad at a time.
+///
+/// It answers for whatever is asking, and the grant is per application, so a
+/// `doctor` run from a terminal answers for that terminal. The two are only
+/// ever granted together in practice, and what it is really reporting is
+/// whether this Mac has given anything here permission to type.
+///
+/// The question is asked rather than answered by trying: pressing a key to
+/// find out whether a key can be pressed would type into whatever is in front.
+async fn check_keystrokes(processes: &SystemProcessRunner) -> Finding {
+    const ASK: &str = "tell application \"System Events\" to return UI elements enabled";
+    let answer = ScriptRunner::new(Arc::new(*processes)).run(ASK, &[]).await;
+
+    match answer.as_deref().map(str::trim) {
+        Ok("true") => Finding::new(
+            Verdict::Good,
+            "keystrokes",
+            "keys can be pressed in other applications",
+        ),
+        Ok(_) => Finding::new(
+            // A note rather than blocking: everything else on the surface
+            // works without it, and a pad that reads and focuses is still most
+            // of a pad.
+            Verdict::Optional,
+            "keystrokes",
+            "keys cannot be pressed in other applications, so a binding that \
+             presses one will fail. Add PushOS in System Settings under \
+             Privacy and Security, Accessibility",
+        ),
+        // macOS would not say. Reporting that as a refusal would send an
+        // operator to fix something that may not be broken.
+        Err(_) => Finding::new(
+            Verdict::Optional,
+            "keystrokes",
+            "macOS would not say whether keys can be pressed in other \
+             applications; if a pad that presses one fails, add PushOS in \
+             System Settings under Privacy and Security, Accessibility",
+        ),
+    }
+}
+
 async fn check_host_tools() -> Vec<Finding> {
     let processes = SystemProcessRunner::new();
     let mut findings = Vec::new();
@@ -442,6 +488,8 @@ async fn check_host_tools() -> Vec<Finding> {
             )
         });
     }
+
+    findings.push(check_keystrokes(&processes).await);
 
     // Running something harmless proves the runner works, not merely that the
     // binary exists.

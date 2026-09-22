@@ -764,12 +764,16 @@ action = "session.send"
 label = "Continue"
 params = { text = "continue\n" }
 
+# Taking the follow-up a coding agent leaves in the prompt after a turn. It is
+# a tab to take it and a return to send it; this is both, and it refuses on a
+# session that is working or is asking something, where a return would mean
+# something else entirely.
+
 [[bindings]]
 control = "button.lower_4"
 gesture = "press"
-action = "session.press"
-label = "Accept"
-params = { key = "tab" }
+action = "session.accept"
+label = "Send offer"
 
 [[bindings]]
 control = "button.lower_5"

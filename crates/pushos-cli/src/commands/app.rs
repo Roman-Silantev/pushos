@@ -98,9 +98,9 @@ pub(crate) async fn install(
     } else {
         println!("  signed:        for this build only");
         println!();
-        println!("macOS will forget the microphone and Terminal permissions each time");
-        println!("PushOS is rebuilt and installed again. To stop that, create a signing");
-        println!("certificate once, then run `pushos app install` again:");
+        println!("macOS will forget the microphone, Terminal and Accessibility");
+        println!("permissions each time PushOS is rebuilt and installed again. To stop");
+        println!("that, create a signing certificate once, then run this again:");
         println!();
         println!("  1. Open Keychain Access.");
         println!("  2. Keychain Access menu > Certificate Assistant > Create a Certificate.");

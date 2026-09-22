@@ -1124,3 +1124,119 @@ async fn a_pad_that_names_its_own_folder_keeps_it() {
     );
     assert_eq!(asked[0].name, "scraper", "and keeps the name it was given");
 }
+
+/// A Claude Code screen at the end of a turn, with `offering` in the prompt.
+fn after_a_turn(offering: &str) -> String {
+    format!(
+        "  Logged: tracker (1467 to 1477 rows), 10 Salesforce Leads.\n\
+         * Crunched for 10m 54s - done 4:06 pm\n\
+         recap: building the renewal outreach list. Next: find 10 more.\n\
+         {rule}\n\
+         \u{276f} {offering}\n\
+         {rule}\n\
+         auto mode on (shift+tab to cycle)\n",
+        rule = "\u{2500}".repeat(20)
+    )
+}
+
+#[tokio::test]
+async fn accepting_takes_the_follow_up_and_sends_it() {
+    // The two keys the operator would reach for, from one press: tab takes
+    // what Claude Code is offering, return sends it.
+    let (provider, fake) = rig();
+    fake.showing(&after_a_turn("find 10 more emails"));
+
+    let result = provider
+        .execute(context("accept", Some("tty:ttys003")))
+        .await
+        .expect("there is something to send");
+
+    assert_eq!(result.message.as_deref(), Some("find 10 more emails"));
+    let pressed: Vec<Key> = fake
+        .calls()
+        .into_iter()
+        .filter_map(|call| match call {
+            SessionCall::Pressed(device, key) if device == "/dev/ttys003" => Some(key),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(pressed, vec![Key::Tab, Key::Enter], "in that order");
+}
+
+#[tokio::test]
+async fn accepting_an_empty_prompt_presses_nothing() {
+    let (provider, fake) = rig();
+    fake.showing(&after_a_turn(""));
+
+    provider
+        .execute(context("accept", Some("tty:ttys003")))
+        .await
+        .expect_err("nothing is waiting");
+    assert!(
+        !fake
+            .calls()
+            .iter()
+            .any(|call| matches!(call, SessionCall::Pressed(..))),
+        "{:?}",
+        fake.calls()
+    );
+}
+
+#[tokio::test]
+async fn accepting_while_a_session_is_being_asked_something_presses_nothing() {
+    // The one that would do damage: a return at a numbered question picks
+    // whichever choice is under the cursor, which is what allow and deny are
+    // for. Accepting must not become a blind yes.
+    let (provider, fake) = rig();
+    fake.showing(
+        "Do you want to proceed?\n\u{276f} 1. Yes\n  2. Yes, and do not ask again\n  3. No\n",
+    );
+
+    let refused = provider
+        .execute(context("accept", Some("tty:ttys003")))
+        .await
+        .expect_err("it is a question, not a draft");
+    assert!(refused.to_string().contains("nothing waiting"), "{refused}");
+    assert!(
+        !fake
+            .calls()
+            .iter()
+            .any(|call| matches!(call, SessionCall::Pressed(..)))
+    );
+}
+
+#[tokio::test]
+async fn accepting_while_a_session_is_still_working_presses_nothing() {
+    let (provider, fake) = rig();
+    fake.showing("Thinking... (esc to interrupt)\n\u{276f} half a sentence\n");
+
+    provider
+        .execute(context("accept", Some("tty:ttys003")))
+        .await
+        .expect_err("it has not finished");
+    assert!(
+        !fake
+            .calls()
+            .iter()
+            .any(|call| matches!(call, SessionCall::Pressed(..)))
+    );
+}
+
+#[tokio::test]
+async fn accepting_reads_the_screen_rather_than_the_panel_s_copy() {
+    // The panel's copy is up to a third of a second old, which is long enough
+    // for the operator to have answered in the window themselves. What decides
+    // whether to press a return in somebody's terminal asks the terminal.
+    let (provider, fake) = rig();
+    fake.showing(&after_a_turn("find 10 more emails"));
+    provider
+        .execute(context("show", Some("tty:ttys003")))
+        .await
+        .expect("read for the panel");
+
+    fake.showing(&after_a_turn(""));
+    provider
+        .execute(context("accept", Some("selected")))
+        .await
+        .expect_err("they sent it themselves");
+}

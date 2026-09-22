@@ -375,6 +375,10 @@ const fn key_code(key: Key) -> u8 {
 /// Turns a script failure into something an operator can act on.
 fn into_attach_error(error: ActionError) -> AttachError {
     if error.class() == ErrorClass::Permission {
+        // Which permission, because they are granted in different places.
+        if crate::script::refused_keystrokes(&error.to_string()) {
+            return AttachError::CannotPressKeys;
+        }
         return AttachError::NotPermitted {
             application: APPLICATION.to_owned(),
         };
@@ -514,6 +518,65 @@ mod tests {
             !screen.is_empty(),
             "a tab with a prompt on it is never an empty screen"
         );
+    }
+
+    /// Against the Terminal running on this Mac, rather than a compile.
+    ///
+    /// The one thing no stand-in can answer: whether two keys sent a moment
+    /// apart arrive in the window they were aimed at, in the order they were
+    /// sent. Taking a follow-up a coding agent is offering is a tab and then a
+    /// return, and a return that overtook its tab would send an empty prompt.
+    ///
+    /// Opens a window of its own and closes it, so it touches nothing the
+    /// operator has open. Ignored because it takes over the keyboard for a
+    /// second and needs permission to drive Terminal:
+    ///
+    /// ```text
+    /// cargo test -p pushos-macos -- --ignored keys_arrive
+    /// ```
+    #[tokio::test]
+    #[ignore = "opens a Terminal window and types in it"]
+    async fn keys_arrive_in_a_real_window_in_the_order_they_were_sent() {
+        let terminal = TerminalApp::new(std::sync::Arc::new(crate::process::SystemProcessRunner));
+        let before: Vec<String> = terminal
+            .tabs()
+            .await
+            .expect("Terminal answered")
+            .into_iter()
+            .map(|tab| tab.device)
+            .collect();
+
+        // `cat` with no arguments echoes each line back as it is entered, so
+        // what the screen ends up holding is exactly what arrived and when.
+        terminal
+            .open_window(&["/bin/cat".to_owned()])
+            .await
+            .expect("a window opened");
+        tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+        let device = terminal
+            .tabs()
+            .await
+            .expect("Terminal answered")
+            .into_iter()
+            .map(|tab| tab.device)
+            .find(|device| !before.contains(device))
+            .expect("the new window is there");
+
+        terminal.send(&device, "abc").await.expect("typed");
+        terminal.press(&device, Key::Tab).await.expect("tab");
+        terminal.press(&device, Key::Enter).await.expect("return");
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+
+        let screen = terminal.read(&device, 400).await.expect("readable");
+        terminal.press(&device, Key::Escape).await.ok();
+        terminal.send(&device, "\u{4}").await.ok();
+
+        // `cat` echoes the line only once a return closes it, so a line at all
+        // means the return arrived, and it arriving after the tab is what puts
+        // the tab inside it.
+        let echoed = screen.lines().filter(|line| line.contains("abc")).count();
+        assert!(echoed >= 2, "the return sent the line: {screen:?}");
     }
 
     #[test]

@@ -19,7 +19,7 @@ mod screen;
 mod target;
 
 pub use question::{Decision, SessionQuestion};
-pub use screen::activity_of;
+pub use screen::{activity_of, at_the_prompt};
 pub use target::{AttachedTarget, MalformedTarget};
 
 use crate::ids::AttachedId;

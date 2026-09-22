@@ -38,11 +38,7 @@ pub fn activity_of(title: &str, screen: &str) -> Activity {
         return Activity::Working;
     }
 
-    let lines: Vec<&str> = screen
-        .lines()
-        .map(str::trim_end)
-        .filter(|line| !line.trim().is_empty())
-        .collect();
+    let lines = meaningful(screen);
     let bottom = || lines.iter().rev().take(DEEP);
 
     if bottom().any(|line| is_a_question(line)) {
@@ -52,16 +48,67 @@ pub fn activity_of(title: &str, screen: &str) -> Activity {
         return Activity::Working;
     }
 
-    match lines.iter().rev().find_map(|line| after_the_prompt(line)) {
-        // Codex draws a suggestion in an empty prompt, dimmed, and dimming is
-        // not something a screen's text carries. The footer is: it offers
-        // shortcuts only while nothing has been typed.
-        Some(typed) if !typed.is_empty() && !bottom().any(|line| offers_shortcuts(line)) => {
-            Activity::Drafting
+    match waiting_in(&lines) {
+        Some(_) => Activity::Drafting,
+        None if lines
+            .iter()
+            .rev()
+            .any(|line| after_the_prompt(line).is_some()) =>
+        {
+            Activity::Ready
         }
-        Some(_) => Activity::Ready,
         None => Activity::Quiet,
     }
+}
+
+/// What is sitting at a session's prompt, unsent.
+///
+/// Either something the operator typed and left there, or the follow-up a
+/// coding agent is offering them. On a screen those are the same text on the
+/// same line: an offer is drawn dimmed, and dimming is not something a
+/// terminal's contents carry. They are also the same thing to do with it —
+/// send it — so this does not try to tell them apart, and the state it gives
+/// a pad is the one an operator acts on rather than one they have to
+/// interpret.
+///
+/// `None` when the prompt is empty, when there is no prompt, or when the
+/// screen is showing something other than a prompt to send at.
+pub fn at_the_prompt(screen: &str) -> Option<String> {
+    let lines = meaningful(screen);
+    let bottom = || lines.iter().rev().take(DEEP);
+    // A return pressed at a question picks whichever choice is under the
+    // cursor, and one pressed at a session still working joins the queue for
+    // whatever it asks next. Neither is sending what is at a prompt.
+    if bottom().any(|line| is_a_question(line) || is_working(line)) {
+        return None;
+    }
+    waiting_in(&lines)
+}
+
+/// The lines of a screen that carry anything, nearest the bottom last.
+fn meaningful(screen: &str) -> Vec<&str> {
+    screen
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| !line.trim().is_empty())
+        .collect()
+}
+
+/// What the prompt holds, for a screen already known to have one.
+fn waiting_in(lines: &[&str]) -> Option<String> {
+    let typed = lines.iter().rev().find_map(|line| after_the_prompt(line))?;
+    if typed.is_empty() {
+        return None;
+    }
+    // Codex draws its suggestion in an empty prompt and hides its shortcuts
+    // footer the moment anything is typed, so where that footer is showing,
+    // the prompt holds an invitation rather than an instruction.
+    let inviting = lines
+        .iter()
+        .rev()
+        .take(DEEP)
+        .any(|line| offers_shortcuts(line));
+    (!inviting).then_some(typed)
 }
 
 /// Whether a line is part of a question being asked.
@@ -228,6 +275,60 @@ mod tests {
     fn codex_with_something_typed_is_drafting() {
         // Codex hides the shortcuts hint while there is text in the prompt.
         assert_eq!(activity_of("", &codex("› h", "")), Activity::Drafting);
+    }
+
+    #[test]
+    fn what_is_at_the_prompt_is_what_a_press_would_send() {
+        assert_eq!(
+            at_the_prompt(&screen("❯ find 10 more emails")).as_deref(),
+            Some("find 10 more emails")
+        );
+    }
+
+    #[test]
+    fn an_empty_prompt_has_nothing_to_send() {
+        assert_eq!(at_the_prompt(&screen("❯ ")), None);
+        assert_eq!(at_the_prompt("user@host ~ %\nls\n"), None);
+    }
+
+    #[test]
+    fn a_session_being_asked_something_has_nothing_to_send() {
+        // A return here picks whichever choice is under the cursor, which is
+        // what the allow and deny buttons are for and not this one.
+        let asking = "Do you want to proceed?\n❯ 1. Yes\n  2. Yes, and do not ask again\n  3. No";
+        assert_eq!(at_the_prompt(asking), None);
+    }
+
+    #[test]
+    fn a_session_still_working_has_nothing_to_send() {
+        let working = &screen("Thinking... (esc to interrupt)");
+        assert_eq!(at_the_prompt(working), None);
+    }
+
+    #[test]
+    fn a_follow_up_claude_code_is_offering_reads_the_same_as_one_typed() {
+        // Claude Code writes what it did and what it would do next, and puts
+        // a short form of the next thing in the prompt for a tab to take. It
+        // is drawn dimmed, which is not something the screen's text carries,
+        // so it arrives here as ordinary prompt text — and is sent the same
+        // way, which is the point.
+        let offered = "  Logged: tracker (1467 → 1477 rows), 10 Salesforce Leads.\n                       ✻ Crunched for 10m 54s · done 4:06 pm\n                       ※ recap: We're building the renewal outreach list. Next: find 10 more\n                         from the ~20 untried companies. (disable recaps in /config)\n                       ────────────\n                       ❯ find 10 more emails\n                       ────────────\n                       ⏵⏵ auto mode on (shift+tab to cycle) · ← for agents\n";
+        assert_eq!(
+            at_the_prompt(offered).as_deref(),
+            Some("find 10 more emails")
+        );
+        assert_eq!(activity_of("✳ saiglobal", offered), Activity::Drafting);
+    }
+
+    #[test]
+    fn codex_inviting_you_to_type_is_not_something_to_send() {
+        // Its placeholder sits where typing would, and sending it would ask
+        // Codex to do anything.
+        assert_eq!(
+            at_the_prompt(&codex("› Ask Codex to do anything", "? for shortcuts")),
+            None
+        );
+        assert_eq!(at_the_prompt(&codex("› h", "")).as_deref(), Some("h"));
     }
 
     #[test]

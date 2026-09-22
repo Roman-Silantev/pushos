@@ -99,9 +99,13 @@ impl ScriptRunner {
         }
 
         let detail = outcome.stderr_tail.trim();
-        // AppleScript reports a refused automation permission as error -1743.
-        // That needs the operator to grant access, not a retry.
-        let class = if detail.contains("-1743") || detail.contains("Not authorized") {
+        // AppleScript reports a refused automation permission as error -1743,
+        // and a refused Accessibility permission as 1002. Both need the
+        // operator to grant something, not a retry.
+        let class = if detail.contains("-1743")
+            || detail.contains("Not authorized")
+            || refused_keystrokes(detail)
+        {
             ErrorClass::Permission
         } else {
             ErrorClass::ComponentFailure
@@ -113,6 +117,17 @@ impl ScriptRunner {
             std::io::Error::other(detail.to_owned()),
         ))
     }
+}
+
+/// Whether a failure was macOS refusing to let PushOS press keys.
+///
+/// Reading a window and pressing a key in it are two separate permissions on
+/// this operating system, granted in two different panes, and PushOS being
+/// allowed one says nothing about the other. Told apart here because an
+/// operator sent to the wrong pane finds PushOS already ticked in it and no
+/// way forward.
+pub(crate) fn refused_keystrokes(detail: &str) -> bool {
+    detail.contains("not allowed to send keystrokes") || detail.contains("(1002)")
 }
 
 #[cfg(test)]
@@ -155,6 +170,29 @@ mod tests {
     fn an_absurdly_long_name_is_refused() {
         assert!(ApplicationName::new("A".repeat(65)).is_err());
         assert!(ApplicationName::new("A".repeat(64)).is_ok());
+    }
+
+    #[test]
+    fn a_refused_keystroke_is_a_permission_problem_of_its_own() {
+        // As macOS words it, captured from a process without Accessibility.
+        // Classified as a permission so it is not retried, and told apart from
+        // an automation refusal so the operator is sent to the right pane.
+        let outcome = ProcessOutcome {
+            exit_code: Some(1),
+            stdout_tail: String::new(),
+            stderr_tail: "execution error: System Events got an error: osascript is not \
+                          allowed to send keystrokes. (1002)"
+                .to_owned(),
+        };
+        let error = ScriptRunner::interpret(&outcome).expect_err("the script failed");
+        assert_eq!(error.class(), ErrorClass::Permission);
+        assert!(refused_keystrokes(&error.to_string()));
+
+        let automation = "execution error: Not authorized to send Apple events (-1743)";
+        assert!(
+            !refused_keystrokes(automation),
+            "an automation refusal is a different pane"
+        );
     }
 
     #[test]
