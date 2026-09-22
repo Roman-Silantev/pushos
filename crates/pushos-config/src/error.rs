@@ -72,6 +72,20 @@ pub enum Problem {
         source: pushos_domain::controls::ParseControlError,
     },
 
+    /// A binding names a force band that does not exist.
+    #[error("binding {index}: {source}")]
+    Force {
+        /// Which binding, counting from one.
+        index: usize,
+        /// What the force parser reported.
+        source: pushos_domain::gesture::UnknownForceBand,
+    },
+    /// A binding's force band could never fire, or should not exist.
+    #[error("{0}")]
+    ForceFault(pushos_bindings::ForceFault),
+    /// The force thresholds would leave a band impossible to play.
+    #[error("[gestures]: {0}")]
+    Forces(pushos_domain::gesture::ImpossibleForce),
     /// A binding names a gesture that does not exist.
     #[error("binding {index}: {source}")]
     Gesture {

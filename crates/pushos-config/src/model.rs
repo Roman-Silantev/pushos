@@ -436,6 +436,10 @@ pub struct GestureSection {
     pub hold_threshold_ms: Option<u64>,
     /// How close two taps must be to become a double tap.
     pub double_tap_window_ms: Option<u64>,
+    /// The velocity at which a strike stops being `soft` and becomes `firm`.
+    pub firm_at: Option<u8>,
+    /// The velocity at which a strike becomes `hard`.
+    pub hard_at: Option<u8>,
 }
 
 impl GestureSection {
@@ -445,6 +449,12 @@ impl GestureSection {
         }
         if other.double_tap_window_ms.is_some() {
             self.double_tap_window_ms = other.double_tap_window_ms;
+        }
+        if other.firm_at.is_some() {
+            self.firm_at = other.firm_at;
+        }
+        if other.hard_at.is_some() {
+            self.hard_at = other.hard_at;
         }
     }
 }
@@ -723,6 +733,11 @@ pub struct BindingEntry {
     pub control: String,
     /// The gesture, such as `tap` or `hold`.
     pub gesture: String,
+    /// Narrows the binding to how hard the pad was struck.
+    ///
+    /// One of `soft`, `firm` or `hard`. Absent accepts any strike, which is
+    /// what a binding written without thinking about force means.
+    pub force: Option<String>,
     /// The action, written as `provider.verb`.
     pub action: String,
     /// Restricts the binding to one page.

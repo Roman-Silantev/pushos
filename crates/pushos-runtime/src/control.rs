@@ -614,6 +614,7 @@ fn describe_binding(binding: &Binding) -> BindingSpec {
         address: BindingAddress {
             control: binding.control.to_string(),
             gesture: binding.gesture.slug().to_owned(),
+            force: binding.force.map(|band| band.slug().to_owned()),
             page,
             workspace,
         },

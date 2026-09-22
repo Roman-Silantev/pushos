@@ -30,6 +30,14 @@ pub(crate) fn build(
         let gesture = entry.gesture.parse().map_err(|source| {
             problems.push(Problem::Gesture { index, source });
         });
+        let force = match entry.force.as_deref().map(str::parse) {
+            None => Ok(None),
+            Some(Ok(band)) => Ok(Some(band)),
+            Some(Err(source)) => {
+                problems.push(Problem::Force { index, source });
+                Err(())
+            }
+        };
         let selector = entry.action.parse::<ActionSelector>().map_err(|source| {
             problems.push(Problem::Action { index, source });
         });
@@ -44,8 +52,8 @@ pub(crate) fn build(
 
         // Anything that failed above has already been reported; skip the entry
         // rather than substituting a default that would hide the error.
-        let (Ok(control), Ok(gesture), Ok(selector), Some(scope)) =
-            (control, gesture, selector, scope)
+        let (Ok(control), Ok(gesture), Ok(force), Ok(selector), Some(scope)) =
+            (control, gesture, force, selector, scope)
         else {
             debug_assert!(problems.len() > before, "a skipped binding must report why");
             continue;
@@ -64,6 +72,7 @@ pub(crate) fn build(
             id: identity.into(),
             control,
             gesture,
+            force,
             scope,
             action: ActionDefinition::new(selector, params),
             priority: entry.priority,

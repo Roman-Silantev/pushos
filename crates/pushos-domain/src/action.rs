@@ -31,6 +31,23 @@ impl ActionSelector {
             verb: verb.into(),
         }
     }
+
+    /// Whether the action stops work, discards it, or runs something arbitrary.
+    ///
+    /// Used to refuse one configuration in particular: an action of this kind
+    /// reached only by hitting a pad harder. Force is felt rather than aimed,
+    /// and a pad the operator strikes for emphasis must not be the pad that
+    /// kills what is running on it. These actions keep their own controls,
+    /// where the operator has to mean it.
+    pub fn halts_work(&self) -> bool {
+        matches!(
+            (self.provider.as_str(), self.verb.as_str()),
+            ("session", "interrupt" | "put_away")
+                | ("agent", "stop" | "cancel")
+                | ("workflow", "cancel")
+                | ("shell", "run")
+        )
+    }
 }
 
 impl fmt::Display for ActionSelector {

@@ -8,6 +8,10 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
+mod force;
+
+pub use force::{ForceBand, ForceThresholds, ImpossibleForce, UnknownForceBand};
+
 /// A recognised interaction, richer than a raw input phase.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(try_from = "String", into = "String")]
@@ -38,11 +42,19 @@ pub enum Gesture {
     Touch,
     /// A touch-sensitive control was released.
     TouchRelease,
+    /// A held pad was pressed harder, by one step of aftertouch.
+    ///
+    /// The pad's own version of an encoder detent: a held pad reports pressure
+    /// continuously, and the recogniser turns that stream into steps so a
+    /// binding sees the same shape it sees from a knob.
+    PressHarder,
+    /// A held pad was eased off, by one step of aftertouch.
+    PressSofter,
 }
 
 impl Gesture {
     /// Every gesture, for exhaustive validation and documentation.
-    pub const ALL: [Self; 13] = [
+    pub const ALL: [Self; 15] = [
         Self::Press,
         Self::Release,
         Self::Tap,
@@ -56,6 +68,8 @@ impl Gesture {
         Self::ShiftTurn,
         Self::Touch,
         Self::TouchRelease,
+        Self::PressHarder,
+        Self::PressSofter,
     ];
 
     /// The stable textual form used in configuration.
@@ -74,6 +88,8 @@ impl Gesture {
             Self::ShiftTurn => "shift_turn",
             Self::Touch => "touch",
             Self::TouchRelease => "touch_release",
+            Self::PressHarder => "press_harder",
+            Self::PressSofter => "press_softer",
         }
     }
 
@@ -95,6 +111,19 @@ impl Gesture {
     /// Whether the gesture requires Shift to have been held.
     pub const fn requires_shift(self) -> bool {
         matches!(self, Self::ShiftPress | Self::ShiftHold | Self::ShiftTurn)
+    }
+
+    /// Whether a binding for this gesture may narrow itself to a force band.
+    ///
+    /// Only the gestures that begin at a strike, because the velocity is
+    /// measured once as the pad goes down. By the time a hold fires the finger
+    /// has settled and the strike is long past, so banding one would answer a
+    /// question the operator did not ask.
+    pub const fn carries_force(self) -> bool {
+        matches!(
+            self,
+            Self::Press | Self::ShiftPress | Self::Tap | Self::DoubleTap
+        )
     }
 }
 
@@ -167,6 +196,41 @@ mod tests {
         assert!(!Gesture::Tap.accepts(Gesture::DoubleTap));
         assert!(!Gesture::Press.accepts(Gesture::Tap));
         assert!(!Gesture::Hold.accepts(Gesture::ShiftHold));
+    }
+
+    #[test]
+    fn only_the_gestures_that_begin_at_a_strike_carry_force() {
+        for gesture in [
+            Gesture::Press,
+            Gesture::ShiftPress,
+            Gesture::Tap,
+            Gesture::DoubleTap,
+        ] {
+            assert!(gesture.carries_force(), "{gesture} begins at a strike");
+        }
+        for gesture in [
+            Gesture::Release,
+            Gesture::Hold,
+            Gesture::ShiftHold,
+            Gesture::Turn,
+            Gesture::TurnLeft,
+            Gesture::TurnRight,
+            Gesture::ShiftTurn,
+            Gesture::Touch,
+            Gesture::TouchRelease,
+            Gesture::PressHarder,
+            Gesture::PressSofter,
+        ] {
+            assert!(!gesture.carries_force(), "{gesture} has no strike to band");
+        }
+    }
+
+    #[test]
+    fn pressure_steps_are_not_widened_into_one_another() {
+        assert!(!Gesture::PressHarder.accepts(Gesture::PressSofter));
+        assert!(!Gesture::PressSofter.accepts(Gesture::PressHarder));
+        assert!(Gesture::PressHarder.accepts(Gesture::PressHarder));
+        assert!(!Gesture::Press.accepts(Gesture::PressHarder));
     }
 
     #[test]

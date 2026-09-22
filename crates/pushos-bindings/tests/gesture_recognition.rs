@@ -13,7 +13,7 @@ use pushos_bindings::{
     GestureDetail, GestureEvent, GestureInterest, GestureRecognizer, GestureTiming, InterestKind,
 };
 use pushos_domain::controls::{ButtonId, ControlId, EncoderId, PadIndex};
-use pushos_domain::gesture::Gesture;
+use pushos_domain::gesture::{ForceBand, ForceThresholds, Gesture};
 use pushos_domain::input::{ControlEvent, InputPhase};
 
 /// The default thresholds, restated in milliseconds so the timelines below read
@@ -49,7 +49,11 @@ struct Surface {
 impl Surface {
     fn with_interest(interest: GestureInterest) -> Self {
         Self {
-            recognizer: GestureRecognizer::new(GestureTiming::DEFAULT, interest),
+            recognizer: GestureRecognizer::new(
+                GestureTiming::DEFAULT,
+                ForceThresholds::DEFAULT,
+                interest,
+            ),
             origin: Instant::now(),
             produced: Vec::new(),
         }
@@ -75,6 +79,14 @@ impl Surface {
 
     fn press(&mut self, control: ControlId, offset_ms: u64) {
         self.input(control, InputPhase::Down { velocity: 100 }, offset_ms);
+    }
+
+    fn strike(&mut self, control: ControlId, velocity: u8, offset_ms: u64) {
+        self.input(control, InputPhase::Down { velocity }, offset_ms);
+    }
+
+    fn squeeze(&mut self, control: ControlId, amount: u8, offset_ms: u64) {
+        self.input(control, InputPhase::Pressure { amount }, offset_ms);
     }
 
     fn release(&mut self, control: ControlId, offset_ms: u64) {
@@ -107,7 +119,13 @@ fn a_press_reports_immediately_and_carries_velocity() {
     let events = surface.drain_events();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].gesture, Gesture::Press);
-    assert_eq!(events[0].detail, GestureDetail::Velocity(100));
+    assert_eq!(
+        events[0].detail,
+        GestureDetail::Struck {
+            velocity: 100,
+            force: ForceBand::Firm,
+        }
+    );
 }
 
 #[test]
@@ -401,4 +419,218 @@ fn a_double_tap_racing_a_reset_does_not_produce_a_stale_tap() {
     surface.recognizer.reset();
     surface.advance_to(1_000);
     assert!(surface.drain().is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// Force
+// ---------------------------------------------------------------------------
+
+/// The band a gesture was reported in, or `None` if it carried no strike.
+fn band(event: &GestureEvent) -> Option<ForceBand> {
+    event.detail.force()
+}
+
+#[test]
+fn a_strike_is_reported_in_the_band_it_landed_in() {
+    for (velocity, expected) in [
+        (1, ForceBand::Soft),
+        (45, ForceBand::Soft),
+        (46, ForceBand::Firm),
+        (100, ForceBand::Firm),
+        (101, ForceBand::Hard),
+        (127, ForceBand::Hard),
+    ] {
+        let mut surface = Surface::bare();
+        surface.strike(pad(0), velocity, 0);
+        let events = surface.drain_events();
+        assert_eq!(
+            band(&events[0]),
+            Some(expected),
+            "velocity {velocity} should be {expected}"
+        );
+    }
+}
+
+#[test]
+fn a_tap_carries_the_force_of_the_strike_that_began_it() {
+    let mut surface = Surface::bare();
+    surface.strike(pad(0), 120, 0);
+    surface.release(pad(0), 50);
+
+    let events = surface.drain_events();
+    let tap = events
+        .iter()
+        .find(|event| event.gesture == Gesture::Tap)
+        .expect("a tap was reported");
+    assert_eq!(band(tap), Some(ForceBand::Hard));
+    assert_eq!(tap.detail.velocity(), Some(120));
+}
+
+#[test]
+fn a_tap_confirmed_by_the_clock_still_carries_its_force() {
+    // The tap is reported by `poll`, long after the release, so the velocity
+    // has to have survived in the recogniser's own state rather than on the
+    // event that carried it in.
+    let mut surface = Surface::watching([(pad(0), InterestKind::DoubleTap)]);
+    surface.strike(pad(0), 20, 0);
+    surface.release(pad(0), 40);
+    surface.drain();
+    surface.advance_to(40 + DOUBLE_TAP_MS + 1);
+
+    let events = surface.drain_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].gesture, Gesture::Tap);
+    assert_eq!(band(&events[0]), Some(ForceBand::Soft));
+}
+
+#[test]
+fn a_double_tap_carries_the_force_of_its_second_strike() {
+    let mut surface = Surface::watching([(pad(0), InterestKind::DoubleTap)]);
+    surface.strike(pad(0), 10, 0);
+    surface.release(pad(0), 20);
+    surface.strike(pad(0), 127, 60);
+    surface.release(pad(0), 80);
+
+    let events = surface.drain_events();
+    let double = events
+        .iter()
+        .find(|event| event.gesture == Gesture::DoubleTap)
+        .expect("a double tap was reported");
+    assert_eq!(band(double), Some(ForceBand::Hard));
+}
+
+#[test]
+fn a_hold_carries_no_force_because_the_strike_is_over() {
+    let mut surface = Surface::watching([(pad(0), InterestKind::Hold)]);
+    surface.strike(pad(0), 127, 0);
+    surface.drain();
+    surface.advance_to(HOLD_MS + 1);
+
+    let events = surface.drain_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].gesture, Gesture::Hold);
+    assert_eq!(band(&events[0]), None);
+}
+
+// ---------------------------------------------------------------------------
+// Pressure
+// ---------------------------------------------------------------------------
+
+#[test]
+fn aftertouch_is_ignored_for_a_pad_nothing_binds() {
+    let mut surface = Surface::bare();
+    surface.press(pad(0), 0);
+    surface.drain();
+
+    for amount in [20, 60, 100, 127] {
+        surface.squeeze(pad(0), amount, 10);
+    }
+    assert!(
+        surface.drain().is_empty(),
+        "a resting hand must not wake the rest of PushOS"
+    );
+}
+
+#[test]
+fn pressing_harder_reports_a_step_at_a_time() {
+    let mut surface = Surface::watching([(pad(0), InterestKind::Pressure)]);
+    surface.press(pad(0), 0);
+    surface.drain();
+
+    surface.squeeze(pad(0), 21, 10);
+    assert_eq!(surface.drain(), [Gesture::PressHarder]);
+
+    surface.squeeze(pad(0), 37, 20);
+    assert_eq!(surface.drain(), [Gesture::PressHarder]);
+}
+
+#[test]
+fn easing_off_reports_the_other_direction() {
+    let mut surface = Surface::watching([(pad(0), InterestKind::Pressure)]);
+    surface.press(pad(0), 0);
+    surface.squeeze(pad(0), 100, 10);
+    surface.drain();
+
+    surface.squeeze(pad(0), 20, 20);
+    assert_eq!(surface.drain(), [Gesture::PressSofter]);
+}
+
+#[test]
+fn a_reading_resting_on_an_edge_does_not_chatter() {
+    let mut surface = Surface::watching([(pad(0), InterestKind::Pressure)]);
+    surface.press(pad(0), 0);
+    surface.squeeze(pad(0), 40, 10);
+    surface.drain();
+
+    // A finger sitting on the boundary between two steps, wobbling by a
+    // count either way. Without hysteresis this would scroll a session back
+    // and forth under the operator.
+    for (offset, amount) in [(20, 32), (30, 31), (40, 33), (50, 32), (60, 30)] {
+        surface.squeeze(pad(0), amount, offset);
+    }
+    assert!(
+        surface.drain().is_empty(),
+        "readings within the margin must not move the step"
+    );
+}
+
+#[test]
+fn a_jump_across_several_steps_is_one_event_carrying_the_distance() {
+    let mut surface = Surface::watching([(pad(0), InterestKind::Pressure)]);
+    surface.press(pad(0), 0);
+    surface.drain();
+
+    surface.squeeze(pad(0), 127, 10);
+    let events = surface.drain_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].gesture, Gesture::PressHarder);
+    assert_eq!(events[0].detail.delta(), Some(7));
+}
+
+#[test]
+fn aftertouch_after_a_release_is_dropped() {
+    let mut surface = Surface::watching([(pad(0), InterestKind::Pressure)]);
+    surface.press(pad(0), 0);
+    surface.release(pad(0), 10);
+    surface.drain();
+
+    surface.squeeze(pad(0), 127, 20);
+    assert!(
+        surface.drain().is_empty(),
+        "a pad that is not down cannot be squeezed"
+    );
+}
+
+#[test]
+fn a_fresh_press_starts_from_no_pressure_again() {
+    let mut surface = Surface::watching([(pad(0), InterestKind::Pressure)]);
+    surface.press(pad(0), 0);
+    surface.squeeze(pad(0), 127, 10);
+    surface.release(pad(0), 20);
+    surface.drain();
+
+    surface.press(pad(0), 30);
+    surface.drain();
+    surface.squeeze(pad(0), 21, 40);
+    assert_eq!(
+        surface.drain(),
+        [Gesture::PressHarder],
+        "the second press must not still think the pad is at full pressure"
+    );
+}
+
+#[test]
+fn pressure_on_one_pad_does_not_disturb_another() {
+    let mut surface = Surface::watching([
+        (pad(0), InterestKind::Pressure),
+        (pad(1), InterestKind::Pressure),
+    ]);
+    surface.press(pad(0), 0);
+    surface.press(pad(1), 0);
+    surface.drain();
+
+    surface.squeeze(pad(0), 127, 10);
+    let events = surface.drain_events();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].control, pad(0));
 }

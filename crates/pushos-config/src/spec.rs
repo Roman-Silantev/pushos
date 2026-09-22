@@ -42,6 +42,14 @@ pub struct BindingAddress {
     pub control: String,
     /// The gesture, such as `hold`.
     pub gesture: String,
+    /// The force band it is narrowed to, if any.
+    ///
+    /// Part of the address rather than of the specification: two bindings may
+    /// share a control, a gesture and a scope and differ only in how hard the
+    /// pad was hit, so without this an edit could not say which of them it
+    /// meant.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub force: Option<String>,
     /// The page it is restricted to, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page: Option<String>,
@@ -56,6 +64,7 @@ impl BindingAddress {
         Self {
             control: control.into(),
             gesture: gesture.into(),
+            force: None,
             page: None,
             workspace: None,
         }
@@ -72,6 +81,13 @@ impl BindingAddress {
     #[must_use]
     pub fn in_workspace(mut self, workspace: impl Into<String>) -> Self {
         self.workspace = Some(workspace.into());
+        self
+    }
+
+    /// Narrows the address to one force band.
+    #[must_use]
+    pub fn struck(mut self, force: impl Into<String>) -> Self {
+        self.force = Some(force.into());
         self
     }
 

@@ -532,3 +532,77 @@ fn removing_the_home_page_is_refused_before_anything_is_written() {
         "nothing was written: {text}"
     );
 }
+
+/// Two bands on one pad, plus the pages they need.
+const BANDED: &str = r#"
+[[pages]]
+id = "home"
+name = "Home"
+
+[[bindings]]
+control = "pad.0"
+gesture = "tap"
+action = "page.next"
+
+[[bindings]]
+control = "pad.0"
+gesture = "tap"
+force = "hard"
+action = "page.previous"
+"#;
+
+#[test]
+fn two_bands_on_one_pad_are_edited_independently() {
+    // Without force in the address these two are the same binding, and an
+    // edit aimed at one would silently rewrite the other.
+    let scratch = Scratch::new();
+    scratch.write("pushos.toml", BANDED);
+
+    let mut documents = documents(&scratch);
+    documents.upsert_binding(&BindingSpec::new(
+        BindingAddress::new("pad.0", "tap").struck("hard"),
+        "page.home",
+    ));
+    documents.save().expect("the edited configuration is valid");
+
+    let saved = scratch.read("pushos.toml");
+    assert!(
+        saved.contains("page.next"),
+        "the plain binding must be left alone: {saved}"
+    );
+    assert!(
+        saved.contains("page.home"),
+        "the banded binding should have been rewritten: {saved}"
+    );
+    assert!(
+        !saved.contains("page.previous"),
+        "the banded binding should no longer do what it did: {saved}"
+    );
+    assert!(
+        saved.contains("force = \"hard\""),
+        "the band must survive the edit: {saved}"
+    );
+}
+
+#[test]
+fn an_edit_aimed_at_the_plain_binding_leaves_the_band_alone() {
+    let scratch = Scratch::new();
+    scratch.write("pushos.toml", BANDED);
+
+    let mut documents = documents(&scratch);
+    documents.upsert_binding(&BindingSpec::new(
+        BindingAddress::new("pad.0", "tap"),
+        "page.home",
+    ));
+    documents.save().expect("the edited configuration is valid");
+
+    let saved = scratch.read("pushos.toml");
+    assert!(
+        saved.contains("page.previous"),
+        "the banded binding must be left alone: {saved}"
+    );
+    assert!(
+        saved.contains("page.home"),
+        "the plain binding should have been rewritten: {saved}"
+    );
+}

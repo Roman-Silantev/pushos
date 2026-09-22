@@ -34,6 +34,7 @@ impl BindingTable {
                 match kind {
                     InterestKind::DoubleTap => interest.watch_double_tap(binding.control),
                     InterestKind::Hold => interest.watch_hold(binding.control),
+                    InterestKind::Pressure => interest.watch_pressure(binding.control),
                 }
             }
             by_key.entry(binding.key()).or_default().push(binding);
@@ -75,6 +76,7 @@ impl BindingTable {
         match gesture {
             Gesture::DoubleTap => Some(InterestKind::DoubleTap),
             Gesture::Hold | Gesture::ShiftHold => Some(InterestKind::Hold),
+            Gesture::PressHarder | Gesture::PressSofter => Some(InterestKind::Pressure),
             _ => None,
         }
     }
@@ -97,6 +99,7 @@ mod tests {
             id: id.into(),
             control,
             gesture,
+            force: None,
             scope,
             action: ActionDefinition::bare(ActionSelector::new("test", "noop")),
             priority: 0,
@@ -174,5 +177,19 @@ mod tests {
         assert!(interest.wants_double_tap(pad(3)));
         assert!(interest.wants_hold(pad(4)));
         assert!(interest.wants_hold(pad(5)));
+    }
+
+    #[test]
+    fn a_pressure_binding_registers_an_interest_in_aftertouch() {
+        let table = BindingTable::new([
+            binding("plain", pad(6), Gesture::Tap, BindingScope::Global),
+            binding("harder", pad(7), Gesture::PressHarder, BindingScope::Global),
+            binding("softer", pad(8), Gesture::PressSofter, BindingScope::Global),
+        ]);
+        let interest = table.gesture_interest();
+
+        assert!(!interest.wants_pressure(pad(6)));
+        assert!(interest.wants_pressure(pad(7)));
+        assert!(interest.wants_pressure(pad(8)));
     }
 }

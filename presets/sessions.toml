@@ -802,3 +802,125 @@ gesture = "press"
 action = "session.press"
 label = "Dismiss"
 params = { key = "escape" }
+
+# --- Squeeze a pad to read back -----------------------------------------------
+# A held pad reports how hard it is being squeezed, in eight steps. Hold a
+# session's pad and press harder to walk back through what it said; ease off to
+# come forward again. Let go and the pad is just a pad.
+#
+# This is the one thing on the surface that no button can do, and the reason
+# the pads are pressure-sensitive: reading back is a continuous act, so the
+# control for it is continuous too. Aftertouch is only followed for pads that
+# have one of these bindings, so the other fifty-six cost nothing.
+
+[[bindings]]
+control = "pad.56"
+gesture = "press_harder"
+action = "session.scroll"
+target = "slot:1"
+params = { by = 1 }
+
+[[bindings]]
+control = "pad.56"
+gesture = "press_softer"
+action = "session.scroll"
+target = "slot:1"
+params = { by = -1 }
+
+[[bindings]]
+control = "pad.57"
+gesture = "press_harder"
+action = "session.scroll"
+target = "slot:2"
+params = { by = 1 }
+
+[[bindings]]
+control = "pad.57"
+gesture = "press_softer"
+action = "session.scroll"
+target = "slot:2"
+params = { by = -1 }
+
+[[bindings]]
+control = "pad.58"
+gesture = "press_harder"
+action = "session.scroll"
+target = "slot:3"
+params = { by = 1 }
+
+[[bindings]]
+control = "pad.58"
+gesture = "press_softer"
+action = "session.scroll"
+target = "slot:3"
+params = { by = -1 }
+
+[[bindings]]
+control = "pad.59"
+gesture = "press_harder"
+action = "session.scroll"
+target = "slot:4"
+params = { by = 1 }
+
+[[bindings]]
+control = "pad.59"
+gesture = "press_softer"
+action = "session.scroll"
+target = "slot:4"
+params = { by = -1 }
+
+[[bindings]]
+control = "pad.60"
+gesture = "press_harder"
+action = "session.scroll"
+target = "slot:5"
+params = { by = 1 }
+
+[[bindings]]
+control = "pad.60"
+gesture = "press_softer"
+action = "session.scroll"
+target = "slot:5"
+params = { by = -1 }
+
+[[bindings]]
+control = "pad.61"
+gesture = "press_harder"
+action = "session.scroll"
+target = "slot:6"
+params = { by = 1 }
+
+[[bindings]]
+control = "pad.61"
+gesture = "press_softer"
+action = "session.scroll"
+target = "slot:6"
+params = { by = -1 }
+
+[[bindings]]
+control = "pad.62"
+gesture = "press_harder"
+action = "session.scroll"
+target = "slot:7"
+params = { by = 1 }
+
+[[bindings]]
+control = "pad.62"
+gesture = "press_softer"
+action = "session.scroll"
+target = "slot:7"
+params = { by = -1 }
+
+[[bindings]]
+control = "pad.63"
+gesture = "press_harder"
+action = "session.scroll"
+target = "slot:8"
+params = { by = 1 }
+
+[[bindings]]
+control = "pad.63"
+gesture = "press_softer"
+action = "session.scroll"
+target = "slot:8"
+params = { by = -1 }

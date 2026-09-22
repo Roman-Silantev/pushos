@@ -2,11 +2,12 @@
 //!
 //! Given a gesture and the current surface, exactly one binding wins, or none
 //! does. Precedence is `workspace+page`, then `workspace`, then `page`, then
-//! `global`, with the configured priority breaking ties inside a tier.
+//! `global`; within a tier a binding narrowed to a force band beats one that
+//! accepts any force, and the configured priority breaks what is left.
 
 use pushos_domain::binding::{Binding, BindingKey};
 use pushos_domain::context::SurfaceContext;
-use pushos_domain::gesture::Gesture;
+use pushos_domain::gesture::{ForceBand, Gesture};
 
 use crate::gesture::GestureEvent;
 use crate::table::BindingTable;
@@ -35,12 +36,21 @@ impl BindingResolver {
         event: &GestureEvent,
         context: &SurfaceContext,
     ) -> Option<&'table Binding> {
-        self.resolve_gesture(table, event.control.into(), event.gesture, context)
+        self.resolve_struck(
+            table,
+            event.control.into(),
+            event.gesture,
+            event.detail.force(),
+            context,
+        )
     }
 
     /// Resolves a control and gesture directly, without a gesture event.
     ///
-    /// Used by Studio to preview what a control currently does.
+    /// Used by Studio and the display to preview what a control currently
+    /// does. Force-banded bindings are skipped, because a preview describes
+    /// what an ordinary press does rather than what one particular strike
+    /// would have done.
     pub fn resolve_gesture<'table>(
         self,
         table: &'table BindingTable,
@@ -48,11 +58,28 @@ impl BindingResolver {
         gesture: Gesture,
         context: &SurfaceContext,
     ) -> Option<&'table Binding> {
+        self.resolve_struck(table, control, gesture, None, context)
+    }
+
+    /// Resolves a gesture that was struck with a known force.
+    ///
+    /// Candidates are already ordered most specific first, so the first one
+    /// whose scope applies and whose band matches is the winner. A binding
+    /// with no band accepts any strike, which is what every binding written
+    /// before force existed means.
+    pub fn resolve_struck<'table>(
+        self,
+        table: &'table BindingTable,
+        control: ControlLookup,
+        gesture: Gesture,
+        struck: Option<ForceBand>,
+        context: &SurfaceContext,
+    ) -> Option<&'table Binding> {
         Self::keys_for(gesture)
             .into_iter()
             .flatten()
             .flat_map(|configured| table.candidates(BindingKey::new(control.0, configured)))
-            .find(|binding| binding.scope.applies_to(context))
+            .find(|binding| binding.scope.applies_to(context) && binding.accepts_force(struck))
     }
 
     /// The binding keys that a produced gesture may satisfy, tried in order.
@@ -98,6 +125,7 @@ mod tests {
             id: id.into(),
             control,
             gesture,
+            force: None,
             scope,
             action: ActionDefinition::bare(ActionSelector::new("test", id)),
             priority: 0,
@@ -250,6 +278,139 @@ mod tests {
             )
             .is_none()
         );
+    }
+
+    fn struck<'t>(
+        table: &'t BindingTable,
+        control: ControlId,
+        gesture: Gesture,
+        force: ForceBand,
+        context: &SurfaceContext,
+    ) -> Option<&'t Binding> {
+        BindingResolver::new().resolve_struck(table, control.into(), gesture, Some(force), context)
+    }
+
+    fn banded(id: &str, control: ControlId, force: ForceBand) -> Binding {
+        let mut binding = binding(id, control, Gesture::Tap, BindingScope::Global);
+        binding.force = Some(force);
+        binding
+    }
+
+    #[test]
+    fn a_banded_binding_answers_only_its_own_band() {
+        let table = BindingTable::new([banded("hard", pad(0), ForceBand::Hard)]);
+        let context = SurfaceContext::empty();
+
+        assert_eq!(
+            struck(&table, pad(0), Gesture::Tap, ForceBand::Hard, &context)
+                .unwrap()
+                .id
+                .as_str(),
+            "hard"
+        );
+        assert!(struck(&table, pad(0), Gesture::Tap, ForceBand::Soft, &context).is_none());
+        assert!(struck(&table, pad(0), Gesture::Tap, ForceBand::Firm, &context).is_none());
+    }
+
+    #[test]
+    fn a_band_wins_over_the_plain_binding_it_narrows() {
+        let table = BindingTable::new([
+            binding("plain", pad(0), Gesture::Tap, BindingScope::Global),
+            banded("hard", pad(0), ForceBand::Hard),
+        ]);
+        let context = SurfaceContext::empty();
+
+        assert_eq!(
+            struck(&table, pad(0), Gesture::Tap, ForceBand::Hard, &context)
+                .unwrap()
+                .id
+                .as_str(),
+            "hard"
+        );
+        assert_eq!(
+            struck(&table, pad(0), Gesture::Tap, ForceBand::Firm, &context)
+                .unwrap()
+                .id
+                .as_str(),
+            "plain",
+            "an ordinary strike still gets the binding that was always there"
+        );
+    }
+
+    #[test]
+    fn a_page_binding_beats_a_global_band_however_hard_the_pad_was_hit() {
+        let mut page = binding(
+            "page",
+            pad(0),
+            Gesture::Tap,
+            BindingScope::Page("dev".into()),
+        );
+        page.force = None;
+        let table = BindingTable::new([banded("global_hard", pad(0), ForceBand::Hard), page]);
+
+        let context = SurfaceContext::empty().on_page("dev");
+        assert_eq!(
+            struck(&table, pad(0), Gesture::Tap, ForceBand::Hard, &context)
+                .unwrap()
+                .id
+                .as_str(),
+            "page",
+            "scope dominates force; the operator moved to that page on purpose"
+        );
+    }
+
+    #[test]
+    fn an_unbanded_binding_still_answers_a_gesture_that_carries_no_force() {
+        // Every binding written before force existed, and every encoder turn.
+        let table =
+            BindingTable::new([binding("plain", pad(0), Gesture::Tap, BindingScope::Global)]);
+        assert_eq!(
+            resolve(&table, pad(0), Gesture::Tap, &SurfaceContext::empty())
+                .unwrap()
+                .id
+                .as_str(),
+            "plain"
+        );
+    }
+
+    #[test]
+    fn a_preview_describes_the_ordinary_press_rather_than_a_banded_one() {
+        let table = BindingTable::new([
+            binding("plain", pad(0), Gesture::Tap, BindingScope::Global),
+            banded("hard", pad(0), ForceBand::Hard),
+        ]);
+        assert_eq!(
+            resolve(&table, pad(0), Gesture::Tap, &SurfaceContext::empty())
+                .unwrap()
+                .id
+                .as_str(),
+            "plain",
+            "the display must not advertise what only a hard strike would do"
+        );
+    }
+
+    #[test]
+    fn three_bands_on_one_pad_each_answer_their_own_strike() {
+        let table = BindingTable::new([
+            banded("soft", pad(0), ForceBand::Soft),
+            banded("firm", pad(0), ForceBand::Firm),
+            banded("hard", pad(0), ForceBand::Hard),
+        ]);
+        let context = SurfaceContext::empty();
+
+        for (band, expected) in [
+            (ForceBand::Soft, "soft"),
+            (ForceBand::Firm, "firm"),
+            (ForceBand::Hard, "hard"),
+        ] {
+            assert_eq!(
+                struck(&table, pad(0), Gesture::Tap, band, &context)
+                    .unwrap()
+                    .id
+                    .as_str(),
+                expected
+            );
+        }
     }
 
     #[test]

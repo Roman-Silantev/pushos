@@ -396,6 +396,10 @@ fn entry_address(entry: &Table) -> Option<BindingAddress> {
     Some(BindingAddress {
         control: entry.get("control")?.as_str()?.to_owned(),
         gesture: entry.get("gesture")?.as_str()?.to_owned(),
+        force: entry
+            .get("force")
+            .and_then(Item::as_str)
+            .map(ToOwned::to_owned),
         page: entry
             .get("page")
             .and_then(Item::as_str)
@@ -420,6 +424,7 @@ fn write_binding(table: &mut Table, spec: &BindingSpec) {
     table["gesture"] = value(spec.address.gesture.as_str());
     table["action"] = value(spec.action.as_str());
 
+    set_or_remove(table, "force", spec.address.force.as_deref());
     set_or_remove(table, "page", spec.address.page.as_deref());
     set_or_remove(table, "workspace", spec.address.workspace.as_deref());
     set_or_remove(table, "target", spec.target.as_deref());

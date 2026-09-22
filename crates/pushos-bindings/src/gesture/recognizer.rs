@@ -7,13 +7,28 @@ use std::collections::HashMap;
 use std::time::Instant;
 
 use pushos_domain::controls::{ButtonId, ControlId};
-use pushos_domain::gesture::Gesture;
+use pushos_domain::gesture::{ForceThresholds, Gesture};
 use pushos_domain::input::{ControlEvent, InputPhase};
 
 use super::event::{GestureDetail, GestureEvent};
 use super::interest::GestureInterest;
 use super::state::{ControlState, HeldState};
 use super::timing::GestureTiming;
+
+/// How much aftertouch makes one step.
+///
+/// Sixteen gives eight steps across the pad's range, which is about as many
+/// as a finger can aim at without looking, and few enough that rolling a
+/// thumb through the whole range dispatches no more work than spinning an
+/// encoder a turn.
+const PRESSURE_STEP: u8 = 16;
+
+/// How far past a step's edge a reading must go before the step changes.
+///
+/// Aftertouch is noisy and a finger is not still. Without this, a pad resting
+/// on an edge would report a stream of alternating steps and scroll a session
+/// back and forth under the operator.
+const PRESSURE_MARGIN: u8 = 4;
 
 /// Turns normalised input into gestures.
 ///
@@ -24,16 +39,18 @@ use super::timing::GestureTiming;
 #[derive(Debug)]
 pub struct GestureRecognizer {
     timing: GestureTiming,
+    forces: ForceThresholds,
     interest: GestureInterest,
     states: HashMap<ControlId, ControlState>,
     shift_held: bool,
 }
 
 impl GestureRecognizer {
-    /// Builds a recogniser for the given timings and bindings.
-    pub fn new(timing: GestureTiming, interest: GestureInterest) -> Self {
+    /// Builds a recogniser for the given timings, force edges and bindings.
+    pub fn new(timing: GestureTiming, forces: ForceThresholds, interest: GestureInterest) -> Self {
         Self {
             timing,
+            forces,
             interest,
             states: HashMap::new(),
             shift_held: false,
@@ -51,6 +68,15 @@ impl GestureRecognizer {
     /// reload cannot strand a press that is already in flight.
     pub fn set_interest(&mut self, interest: GestureInterest) {
         self.interest = interest;
+    }
+
+    /// Replaces the force band edges, after a configuration swap.
+    ///
+    /// A pad already down keeps the velocity it was struck with, so the band
+    /// a press is reported in is the one that was in force when the operator
+    /// hit it, not the one that arrived while their finger was still on it.
+    pub fn set_forces(&mut self, forces: ForceThresholds) {
+        self.forces = forces;
     }
 
     /// The next moment at which [`Self::poll`] would produce a gesture.
@@ -94,18 +120,21 @@ impl GestureRecognizer {
                     event.at,
                 ));
             }
-            // Continuous streams drive widgets directly; they are not
-            // gestures. The touch strip is not used by PushOS at all: the
-            // adapter puts its lights out at connect, and its position is a
-            // spring-loaded pitch bend rather than anything an operator could
-            // hold a place with.
-            InputPhase::Pressure { .. } | InputPhase::Position { .. } => {}
+            InputPhase::Pressure { amount } => {
+                self.on_pressure(event.control, event.at, amount, out);
+            }
+            // The touch strip is not used by PushOS at all: the adapter puts
+            // its lights out at connect, and its position is a spring-loaded
+            // pitch bend rather than anything an operator could hold a place
+            // with.
+            InputPhase::Position { .. } => {}
         }
     }
 
     /// Advances time, appending any gestures that have now become due.
     pub fn poll(&mut self, now: Instant, out: &mut Vec<GestureEvent>) {
         let mut settled = Vec::new();
+        let forces = self.forces;
 
         for (&control, state) in &mut self.states {
             match state {
@@ -118,8 +147,20 @@ impl GestureRecognizer {
                     };
                     out.push(GestureEvent::simple(control, gesture, now));
                 }
-                ControlState::AwaitingSecondTap { expires_at, .. } if now >= *expires_at => {
-                    out.push(GestureEvent::simple(control, Gesture::Tap, now));
+                ControlState::AwaitingSecondTap {
+                    expires_at,
+                    velocity,
+                    ..
+                } if now >= *expires_at => {
+                    out.push(GestureEvent::detailed(
+                        control,
+                        Gesture::Tap,
+                        GestureDetail::Struck {
+                            velocity: *velocity,
+                            force: forces.band_of(*velocity),
+                        },
+                        now,
+                    ));
                     settled.push(control);
                 }
                 ControlState::Held(_) | ControlState::AwaitingSecondTap { .. } => {}
@@ -162,7 +203,7 @@ impl GestureRecognizer {
         out.push(GestureEvent::detailed(
             control,
             press,
-            GestureDetail::Velocity(velocity),
+            self.struck(velocity),
             at,
         ));
 
@@ -172,8 +213,66 @@ impl GestureRecognizer {
             .then(|| at + self.timing.hold_threshold);
         self.states.insert(
             control,
-            ControlState::Held(HeldState::new(at, shift, hold_at, pending_tap)),
+            ControlState::Held(HeldState::new(at, shift, hold_at, pending_tap, velocity)),
         );
+    }
+
+    /// The analogue detail a strike of this velocity carries.
+    ///
+    /// The one place the edges between bands are consulted, so no feature can
+    /// disagree about what counts as a hard strike.
+    fn struck(&self, velocity: u8) -> GestureDetail {
+        GestureDetail::Struck {
+            velocity,
+            force: self.forces.band_of(velocity),
+        }
+    }
+
+    /// Turns the aftertouch stream from one held pad into steps.
+    ///
+    /// Ignored entirely for a pad that is not held, and for one nothing binds:
+    /// a hand resting on the surface must not wake the rest of PushOS.
+    fn on_pressure(
+        &mut self,
+        control: ControlId,
+        at: Instant,
+        amount: u8,
+        out: &mut Vec<GestureEvent>,
+    ) {
+        if !self.interest.wants_pressure(control) {
+            return;
+        }
+        let Some(ControlState::Held(held)) = self.states.get_mut(&control) else {
+            // Pressure after a release, or from a press lost to a disconnect.
+            return;
+        };
+
+        let settled = settled_level(amount, held.level);
+        if settled == held.level {
+            return;
+        }
+
+        let steps = i16::from(settled) - i16::from(held.level);
+        held.level = settled;
+
+        let gesture = if steps.is_positive() {
+            Gesture::PressHarder
+        } else {
+            Gesture::PressSofter
+        };
+        // The step count fits: there are eight levels, so the largest jump is
+        // seven in either direction.
+        let delta = i8::try_from(steps).unwrap_or(if steps.is_positive() {
+            i8::MAX
+        } else {
+            i8::MIN
+        });
+        out.push(GestureEvent::detailed(
+            control,
+            gesture,
+            GestureDetail::Delta(delta),
+            at,
+        ));
     }
 
     fn on_up(&mut self, control: ControlId, at: Instant, out: &mut Vec<GestureEvent>) {
@@ -189,8 +288,15 @@ impl GestureRecognizer {
             return;
         }
 
+        let detail = self.struck(held.velocity);
+
         if held.is_second_tap {
-            out.push(GestureEvent::simple(control, Gesture::DoubleTap, at));
+            out.push(GestureEvent::detailed(
+                control,
+                Gesture::DoubleTap,
+                detail,
+                at,
+            ));
             return;
         }
 
@@ -200,10 +306,11 @@ impl GestureRecognizer {
                 ControlState::AwaitingSecondTap {
                     expires_at: at + self.timing.double_tap_window,
                     shift: held.shift,
+                    velocity: held.velocity,
                 },
             );
         } else {
-            out.push(GestureEvent::simple(control, Gesture::Tap, at));
+            out.push(GestureEvent::detailed(control, Gesture::Tap, detail, at));
         }
     }
 
@@ -224,5 +331,22 @@ impl GestureRecognizer {
             GestureDetail::Delta(delta),
             event.at,
         ));
+    }
+}
+
+/// Which aftertouch step a reading belongs to, given the step it is leaving.
+///
+/// A reading only changes step once it is clear of the current step's edges by
+/// the margin, which is what stops a resting finger chattering between two.
+const fn settled_level(amount: u8, current: u8) -> u8 {
+    let step = current as u16 * PRESSURE_STEP as u16;
+    let above = step + PRESSURE_STEP as u16 + PRESSURE_MARGIN as u16;
+    let below = step.saturating_sub(PRESSURE_MARGIN as u16);
+    let reading = amount as u16;
+
+    if reading >= above || reading < below {
+        amount / PRESSURE_STEP
+    } else {
+        current
     }
 }

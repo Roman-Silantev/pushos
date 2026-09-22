@@ -3,7 +3,7 @@
 use std::time::Instant;
 
 use pushos_domain::controls::ControlId;
-use pushos_domain::gesture::Gesture;
+use pushos_domain::gesture::{ForceBand, Gesture};
 
 /// A recognised gesture on a control, with whatever analogue detail came with it.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -50,8 +50,17 @@ impl GestureEvent {
 pub enum GestureDetail {
     /// The control is purely digital.
     None,
-    /// How hard a pad was struck, `0..=127`.
-    Velocity(u8),
+    /// How hard a pad was struck.
+    ///
+    /// Both the raw reading and the band it falls in, because the recogniser
+    /// is the only place allowed to decide where the bands are and nothing
+    /// downstream should have to know the edges to act on a strike.
+    Struck {
+        /// Strike velocity, `0..=127`.
+        velocity: u8,
+        /// Which band that velocity falls in.
+        force: ForceBand,
+    },
     /// How far an encoder moved. Positive is clockwise.
     Delta(i8),
     /// Absolute position along the touch strip.
@@ -70,7 +79,15 @@ impl GestureDetail {
     /// The strike velocity, when the gesture came from a pad.
     pub const fn velocity(self) -> Option<u8> {
         match self {
-            Self::Velocity(value) => Some(value),
+            Self::Struck { velocity, .. } => Some(velocity),
+            _ => None,
+        }
+    }
+
+    /// The band the strike fell in, when the gesture began with one.
+    pub const fn force(self) -> Option<ForceBand> {
+        match self {
+            Self::Struck { force, .. } => Some(force),
             _ => None,
         }
     }
@@ -82,9 +99,18 @@ mod tests {
 
     #[test]
     fn detail_accessors_only_answer_for_their_own_variant() {
+        let struck = GestureDetail::Struck {
+            velocity: 120,
+            force: ForceBand::Hard,
+        };
+
         assert_eq!(GestureDetail::Delta(-3).delta(), Some(-3));
         assert_eq!(GestureDetail::Delta(-3).velocity(), None);
-        assert_eq!(GestureDetail::Velocity(120).velocity(), Some(120));
+        assert_eq!(GestureDetail::Delta(-3).force(), None);
+        assert_eq!(struck.velocity(), Some(120));
+        assert_eq!(struck.force(), Some(ForceBand::Hard));
+        assert_eq!(struck.delta(), None);
         assert_eq!(GestureDetail::None.delta(), None);
+        assert_eq!(GestureDetail::None.force(), None);
     }
 }

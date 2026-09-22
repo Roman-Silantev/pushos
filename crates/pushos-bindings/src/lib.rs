@@ -24,4 +24,4 @@ pub use gesture::{
 };
 pub use resolver::{BindingResolver, ControlLookup};
 pub use table::BindingTable;
-pub use validation::{BindingConflict, find_conflicts};
+pub use validation::{BindingConflict, ForceFault, find_conflicts, find_force_faults};

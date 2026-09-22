@@ -5,7 +5,7 @@
 #
 # Everything is written as:
 #
-#     control + gesture (+ page or workspace) -> action
+#     control + gesture (+ force, page or workspace) -> action
 #
 # A control is a name, never a MIDI number. Run `pushos check` after editing.
 
@@ -29,6 +29,15 @@ hold_threshold_ms = 400
 # Two taps closer together than this are a double tap. Must be shorter than the
 # hold threshold, or a slow double tap would be indistinguishable from a hold.
 double_tap_window_ms = 280
+# Where one force band ends and the next begins, on a scale of 0 to 127.
+#
+# Pads report how hard they were hit. A binding may add `force = "soft"`,
+# `"firm"` or `"hard"` to answer only one kind of strike, and the pad keeps
+# doing whatever it did for every other kind. Move these if every strike of
+# yours lands in the same band; only pads report a force, so a band on a
+# button is refused.
+firm_at = 46
+hard_at = 101
 
 [permissions]
 # Nothing is permitted unless it is listed here. There is no wildcard.
@@ -85,6 +94,30 @@ granted = [
 # action = "agent.start"
 # target = "role:builder"
 # label = "Builder"
+#
+# The same pad can answer a hard strike differently. The banded binding is
+# tried first; the plain one below still catches every ordinary tap, so adding
+# a band never changes what the pad already did.
+#
+# [[bindings]]
+# control = "pad.16"
+# gesture = "tap"
+# force = "hard"
+# page = "development"
+# action = "agent.prompt"
+# target = "role:builder"
+# label = "Nudge"
+#
+# A band cannot be the only thing standing in front of an action that stops or
+# discards work: `session.interrupt`, `agent.stop`, `shell.run` and their like
+# are refused a band, because force is felt rather than aimed. Put those on a
+# button, where hitting it is a decision.
+#
+# A held pad also reports how hard it is being squeezed, in eight steps. Bind
+# `press_harder` and `press_softer` and the pad becomes a knob under your
+# finger that springs back when you let go — the `sessions` preset uses this to
+# scroll an agent's history. Aftertouch is only followed for pads that have
+# such a binding, so a hand resting on the surface costs nothing.
 #
 # One approve pad serves every agent, because a binding with no target acts on
 # whichever session you last chose.

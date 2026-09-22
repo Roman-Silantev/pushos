@@ -18,6 +18,7 @@ use pushos_domain::controls::ControlId;
 pub struct GestureInterest {
     double_tap: HashSet<ControlId>,
     hold: HashSet<ControlId>,
+    pressure: HashSet<ControlId>,
 }
 
 impl GestureInterest {
@@ -36,6 +37,11 @@ impl GestureInterest {
         self.hold.insert(control);
     }
 
+    /// Records that a control has a binding driven by aftertouch.
+    pub fn watch_pressure(&mut self, control: ControlId) {
+        self.pressure.insert(control);
+    }
+
     /// Whether a tap on this control must wait for a possible second tap.
     pub fn wants_double_tap(&self, control: ControlId) -> bool {
         self.double_tap.contains(&control)
@@ -44,6 +50,15 @@ impl GestureInterest {
     /// Whether a press on this control should arm a hold timer.
     pub fn wants_hold(&self, control: ControlId) -> bool {
         self.hold.contains(&control)
+    }
+
+    /// Whether aftertouch on this control should be followed.
+    ///
+    /// A held pad reports pressure many times a second whether anyone asked
+    /// or not. Following it only where a binding exists keeps an idle hand
+    /// resting on the surface from waking the rest of PushOS.
+    pub fn wants_pressure(&self, control: ControlId) -> bool {
+        self.pressure.contains(&control)
     }
 }
 
@@ -54,6 +69,7 @@ impl FromIterator<(ControlId, InterestKind)> for GestureInterest {
             match kind {
                 InterestKind::DoubleTap => interest.watch_double_tap(control),
                 InterestKind::Hold => interest.watch_hold(control),
+                InterestKind::Pressure => interest.watch_pressure(control),
             }
         }
         interest
@@ -67,6 +83,8 @@ pub enum InterestKind {
     DoubleTap,
     /// The control has a `hold` or `shift_hold` binding.
     Hold,
+    /// The control has a `press_harder` or `press_softer` binding.
+    Pressure,
 }
 
 #[cfg(test)]

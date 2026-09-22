@@ -9,7 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::action::ActionDefinition;
 use crate::context::SurfaceContext;
 use crate::controls::ControlId;
-use crate::gesture::Gesture;
+use crate::gesture::{ForceBand, Gesture};
 use crate::ids::{BindingId, PageId, WorkspaceId};
 
 /// Where a binding applies.
@@ -82,6 +82,13 @@ pub struct Binding {
     pub control: ControlId,
     /// The gesture that triggers it.
     pub gesture: Gesture,
+    /// How hard the strike must have been, when the binding narrows itself.
+    ///
+    /// `None` accepts any force, which is what every binding written before
+    /// force existed means. A banded binding is tried first within its scope,
+    /// so an operator adds a hard-struck meaning to a pad without disturbing
+    /// what the pad already did.
+    pub force: Option<ForceBand>,
     /// Where the binding applies.
     pub scope: BindingScope,
     /// What to run.
@@ -103,10 +110,31 @@ impl Binding {
 
     /// The ordering used to pick a winner among applicable bindings.
     ///
-    /// Compared as a tuple so that scope always dominates priority, and so that
-    /// two bindings can only tie if they are genuinely ambiguous.
-    pub const fn precedence(&self) -> (ScopeSpecificity, u16) {
-        (self.scope.specificity(), self.priority)
+    /// Compared as a tuple so that scope always dominates, then force, then
+    /// priority, and so that two bindings can only tie if they are genuinely
+    /// ambiguous.
+    ///
+    /// Force sits below scope deliberately: a page that rebinds a pad beats a
+    /// global rule about how hard it was hit, because the operator moved to
+    /// that page on purpose. Within one scope the banded binding wins, since
+    /// it describes the narrower event.
+    pub const fn precedence(&self) -> (ScopeSpecificity, bool, u16) {
+        (
+            self.scope.specificity(),
+            self.force.is_some(),
+            self.priority,
+        )
+    }
+
+    /// Whether a strike of `struck` force satisfies this binding.
+    ///
+    /// An unbanded binding accepts anything, including a gesture that carries
+    /// no force at all, such as an encoder turn.
+    pub fn accepts_force(&self, struck: Option<ForceBand>) -> bool {
+        match self.force {
+            None => true,
+            Some(wanted) => struck == Some(wanted),
+        }
     }
 }
 
@@ -164,6 +192,59 @@ mod tests {
 
         assert!(!BindingScope::Page("music".into()).applies_to(&context));
         assert!(!BindingScope::Workspace("other".into()).applies_to(&context));
+    }
+
+    fn banded(force: Option<ForceBand>, scope: BindingScope) -> Binding {
+        Binding {
+            id: "b".into(),
+            control: crate::controls::ControlId::Button(crate::controls::ButtonId::Play),
+            gesture: Gesture::Tap,
+            force,
+            scope,
+            action: crate::action::ActionDefinition::bare(crate::action::ActionSelector::new(
+                "test", "noop",
+            )),
+            priority: 0,
+            label: None,
+        }
+    }
+
+    #[test]
+    fn a_banded_binding_outranks_an_unbanded_one_in_the_same_scope() {
+        let plain = banded(None, BindingScope::Global);
+        let hard = banded(Some(ForceBand::Hard), BindingScope::Global);
+        assert!(hard.precedence() > plain.precedence());
+    }
+
+    #[test]
+    fn scope_still_dominates_force() {
+        let hard_global = banded(Some(ForceBand::Hard), BindingScope::Global);
+        let plain_page = banded(None, BindingScope::Page("dev".into()));
+        assert!(
+            plain_page.precedence() > hard_global.precedence(),
+            "a page binding must beat a global one however hard the pad was hit"
+        );
+    }
+
+    #[test]
+    fn an_unbanded_binding_accepts_every_strike() {
+        let plain = banded(None, BindingScope::Global);
+        assert!(plain.accepts_force(None));
+        for band in ForceBand::ALL {
+            assert!(plain.accepts_force(Some(band)));
+        }
+    }
+
+    #[test]
+    fn a_banded_binding_accepts_only_its_own_band() {
+        let firm = banded(Some(ForceBand::Firm), BindingScope::Global);
+        assert!(firm.accepts_force(Some(ForceBand::Firm)));
+        assert!(!firm.accepts_force(Some(ForceBand::Soft)));
+        assert!(!firm.accepts_force(Some(ForceBand::Hard)));
+        assert!(
+            !firm.accepts_force(None),
+            "a gesture with no force behind it cannot satisfy a band"
+        );
     }
 
     #[test]

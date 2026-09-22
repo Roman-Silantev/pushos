@@ -1546,3 +1546,202 @@ fn a_setting_that_means_nothing_is_said_rather_than_guessed_at() {
         "a blank setting says so rather than showing an empty pair of quotes: {empty:?}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Force bands
+// ---------------------------------------------------------------------------
+
+#[test]
+fn a_pad_may_carry_a_different_meaning_at_each_force() {
+    let config = build(&format!(
+        r#"
+        {PAGES}
+
+        [[bindings]]
+        control = "pad.0"
+        gesture = "tap"
+        action = "page.next"
+
+        [[bindings]]
+        control = "pad.0"
+        gesture = "tap"
+        force = "hard"
+        action = "page.previous"
+        "#
+    ));
+
+    let candidates = config
+        .bindings
+        .candidates(BindingKey::new(pad(0), Gesture::Tap));
+    assert_eq!(candidates.len(), 2);
+    assert_eq!(
+        candidates[0].force,
+        Some(pushos_domain::gesture::ForceBand::Hard),
+        "the banded binding is tried first"
+    );
+    assert_eq!(candidates[1].force, None);
+}
+
+#[test]
+fn the_force_edges_can_be_moved() {
+    let config = build(
+        r"
+        [gestures]
+        firm_at = 20
+        hard_at = 60
+        ",
+    );
+    assert_eq!(config.forces.firm_at(), 20);
+    assert_eq!(config.forces.hard_at(), 60);
+}
+
+#[test]
+fn the_force_edges_default_when_nothing_says_otherwise() {
+    let config = build("");
+    assert_eq!(config.forces.firm_at(), 46);
+    assert_eq!(config.forces.hard_at(), 101);
+}
+
+#[test]
+fn force_edges_that_strand_a_band_are_refused() {
+    let found = problems(
+        r"
+        [gestures]
+        firm_at = 90
+        hard_at = 50
+        ",
+    );
+    assert!(
+        found
+            .iter()
+            .any(|problem| matches!(problem, Problem::Forces(_))),
+        "expected the edges to be refused, got {found:?}"
+    );
+}
+
+#[test]
+fn an_unknown_force_band_is_refused() {
+    let found = problems(
+        r#"
+        [[bindings]]
+        control = "pad.0"
+        gesture = "tap"
+        force = "gentle"
+        action = "page.next"
+        "#,
+    );
+    assert!(
+        found
+            .iter()
+            .any(|problem| matches!(problem, Problem::Force { .. })),
+        "expected an unknown band to be refused, got {found:?}"
+    );
+}
+
+#[test]
+fn a_force_band_on_a_button_is_refused() {
+    let found = problems(
+        r#"
+        [[bindings]]
+        control = "button.play"
+        gesture = "tap"
+        force = "hard"
+        action = "page.next"
+        "#,
+    );
+    assert!(
+        found
+            .iter()
+            .any(|problem| problem.to_string().contains("only pads")),
+        "expected a band on a button to be refused, got {found:?}"
+    );
+}
+
+#[test]
+fn a_force_band_on_a_hold_is_refused() {
+    let found = problems(
+        r#"
+        [[bindings]]
+        control = "pad.0"
+        gesture = "hold"
+        force = "hard"
+        action = "page.next"
+        "#,
+    );
+    assert!(
+        found
+            .iter()
+            .any(|problem| problem.to_string().contains("after the strike is over")),
+        "expected a band on a hold to be refused, got {found:?}"
+    );
+}
+
+#[test]
+fn a_hard_strike_may_not_be_all_that_stands_in_front_of_an_interrupt() {
+    let found = problems(
+        r#"
+        [permissions]
+        granted = ["shell.execute"]
+
+        [[bindings]]
+        control = "pad.0"
+        gesture = "tap"
+        force = "hard"
+        action = "session.interrupt"
+        "#,
+    );
+    assert!(
+        found
+            .iter()
+            .any(|problem| problem.to_string().contains("stops or discards work")),
+        "expected a banded interrupt to be refused, got {found:?}"
+    );
+}
+
+#[test]
+fn a_pad_bound_plainly_to_an_interrupt_is_still_allowed() {
+    // The refusal is about force being the only thing in the way, not about
+    // whether an operator may put an interrupt on a pad at all.
+    build(
+        r#"
+        [permissions]
+        granted = ["shell.execute"]
+
+        [[bindings]]
+        control = "pad.0"
+        gesture = "tap"
+        action = "session.interrupt"
+        "#,
+    );
+}
+
+#[test]
+fn a_pad_can_be_scrolled_by_how_hard_it_is_held() {
+    let config = build(
+        r#"
+        [permissions]
+        granted = ["shell.execute"]
+
+        [[bindings]]
+        control = "pad.0"
+        gesture = "press_harder"
+        action = "session.scroll"
+        params = { by = 1 }
+
+        [[bindings]]
+        control = "pad.0"
+        gesture = "press_softer"
+        action = "session.scroll"
+        params = { by = -1 }
+        "#,
+    );
+
+    assert!(
+        config.bindings.gesture_interest().wants_pressure(pad(0)),
+        "a pressure binding must make the recogniser follow aftertouch"
+    );
+}
+
+fn pad(index: u8) -> ControlId {
+    ControlId::Pad(PadIndex::new(index).expect("test pad index is in range"))
+}

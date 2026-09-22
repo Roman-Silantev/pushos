@@ -7,8 +7,9 @@
 use std::collections::HashSet;
 use std::time::Duration;
 
-use pushos_bindings::{BindingTable, GestureTiming, find_conflicts};
+use pushos_bindings::{BindingTable, GestureTiming, find_conflicts, find_force_faults};
 use pushos_domain::agent::AgentDefinition;
+use pushos_domain::gesture::ForceThresholds;
 use pushos_domain::ids::PageId;
 use pushos_domain::page::Page;
 use pushos_domain::permissions::PermissionSet;
@@ -30,6 +31,8 @@ pub struct RuntimeConfig {
     pub bindings: BindingTable,
     /// Gesture timing.
     pub timing: GestureTiming,
+    /// Where one force band ends and the next begins.
+    pub forces: ForceThresholds,
     /// The capabilities the operator has granted.
     pub permissions: PermissionSet,
     /// The media player to control.
@@ -78,6 +81,8 @@ impl RuntimeConfig {
             problems.push(Problem::Timing(invalid));
         }
 
+        let forces = build_forces(&file.gestures, &mut problems);
+
         let (pages, page_ids) = build_pages(file, &mut problems);
         if let Some(home) = &file.runtime.home_page
             && !page_ids.contains(home.as_str())
@@ -102,6 +107,11 @@ impl RuntimeConfig {
         // and both have to exist before it can be checked against them.
         let bindings = crate::bindings::build(file, &page_ids, &workspace_ids, &mut problems);
         problems.extend(find_conflicts(&bindings).into_iter().map(Problem::Conflict));
+        problems.extend(
+            find_force_faults(&bindings)
+                .into_iter()
+                .map(Problem::ForceFault),
+        );
 
         // Worked out before the problems are reported, so a value that means
         // nothing is said rather than quietly taken for the default.
@@ -132,6 +142,7 @@ impl RuntimeConfig {
             home_page: file.runtime.home_page.as_deref().map(PageId::new),
             bindings: BindingTable::new(bindings),
             timing,
+            forces,
             permissions: file.permissions.granted.iter().copied().collect(),
             media_player: file.runtime.media_player.clone(),
             agents,
@@ -165,6 +176,7 @@ impl RuntimeConfig {
             home_page: None,
             bindings: BindingTable::new([]),
             timing: GestureTiming::DEFAULT,
+            forces: ForceThresholds::DEFAULT,
             permissions: PermissionSet::empty(),
             media_player: None,
             agents: Vec::new(),
@@ -316,6 +328,28 @@ fn build_agents(
     }
 
     agents
+}
+
+/// Reads the force band edges, falling back to the defaults.
+///
+/// Edges that would leave a band unreachable are reported and the defaults
+/// kept, so one bad number does not take the rest of the configuration with
+/// it.
+fn build_forces(
+    section: &crate::model::GestureSection,
+    problems: &mut Vec<Problem>,
+) -> ForceThresholds {
+    let defaults = ForceThresholds::DEFAULT;
+    let firm_at = section.firm_at.unwrap_or_else(|| defaults.firm_at());
+    let hard_at = section.hard_at.unwrap_or_else(|| defaults.hard_at());
+
+    match ForceThresholds::new(firm_at, hard_at) {
+        Ok(thresholds) => thresholds,
+        Err(impossible) => {
+            problems.push(Problem::Forces(impossible));
+            defaults
+        }
+    }
 }
 
 fn build_timing(section: &crate::model::GestureSection) -> GestureTiming {

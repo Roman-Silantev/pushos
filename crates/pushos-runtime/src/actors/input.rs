@@ -172,8 +172,11 @@ impl InputTask {
     ) -> Self {
         let current = config.current();
         let surface = SurfaceState::new(Arc::clone(&current));
-        let recognizer =
-            GestureRecognizer::new(current.timing, current.bindings.gesture_interest().clone());
+        let recognizer = GestureRecognizer::new(
+            current.timing,
+            current.forces,
+            current.bindings.gesture_interest().clone(),
+        );
         let rest = RestClock::new(current.rest, Instant::now());
 
         Self {
@@ -393,6 +396,7 @@ impl InputTask {
     pub fn reconfigure(&mut self, config: Arc<RuntimeConfig>) {
         self.recognizer
             .set_interest(config.bindings.gesture_interest().clone());
+        self.recognizer.set_forces(config.forces);
         self.rest.adopt(config.rest, Instant::now());
         self.surface.adopt(config);
         self.publish();

@@ -17,6 +17,9 @@ pub(crate) enum ControlState {
         expires_at: Instant,
         /// Whether Shift was held when the first press began.
         shift: bool,
+        /// How hard the first strike was, so the tap it becomes still carries
+        /// the force the operator put into it.
+        velocity: u8,
     },
 }
 
@@ -36,6 +39,13 @@ pub(crate) struct HeldState {
     pub(crate) hold_reported: bool,
     /// Whether this press is the second half of a potential double tap.
     pub(crate) is_second_tap: bool,
+    /// How hard the strike that began this press was.
+    pub(crate) velocity: u8,
+    /// Which aftertouch step the pad has settled on, from zero at the strike.
+    ///
+    /// Held here rather than derived per message so a reading hovering on an
+    /// edge cannot chatter between two steps.
+    pub(crate) level: u8,
 }
 
 impl HeldState {
@@ -45,6 +55,7 @@ impl HeldState {
         shift: bool,
         hold_at: Option<Instant>,
         is_second_tap: bool,
+        velocity: u8,
     ) -> Self {
         Self {
             pressed_at,
@@ -52,6 +63,8 @@ impl HeldState {
             hold_at,
             hold_reported: false,
             is_second_tap,
+            velocity,
+            level: 0,
         }
     }
 
@@ -82,7 +95,7 @@ mod tests {
     fn a_hold_becomes_due_only_once_its_deadline_passes() {
         let start = Instant::now();
         let due = start + Duration::from_millis(400);
-        let held = HeldState::new(start, false, Some(due), false);
+        let held = HeldState::new(start, false, Some(due), false, 100);
 
         assert!(!held.hold_is_due(start));
         assert!(!held.hold_is_due(start + Duration::from_millis(399)));
@@ -92,7 +105,7 @@ mod tests {
     #[test]
     fn a_press_without_a_hold_binding_never_becomes_due() {
         let start = Instant::now();
-        let held = HeldState::new(start, false, None, false);
+        let held = HeldState::new(start, false, None, false, 100);
         assert!(!held.hold_is_due(start + Duration::from_secs(60)));
         assert!(ControlState::Held(held).deadline().is_none());
     }
@@ -100,7 +113,7 @@ mod tests {
     #[test]
     fn a_reported_hold_stops_asking_to_be_woken() {
         let start = Instant::now();
-        let mut held = HeldState::new(start, false, Some(start), false);
+        let mut held = HeldState::new(start, false, Some(start), false, 100);
         assert!(ControlState::Held(held).deadline().is_some());
         held.hold_reported = true;
         assert!(!held.hold_is_due(start));
