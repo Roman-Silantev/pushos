@@ -271,7 +271,20 @@ async fn serve(
     // agent acknowledge its job description while the operator waits.
     let mut standing = Some(objective).filter(|text| !text.trim().is_empty());
 
-    while let Some(command) = inbox.recv().await {
+    // A command that arrived mid-turn and is not about the turn itself waits
+    // here until the turn is over, rather than being answered out of order.
+    let mut waiting: Option<SessionCommand> = None;
+    let mut stopping = false;
+
+    loop {
+        let command = match waiting.take() {
+            Some(held) => held,
+            None => match inbox.recv().await {
+                Some(command) => command,
+                None => break,
+            },
+        };
+
         match command {
             SessionCommand::Prompt { text, reply } => {
                 observer.observe(
@@ -286,7 +299,37 @@ async fn serve(
                     Some(objective) => format!("{objective}\n\n{text}"),
                     None => text,
                 };
-                let stop = send_prompt(&connection, &wire_session, &text).await;
+                // Serviced while the turn runs, not after it. Cancel is the
+                // one thing an operator presses *because* the agent is
+                // working, and answering it only once the work had finished
+                // would make the pad do nothing at the only moment it matters.
+                let prompting = send_prompt(&connection, &wire_session, &text);
+                tokio::pin!(prompting);
+
+                let stop = loop {
+                    tokio::select! {
+                        finished = &mut prompting => break finished,
+
+                        received = inbox.recv() => match received {
+                            Some(SessionCommand::Cancel { reply }) => {
+                                let sent = cancel(&connection, &wire_session);
+                                let _ = reply.send(sent);
+                            }
+                            Some(SessionCommand::Stop { reply }) => {
+                                // Told to go now: the turn is cancelled and
+                                // the caller answered, and the loop below ends
+                                // once the agent says the turn is over.
+                                let _ = cancel(&connection, &wire_session);
+                                let _ = reply.send(Ok(()));
+                                stopping = true;
+                            }
+                            Some(held) => waiting = Some(held),
+                            // The sender has gone; the turn still finishes.
+                            None => {}
+                        },
+                    }
+                };
+
                 let reason = match stop {
                     Ok(reason) => mapping::stop_reason(&reason),
                     Err(error) => {
@@ -295,17 +338,15 @@ async fn serve(
                     }
                 };
                 observer.observe(&session, AgentEvent::Ended { reason });
+                if stopping {
+                    break;
+                }
             }
 
             SessionCommand::Cancel { reply } => {
                 // The protocol answers a cancel with a stop reason on the turn
                 // itself, so nothing is reported here beyond the send.
-                let sent = connection
-                    .send_notification(agent_client_protocol::schema::v1::CancelNotification::new(
-                        wire_session.clone(),
-                    ))
-                    .map_err(|error| error.to_string());
-                let _ = reply.send(sent);
+                let _ = reply.send(cancel(&connection, &wire_session));
             }
 
             SessionCommand::Stop { reply } => {
@@ -330,6 +371,18 @@ async fn serve(
         },
     );
     Ok(())
+}
+
+/// Tells the agent to stop what it is doing.
+fn cancel(
+    connection: &ConnectionTo<Agent>,
+    session: &agent_client_protocol::schema::v1::SessionId,
+) -> Result<(), String> {
+    connection
+        .send_notification(agent_client_protocol::schema::v1::CancelNotification::new(
+            session.clone(),
+        ))
+        .map_err(|error| error.to_string())
 }
 
 async fn send_prompt(
