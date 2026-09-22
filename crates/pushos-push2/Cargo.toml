@@ -17,6 +17,11 @@ thiserror = { workspace = true }
 tokio = { workspace = true, features = ["sync", "rt", "time"] }
 tracing = { workspace = true }
 
+# Draining CoreMIDI's notifications needs the run loop they arrive on. Already
+# in the tree by way of midir, so this costs nothing that does not ship anyway.
+[target.'cfg(target_os = "macos")'.dependencies]
+core-foundation = "0.10"
+
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
 

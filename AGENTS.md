@@ -896,9 +896,15 @@ Measured on an M4 in September 2026, and the numbers to hold:
 ```text
 binary            5 MB
 dependencies      186 crates
-idle footprint    8 MB, peak 8 MB, after seven hours
-idle CPU          0%
+footprint         8 MB with no surface; 24 MB driving a Push 2
+CPU               0% with no surface; 3.5% driving a Push 2
 ```
+
+The second column is the one that matters and was not measurable until the
+hardware was first connected, on 2026-09-22. A Push 2 costs what its display
+costs: a 960 by 160 frame, the buffers to send it over USB, and the work of
+drawing it fifteen times a second. Quoting the no-surface figures as though
+they were the running cost would be flattering and wrong.
 
 CI fails when the binary passes 8 MB or the tree passes 220 crates. Those are
 ceilings, not targets: when one is hit, either make it smaller or raise it in

@@ -72,6 +72,47 @@ impl std::fmt::Debug for MidiLink {
     }
 }
 
+/// Lets `CoreMIDI` tell this process about devices that have appeared.
+///
+/// A process learns of a Push 2 being plugged in through a notification, and
+/// notifications arrive on a run loop. Nothing in PushOS runs one, and `midir`
+/// does not either, so the list of ports a long-running process can see is
+/// frozen at whatever was plugged in when it started: a surface connected
+/// afterwards is invisible to it for the rest of the day, however many times
+/// it asks, while a brand-new process finds it at once.
+///
+/// Draining the run loop here is what makes asking again mean anything. It
+/// returns immediately when there is nothing waiting.
+#[cfg(target_os = "macos")]
+fn notice_new_devices() {
+    use core_foundation::base::TCFType;
+    use core_foundation::runloop::{CFRunLoop, CFRunLoopRunResult};
+    use core_foundation::string::CFString;
+
+    // A run loop mode is named by a string, and the default one is named after
+    // itself. Built here rather than read from the linked constant, which
+    // would be an `extern static` and so need unsafe to read — for a value
+    // that is only ever this text.
+    let default = CFString::from_static_string("kCFRunLoopDefaultMode");
+
+    // Each pass hands over one waiting source, and returns at once when there
+    // is nothing waiting. A handful clears what plugging a device in leaves
+    // behind without ever waiting for something that is not coming.
+    for _ in 0..16 {
+        let drained = CFRunLoop::run_in_mode(
+            default.as_concrete_TypeRef(),
+            std::time::Duration::ZERO,
+            true,
+        );
+        if !matches!(drained, CFRunLoopRunResult::HandledSource) {
+            break;
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn notice_new_devices() {}
+
 impl MidiLink {
     /// Opens both directions of the given port and switches the device into the
     /// matching MIDI mode.
@@ -203,6 +244,7 @@ impl MidiLink {
         events: tokio_mpsc::Sender<ControlEvent>,
         dropped: Arc<AtomicU64>,
     ) -> Result<MidiInputConnection<()>, MidiError> {
+        notice_new_devices();
         let mut input = MidiInput::new(CLIENT_NAME).map_err(|_| MidiError::ClientInit)?;
         // Clock and active sensing arrive constantly and mean nothing to PushOS.
         input.ignore(Ignore::TimeAndActiveSense);
