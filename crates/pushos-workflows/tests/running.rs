@@ -478,3 +478,78 @@ async fn a_run_started_in_a_project_stays_in_it() {
     );
     let _ = SystemTime::now();
 }
+
+/// A workflow whose very first step is one that takes a while.
+fn one_slow_step() -> Workflow {
+    Workflow {
+        id: WorkflowId::new("build"),
+        name: "Build".to_owned(),
+        description: None,
+        start: NodeId::new("tests"),
+        nodes: vec![
+            node(
+                "tests",
+                NodeKind::Terminal {
+                    terminal: "tests".to_owned(),
+                    program: "cargo".to_owned(),
+                    args: vec!["test".to_owned()],
+                    next: NodeId::new("shipped"),
+                    on_failure: None,
+                },
+            ),
+            node(
+                "shipped",
+                NodeKind::End {
+                    outcome: Outcome::Succeeded,
+                },
+            ),
+        ]
+        .into_iter()
+        .collect(),
+        limits: Limits::DEFAULT,
+    }
+}
+
+#[tokio::test]
+async fn a_run_cancelled_mid_step_is_not_carried_on_by_the_step_that_was_running() {
+    // Cancelling wrote Finished{Cancelled}; the step already in flight then
+    // finished and put the run back to Running, and it carried on into the
+    // next node's side effects. The row on disk went Cancelled, then Running.
+    let harness = Harness::new(one_slow_step());
+    harness.terminals.taking_to_open(Duration::from_millis(300));
+
+    let run = harness
+        .engine
+        .start(&WorkflowId::new("build"), &SurfaceContext::empty())
+        .await
+        .expect("configured");
+
+    // Inside the step, which has not come back yet.
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    harness
+        .engine
+        .cancel(&run.id)
+        .await
+        .expect("it is still running");
+
+    // Long enough for the step to finish and try to move the run along.
+    tokio::time::sleep(Duration::from_millis(500)).await;
+
+    let after = harness
+        .engine
+        .runs()
+        .await
+        .into_iter()
+        .find(|held| held.id == run.id)
+        .expect("the run is still known");
+    assert_eq!(
+        after.outcome(),
+        Some(Outcome::Cancelled),
+        "the operator asked for it to stop, and it stopped"
+    );
+    assert_eq!(
+        after.at,
+        NodeId::new("tests"),
+        "and it never moved on to the next step"
+    );
+}

@@ -559,6 +559,14 @@ impl WorkflowEngine {
         let Some(mut run) = self.get(id).await else {
             return;
         };
+        // The step that just finished may have been running while the operator
+        // cancelled the run. What they asked for wins: without this the run is
+        // put back to Running and carries on into the next node's side
+        // effects, and the row on disk goes from Cancelled back to Running.
+        if !run.is_live() {
+            debug!(run = %id, "the run was ended while a step was in flight; leaving it ended");
+            return;
+        }
         let from = run.at.clone();
         let at = SystemTime::now();
 
@@ -589,6 +597,11 @@ impl WorkflowEngine {
         let Some(mut run) = self.get(id).await else {
             return;
         };
+        // For the same reason as `step_to`: a run cancelled while this step
+        // was running must not be parked as though it were still going.
+        if !run.is_live() {
+            return;
+        }
         debug!(run = %id, at = %run.at, "workflow waiting");
 
         run.state = RunState::Waiting(waiting);

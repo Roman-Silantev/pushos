@@ -29,17 +29,27 @@ pub struct FakeTerminal {
     observer: Arc<dyn TerminalObserver>,
     open: Arc<Mutex<HashMap<SessionId, FakeOpen>>>,
     fail_with: Arc<Mutex<Option<ErrorClass>>>,
+    /// How long opening takes, for testing what happens to a run that is
+    /// cancelled while a step of it is still going.
+    slow_to_open: Arc<Mutex<Option<std::time::Duration>>>,
     /// Ended terminals are kept so a test can still read what was typed.
     closed: Arc<Mutex<Vec<SessionId>>>,
 }
 
 impl FakeTerminal {
+    /// Makes the next open take this long, so a run can be cancelled inside a
+    /// step of it.
+    pub fn taking_to_open(&self, how_long: std::time::Duration) {
+        *lock(&self.slow_to_open) = Some(how_long);
+    }
+
     /// Builds a host reporting to `observer`.
     pub fn new(observer: Arc<dyn TerminalObserver>) -> Self {
         Self {
             observer,
             open: Arc::new(Mutex::new(HashMap::new())),
             fail_with: Arc::new(Mutex::new(None)),
+            slow_to_open: Arc::new(Mutex::new(None)),
             closed: Arc::new(Mutex::new(Vec::new())),
         }
     }
@@ -123,6 +133,10 @@ impl TerminalHost for FakeTerminal {
         spec: TerminalSpec,
     ) -> Result<TerminalHandle, TerminalError> {
         self.check()?;
+        let slowly = lock(&self.slow_to_open).take();
+        if let Some(how_long) = slowly {
+            tokio::time::sleep(how_long).await;
+        }
         let size = spec.size;
         lock(&self.open).insert(
             id.clone(),
