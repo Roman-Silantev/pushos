@@ -84,6 +84,27 @@ pub(crate) async fn execute(requested: Option<&Path>) -> Result<(), String> {
     ))
 }
 
+/// Whether anyone but the owner can read the configuration.
+///
+/// PushOS keeps what it writes to its owner, but a file the operator wrote
+/// themselves is theirs, and quietly changing its permissions would be PushOS
+/// deciding something about a file it did not make. Said rather than done.
+fn readable_by_others(root: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+
+        pushos_config::paths::files_for(root).iter().any(|file| {
+            std::fs::metadata(file).is_ok_and(|held| held.permissions().mode() & 0o077 != 0)
+        })
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = root;
+        false
+    }
+}
+
 fn check_configuration(root: &Path) -> Finding {
     // A directory with nothing in it reads as a valid configuration of no
     // pages and no bindings, which is true and useless: a mistyped `--config`
@@ -103,13 +124,23 @@ fn check_configuration(root: &Path) -> Finding {
 
     match pushos_config::load(root).and_then(|file| RuntimeConfig::build(&file)) {
         Ok(config) => Finding::new(
-            Verdict::Good,
+            if readable_by_others(root) {
+                Verdict::Optional
+            } else {
+                Verdict::Good
+            },
             "configuration",
             format!(
-                "{} ({} pages, {} bindings)",
+                "{} ({} pages, {} bindings){}",
                 root.display(),
                 config.pages.len(),
-                config.bindings.len()
+                config.bindings.len(),
+                if readable_by_others(root) {
+                    "; readable by other accounts on this Mac. \
+                     `chmod 600` it if a project's environment holds anything private"
+                } else {
+                    ""
+                }
             ),
         ),
         Err(error) => Finding::new(
