@@ -329,7 +329,19 @@ fn called(seat: &str) -> String {
 /// Writes the book in one step, so a crash cannot leave half of it.
 fn write_atomically(path: &Path, text: &str) -> std::io::Result<()> {
     let beside = path.with_extension("writing");
-    std::fs::write(&beside, text)?;
+    // Written, then forced to the disk, then put in place. Without the middle
+    // step the rename can reach the disk before the contents do, and a machine
+    // that loses power brings the file back empty — which for this file is
+    // every pad's session, lost for a saving of nothing.
+    let file = std::fs::File::create(&beside)?;
+    {
+        use std::io::Write as _;
+        let mut writing = &file;
+        writing.write_all(text.as_bytes())?;
+        writing.flush()?;
+    }
+    file.sync_all()?;
+    drop(file);
     std::fs::rename(&beside, path)
 }
 

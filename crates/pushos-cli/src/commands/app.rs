@@ -125,6 +125,17 @@ pub(crate) fn uninstall() -> Result<(), String> {
     let layout = AppLayout::for_user(&home);
 
     stop()?;
+
+    // Before the binary goes. The hook in each agent's settings runs this very
+    // executable on every permission question they ask; left behind, it points
+    // at a path that no longer exists, fires on every prompt, and the command
+    // that removes it is the one just deleted. A failure here is reported and
+    // not fatal: the app should still come off.
+    if let Err(error) = super::hook::uninstall() {
+        eprintln!("could not take PushOS out of the agents' hooks: {error}");
+        eprintln!("run `pushos hook uninstall` before removing the app, or edit them by hand");
+    }
+
     let plist = app::agent_plist_path(&home);
     if plist.exists() {
         std::fs::remove_file(&plist)
@@ -146,8 +157,21 @@ pub(crate) fn uninstall() -> Result<(), String> {
             .map_err(|error| format!("could not remove {}: {error}", layout.root().display()))?;
     }
 
-    println!("removed the PushOS app and its login item");
-    println!("configuration, notes and logs are where they were");
+    println!("removed the PushOS app, its login item and its hooks in the agents");
+    // Named rather than merely said to be kept, because an operator removing
+    // PushOS for good has no way to guess where any of it lives.
+    println!("what is left, should you want it:");
+    if let Ok(config) = paths::config_root(None) {
+        println!("  configuration  {}", config.display());
+    }
+    if let Ok(state) = paths::state_file()
+        && let Some(directory) = state.parent()
+    {
+        println!("  notes and state {}", directory.display());
+    }
+    println!("  logs           {}/Library/Logs/PushOS", home.display());
+    println!("working trees PushOS made in your projects are still registered;");
+    println!("`git worktree prune` in a project clears any it left behind");
     Ok(())
 }
 

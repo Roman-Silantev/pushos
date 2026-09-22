@@ -467,6 +467,19 @@ fn param_value(param: &pushos_domain::action::ParamValue) -> Value {
 /// Writing in place would let a reader, including PushOS's own watcher, observe
 /// a half-written file. A temporary file in the same directory followed by a
 /// rename cannot be observed partially.
+/// Writes a file and waits for the disk to have it.
+fn write_and_sync(path: &Path, contents: &str) -> std::io::Result<()> {
+    use std::io::Write as _;
+
+    let file = std::fs::File::create(path)?;
+    {
+        let mut writing = &file;
+        writing.write_all(contents.as_bytes())?;
+        writing.flush()?;
+    }
+    file.sync_all()
+}
+
 fn write_atomically(path: &Path, contents: &str) -> Result<(), ConfigError> {
     let directory = path.parent().unwrap_or(Path::new("."));
     std::fs::create_dir_all(directory).map_err(|source| ConfigError::Unwritable {
@@ -475,7 +488,10 @@ fn write_atomically(path: &Path, contents: &str) -> Result<(), ConfigError> {
     })?;
 
     let temporary = path.with_extension("toml.pushos-tmp");
-    std::fs::write(&temporary, contents).map_err(|source| ConfigError::Unwritable {
+    // Forced to the disk before it is put in place: a rename that lands first
+    // would, after a power loss, leave the operator an empty configuration
+    // where their bindings used to be.
+    write_and_sync(&temporary, contents).map_err(|source| ConfigError::Unwritable {
         path: temporary.clone(),
         source,
     })?;
