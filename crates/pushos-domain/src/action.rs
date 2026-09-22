@@ -305,6 +305,13 @@ pub enum DisplayIntent {
     /// Move to a page.
     Page(crate::page::PageTarget),
     /// Offer the operator a choice. Never steals focus on its own.
+    /// Stop looking closely at one thing, and show the eight again.
+    ///
+    /// The counterpart to [`DisplayIntent::Focus`]. Changing *which* eight
+    /// sessions are shown is a request to look at the eight, so it has to be
+    /// able to say so — and it cannot say it by moving page, because that
+    /// would change what every pad on the surface means.
+    Overview,
     Prompt {
         /// What is being asked.
         question: String,

@@ -226,6 +226,10 @@ impl SurfaceState {
                 self.focus = None;
                 self.go_to(&target)
             }
+            DisplayIntent::Overview => {
+                self.focus = None;
+                None
+            }
             DisplayIntent::Focus {
                 kind,
                 title,

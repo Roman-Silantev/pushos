@@ -782,10 +782,11 @@ impl ActionProvider for SessionProvider {
                 Ok(ActionResult {
                     status: ActionStatus::Completed,
                     message: Some(format!("{}-{last} of {}", from + 1, open.len())),
-                    display: Some(DisplayIntent::Toast {
-                        title: format!("sessions {}-{last}", from + 1),
-                        detail: Some(format!("of {}", open.len())),
-                    }),
+                    // Not a banner over whatever was there: asking for a
+                    // different eight is asking to look at the eight. The
+                    // names arriving on the display, and the pads relighting
+                    // under them, say which eight better than a caption could.
+                    display: Some(DisplayIntent::Overview),
                 })
             }
 
