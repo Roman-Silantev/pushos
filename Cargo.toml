@@ -93,6 +93,10 @@ objc2-avf-audio = { version = "0.3", default-features = false, features = [
     "AVAudioBuffer",
     "AVAudioFormat",
     "AVAudioTypes",
+    # Asking for the microphone hands macOS a completion block. Without this
+    # the request method is not compiled in, and PushOS can read the
+    # permission but never ask for it.
+    "block2",
 ] }
 block2 = "0.6"
 # Pseudo-terminals. PushOS runs jobs itself rather than opening windows, so it

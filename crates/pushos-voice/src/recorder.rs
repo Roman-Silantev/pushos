@@ -79,9 +79,21 @@ impl Default for CoreAudioMicrophone {
 #[async_trait]
 impl Microphone for CoreAudioMicrophone {
     async fn start(&self) -> Result<(), VoiceError> {
+        // Before the device is touched. `CoreAudio` will not prompt, and an
+        // unasked microphone fails exactly like a refused one, so asking has
+        // to happen here or the operator is never given the chance to say yes.
+        crate::apple::ask_to_record()?;
+
         match self.ask(Command::Start) {
             Some(Ok(())) => Ok(()),
-            Some(Err(why)) => Err(classify(&why)),
+            Some(Err(why)) => {
+                // The raw text, before it is sorted into a refusal or a fault:
+                // `CoreAudio` reports both as an opaque number, and an
+                // operator who has already granted the microphone needs to
+                // know which number they are actually looking at.
+                warn!(%why, "the microphone would not open");
+                Err(classify(&why))
+            }
             None => Err(VoiceError::Unavailable {
                 context: "the microphone thread is gone; restart PushOS".to_owned(),
             }),
@@ -138,6 +150,40 @@ fn serve(inbox: &mpsc::Receiver<Command>, recording: &Arc<Mutex<bool>>) {
 fn set(recording: &Arc<Mutex<bool>>, value: bool) {
     if let Ok(mut held) = recording.lock() {
         *held = value;
+    }
+}
+
+/// Whether an input device exists that can actually be opened.
+///
+/// Two questions again, and the second is the one that was missing: macOS
+/// offers a default input device on a Mac with no microphone in it — a virtual
+/// one left behind by a meeting application, say — and it is only opening the
+/// thing that tells you it will not work. A report that stops at "a device is
+/// listed" says everything is fine right up until a control is held.
+pub fn input_device_works() -> Result<String, VoiceError> {
+    let device =
+        cpal::default_host()
+            .default_input_device()
+            .ok_or_else(|| VoiceError::Unavailable {
+                context: "no microphone is attached to this Mac".to_owned(),
+            })?;
+
+    // cpal names a device through `Display` rather than a method, and that
+    // implementation can fail — `to_string` turns the failure into a panic,
+    // and a device too broken to name is exactly the case this is here to
+    // report on.
+    let named = {
+        use std::fmt::Write as _;
+        let mut written = String::new();
+        if write!(written, "{device}").is_err() {
+            "a device that will not say its name".clone_into(&mut written);
+        }
+        written
+    };
+
+    match device.default_input_config() {
+        Ok(_) => Ok(named),
+        Err(error) => Err(classify(&format!("could not open the microphone: {error}"))),
     }
 }
 
@@ -256,27 +302,46 @@ fn resample(raw: &[f32], channels: usize, every: usize) -> Vec<f32> {
         .collect()
 }
 
-/// Tells a refused microphone apart from a broken one.
+/// Tells a refused microphone apart from an unusable one.
 ///
-/// The operator can fix one of these and not the other, and `CoreAudio` reports
-/// both as an opaque number.
+/// `CoreAudio` reports both as an opaque number, and the operator can only fix
+/// one of them — but they are fixed in two different places, so guessing sends
+/// them to the wrong pane of System Settings and everything there looks right.
+///
+/// `560947818` is `'!obj'`, `kAudioHardwareBadObjectError`, and it was written
+/// down here as what a refused device reports. It is not. It is what an input
+/// device that cannot be opened reports, which on a Mac with no microphone in
+/// it is the device macOS offers anyway: a Mac mini has no built-in
+/// microphone, and a virtual one left behind by a meeting application will be
+/// picked as the default input and then refuse to open. That mistake sent an
+/// operator to Privacy and Security, where the microphone was already allowed.
 fn classify(why: &str) -> VoiceError {
-    let refused = why.contains("560947818") // '!obj', what a denied device reports
-        || why.contains("561017449") // '!pri', not permitted
+    let refused = why.contains("561017449") // '!pri', not permitted
         || why.to_lowercase().contains("permission")
         || why.to_lowercase().contains("not authorized");
 
     if refused {
-        VoiceError::NotPermitted {
+        return VoiceError::NotPermitted {
             what: "the microphone".to_owned(),
-        }
-    } else {
-        VoiceError::backend(
-            why.to_owned(),
-            ErrorClass::ComponentFailure,
-            std::io::Error::other(why.to_owned()),
-        )
+        };
     }
+
+    if why.contains("560947818") {
+        return VoiceError::Unavailable {
+            context: concat!(
+                "the input device macOS offers cannot be opened. Pick a working one in ",
+                "System Settings under Sound, Input; a Mac with no microphone of its own ",
+                "offers a virtual device that does not record"
+            )
+            .to_owned(),
+        };
+    }
+
+    VoiceError::backend(
+        why.to_owned(),
+        ErrorClass::ComponentFailure,
+        std::io::Error::other(why.to_owned()),
+    )
 }
 
 #[cfg(test)]
@@ -329,12 +394,41 @@ mod tests {
     fn a_denied_device_is_reported_as_a_permission_rather_than_a_fault() {
         // CoreAudio reports both as an opaque number, and the operator can only
         // do something about one of them.
-        let refused = classify("could not open the microphone: OSStatus: 560947818");
+        let refused = classify("could not open the microphone: OSStatus: 561017449");
         assert_eq!(refused.class(), ErrorClass::Permission);
         assert!(refused.to_string().contains("System Settings"));
 
         let broken = classify("could not start the microphone: device disappeared");
         assert_eq!(broken.class(), ErrorClass::ComponentFailure);
+    }
+
+    #[test]
+    fn a_device_that_will_not_open_sends_the_operator_to_sound_not_to_privacy() {
+        // This test previously asserted the opposite, and the mistake cost an
+        // operator an hour. `'!obj'` is `kAudioHardwareBadObjectError`: the
+        // device cannot be opened, which is not the same as not being allowed
+        // to open it. On a Mac mini — no microphone of its own — macOS offers
+        // whatever virtual device a meeting application left behind, and that
+        // is what this is.
+        let unusable = classify("could not open the microphone: OSStatus: 560947818");
+
+        assert_ne!(
+            unusable.class(),
+            ErrorClass::Permission,
+            "the microphone was already allowed; sending them to Privacy finds nothing to change"
+        );
+        let said = unusable.to_string();
+        assert!(said.contains("Sound"), "{said}");
+        assert!(said.contains("Input"), "{said}");
+    }
+
+    #[test]
+    fn the_two_opaque_numbers_are_not_confused_for_one_another() {
+        let not_permitted = classify("OSStatus: 561017449");
+        let will_not_open = classify("OSStatus: 560947818");
+        assert_eq!(not_permitted.class(), ErrorClass::Permission);
+        assert_ne!(will_not_open.class(), ErrorClass::Permission);
+        assert_ne!(not_permitted.to_string(), will_not_open.to_string());
     }
 
     #[test]

@@ -314,6 +314,61 @@ fn classify(why: &str) -> VoiceError {
     }
 }
 
+/// Asks macOS for the microphone, if it has not been asked.
+///
+/// Reading the permission is not asking for it, and nothing else here asks:
+/// `CoreAudio` refuses an unasked device with `!pri` and shows the operator
+/// nothing, so a Mac that would happily have granted the microphone looks
+/// exactly like one that has refused it. Speech recognition has always been
+/// asked for properly; this is the other half.
+///
+/// Blocks until the operator answers, which holding a control to speak already
+/// implies they are willing to do.
+pub(crate) fn ask_to_record() -> Result<(), VoiceError> {
+    use crate::engines::RecordPermission;
+
+    let standing = record_permission();
+    debug!(
+        ?standing,
+        "macOS's answer about the microphone, asked inside PushOS itself"
+    );
+
+    match standing {
+        RecordPermission::Granted => return Ok(()),
+        RecordPermission::Denied => {
+            warn!(
+                "macOS has the microphone down as refused for PushOS itself; \
+                 `doctor` reads it as whatever started `doctor`, which is why the two disagree"
+            );
+            return Err(VoiceError::NotPermitted {
+                what: "the microphone".to_owned(),
+            });
+        }
+        // Unknown is a value this build of macOS did not teach us. Asking is
+        // harmless and answers the question.
+        RecordPermission::Unasked | RecordPermission::Unknown => {}
+    }
+
+    let (answered, answer) = mpsc::channel();
+    let handler = RcBlock::new(move |granted: objc2::runtime::Bool| {
+        let _ = answered.send(granted.as_bool());
+    });
+    unsafe { AVAudioApplication::requestRecordPermissionWithCompletionHandler(&handler) };
+
+    match answer.recv_timeout(PATIENCE) {
+        Ok(true) => Ok(()),
+        Ok(false) => {
+            warn!("macOS refused the microphone without asking the operator");
+            Err(VoiceError::NotPermitted {
+                what: "the microphone".to_owned(),
+            })
+        }
+        Err(_) => Err(VoiceError::Unavailable {
+            context: "macOS did not answer the request to use the microphone".to_owned(),
+        }),
+    }
+}
+
 /// What macOS says about this process's permission to record.
 ///
 /// Asked of the system rather than inferred from finding a device. Those are

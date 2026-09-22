@@ -39,4 +39,4 @@ pub use whisper::WhisperSpeech;
 #[cfg(target_os = "macos")]
 pub use apple::{AppleSpeech, Readiness};
 #[cfg(target_os = "macos")]
-pub use recorder::CoreAudioMicrophone;
+pub use recorder::{CoreAudioMicrophone, input_device_works};

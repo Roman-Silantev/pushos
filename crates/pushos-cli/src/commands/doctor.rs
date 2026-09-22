@@ -377,6 +377,26 @@ fn check_microphone() -> Finding {
         return Finding::new(Verdict::Blocking, "microphone", error.to_string());
     }
 
+    // Opened, not merely listed. macOS offers a default input device on a Mac
+    // that has no microphone in it, and only opening it says so.
+    match pushos_voice::input_device_works() {
+        Ok(named) => {
+            if matches!(
+                pushos_voice::RecordPermission::current(),
+                pushos_voice::RecordPermission::Granted
+            ) {
+                return Finding::new(
+                    Verdict::Good,
+                    "microphone",
+                    format!("{named}, and it opens"),
+                );
+            }
+        }
+        Err(error) => {
+            return Finding::new(Verdict::Blocking, "microphone", error.to_string());
+        }
+    }
+
     let permission = pushos_voice::RecordPermission::current();
     let verdict = if permission.is_usable() {
         Verdict::Good
