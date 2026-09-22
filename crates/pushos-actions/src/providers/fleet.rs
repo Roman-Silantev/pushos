@@ -101,7 +101,10 @@ impl FleetProvider {
         }
 
         let fleet = self.agents.sessions().await;
-        let mut ordered: Vec<_> = fleet.iter().filter(|session| session.is_live()).collect();
+        // Every agent, finished ones included: they keep their pads, they take
+        // prompts, and briefing the fleet again with a new file is how a
+        // second round of work starts.
+        let mut ordered: Vec<_> = fleet.iter().collect();
         // The same order the pads are in, so the job on line three goes to the
         // agent on the third pad and an operator can follow along.
         ordered.sort_by(|left, right| {
@@ -141,7 +144,10 @@ impl FleetProvider {
     /// Puts every open agent away.
     async fn dismiss(&self) -> Result<ActionResult, ActionError> {
         let fleet = self.agents.sessions().await;
-        let live: Vec<_> = fleet.iter().filter(|session| session.is_live()).collect();
+        // Finished agents are put away too: they are still holding threads in
+        // the app-server and still holding places on the grid, and dismissing
+        // the fleet is how an operator gets both back.
+        let live: Vec<_> = fleet.iter().collect();
         if live.is_empty() {
             return Err(nothing_happened("no agent is open"));
         }

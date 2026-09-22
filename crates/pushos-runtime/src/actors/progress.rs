@@ -41,8 +41,16 @@ pub(crate) struct RoleActivity {
 /// Ordered by when a session opened rather than by what it is doing, so an
 /// agent never swaps pads with its neighbour while someone is reaching for it.
 /// Started-at alone can tie, so the id breaks it and the order is total.
+///
+/// A finished agent keeps its place. Dropping it would renumber every agent
+/// after it — the first live fleet finished all eight of its jobs and the
+/// whole grid went dark — and it would disagree with the registry, which
+/// resolves a pad's target without filtering, so a pad could light for one
+/// agent and select another. Places are given up by dismissing the fleet,
+/// which is a thing the operator does rather than something that happens
+/// under their hand.
 pub(crate) fn fleet_of(sessions: &[Session]) -> Vec<AgentState> {
-    let mut ordered: Vec<&Session> = sessions.iter().filter(|s| s.is_live()).collect();
+    let mut ordered: Vec<&Session> = sessions.iter().collect();
     ordered.sort_by(|left, right| {
         left.started_at
             .cmp(&right.started_at)
@@ -153,5 +161,88 @@ mod tests {
             ),
             Some(AgentState::Working)
         );
+    }
+
+    /// A session that opened at a known moment, in a known state.
+    fn opened_at(id: &str, when: std::time::Instant, state: AgentState) -> Session {
+        let handle = pushos_domain::ports::SessionHandle {
+            id: pushos_domain::ids::SessionId::new(id),
+            provider_session: Some(id.to_owned()),
+            provider: "codex".into(),
+        };
+        let mut session = Session::opened(&handle, "worker".into(), None, when);
+        session.state = state;
+        session
+    }
+
+    #[test]
+    fn a_finished_agent_keeps_its_place() {
+        // Found on the hardware: eight agents answered eight questions, every
+        // one of them finished, and the whole grid went dark. Dropping a
+        // finished agent also renumbers every agent after it, so the pad an
+        // operator learned is no longer the agent they learned it for.
+        let start = std::time::Instant::now();
+        let sessions = vec![
+            opened_at("a", start, AgentState::Completed),
+            opened_at("b", start + Duration::from_millis(1), AgentState::Working),
+            opened_at("c", start + Duration::from_millis(2), AgentState::Failed),
+        ];
+
+        assert_eq!(
+            fleet_of(&sessions),
+            vec![
+                AgentState::Completed,
+                AgentState::Working,
+                AgentState::Failed
+            ],
+            "every place is held, whatever the agent in it is doing"
+        );
+    }
+
+    #[test]
+    fn the_fleet_is_ordered_by_when_each_agent_opened() {
+        let start = std::time::Instant::now();
+        // Deliberately out of order, and with the most recent first, which is
+        // how the display wants them and the opposite of what a grid needs.
+        let sessions = vec![
+            opened_at(
+                "third",
+                start + Duration::from_millis(2),
+                AgentState::Working,
+            ),
+            opened_at("first", start, AgentState::Completed),
+            opened_at(
+                "second",
+                start + Duration::from_millis(1),
+                AgentState::Failed,
+            ),
+        ];
+
+        assert_eq!(
+            fleet_of(&sessions),
+            vec![
+                AgentState::Completed,
+                AgentState::Failed,
+                AgentState::Working
+            ]
+        );
+    }
+
+    #[test]
+    fn an_agent_changing_what_it_is_doing_does_not_move_it() {
+        let start = std::time::Instant::now();
+        let mut sessions = vec![
+            opened_at("a", start, AgentState::Working),
+            opened_at("b", start + Duration::from_millis(1), AgentState::Working),
+        ];
+        let before = fleet_of(&sessions);
+
+        // The second one finishes. It must stay second.
+        sessions[1].state = AgentState::Completed;
+        let after = fleet_of(&sessions);
+
+        assert_eq!(before.len(), after.len());
+        assert_eq!(after[0], AgentState::Working);
+        assert_eq!(after[1], AgentState::Completed);
     }
 }
