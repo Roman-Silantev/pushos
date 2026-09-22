@@ -67,6 +67,9 @@ impl SurfaceView {
 /// Runs the input pipeline.
 /// An action that has run, on its way back to the task that owns the surface.
 struct Finished {
+    /// When the gesture that asked for it was recognised, so the wait the
+    /// operator actually felt can be measured rather than guessed at.
+    began: Instant,
     selector: pushos_domain::action::ActionSelector,
     correlation: CorrelationId,
     outcome: Result<ActionResult, pushos_domain::error::ActionError>,
@@ -498,9 +501,22 @@ impl InputTask {
 
         let selector = binding.action.selector.clone();
         let key = BindingKey::new(gesture.control, gesture.gesture);
+        // How long the operator waited between the gesture being recognised
+        // and its action going. The specification asks for under fifty
+        // milliseconds, and this is the half of it PushOS owns; what an action
+        // then takes is the action's own.
+        let waited = gesture.at.elapsed();
+        debug!(
+            %selector,
+            control = %gesture.control,
+            %gesture.gesture,
+            dispatched_after_us = waited.as_micros(),
+            "acting on a gesture"
+        );
         let dispatcher = Arc::clone(&self.dispatcher);
         let action = binding.action.clone();
         let back = self.finished.0.clone();
+        let began = gesture.at;
 
         // Off this task, so the surface keeps answering while it runs. What it
         // came to is handled back here, where the surface is owned.
@@ -508,6 +524,7 @@ impl InputTask {
             let outcome = dispatcher.dispatch(action, context, correlation).await;
             let _ = back
                 .send(Finished {
+                    began,
                     selector,
                     correlation,
                     outcome,
@@ -529,7 +546,14 @@ impl InputTask {
             correlation,
             outcome,
             key,
+            began,
         } = finished;
+
+        debug!(
+            %selector,
+            took_us = began.elapsed().as_micros(),
+            "an action came back"
+        );
 
         match outcome {
             Ok(result) => self.on_result(&selector, result, correlation),

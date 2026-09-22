@@ -38,6 +38,7 @@ async fn main() -> std::process::ExitCode {
         Command::Run { fake } => commands::run::execute(cli.config.as_deref(), fake).await,
         Command::Check => commands::check::execute(cli.config.as_deref()),
         Command::Doctor => commands::doctor::execute(cli.config.as_deref()).await,
+        Command::Selftest => commands::selftest::execute().await,
         Command::Status => commands::control::status().await,
         Command::Bindings => commands::control::bindings().await,
         Command::Sessions => commands::control::sessions().await,

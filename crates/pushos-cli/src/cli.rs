@@ -40,6 +40,12 @@ pub(crate) enum Command {
     /// Report on the hardware, the configuration and the host integrations.
     Doctor,
 
+    /// Work the Push 2 itself: every light, the display, and every control.
+    ///
+    /// Needs the device, and a person to watch it. Stop any running PushOS
+    /// first, because whichever holds the Push has it to itself.
+    Selftest,
+
     /// Ask a running PushOS what it is doing.
     Status,
 

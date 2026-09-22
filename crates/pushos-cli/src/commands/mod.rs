@@ -10,3 +10,4 @@ pub(crate) mod init;
 pub(crate) mod pack;
 pub(crate) mod paths;
 pub(crate) mod run;
+pub(crate) mod selftest;
