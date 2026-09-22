@@ -6,10 +6,14 @@
 //! fleet: measured on an M4, a Claude Code session costs around 440 MB, so a
 //! dozen is what a laptop holds.
 //!
-//! Codex's app-server hosts many threads in one process instead. Sixty-four
-//! idle threads measured at about 30 MB between them, and a thread opens in
-//! roughly a tenth of a second. That is the difference between a surface that
-//! shows a dozen agents and one that shows sixty-four.
+//! Codex's app-server hosts many threads in one process instead. Measured on
+//! an M4: 192 MB for the process with one thread in it, and 23.5 MB for each
+//! thread after that, so sixty-four of them come to about 1.7 GB. A thread
+//! opens in roughly a tenth of a second.
+//!
+//! Sixty-four Claude Code sessions would be around 28 GB on the same machine.
+//! That seventeen-fold difference is what separates a surface showing a dozen
+//! agents from one showing sixty-four.
 //!
 //! Holding sixty-four threads is not the same as running sixty-four turns.
 //! Both vendors refuse past two or three at once, so [`TurnGate`] gives a turn
@@ -26,6 +30,7 @@
 mod backend;
 mod error;
 pub mod mapping;
+mod sandbox;
 mod server;
 mod turns;
 

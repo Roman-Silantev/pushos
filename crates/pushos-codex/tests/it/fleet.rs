@@ -24,25 +24,52 @@ use pushos_domain::ports::{
 /// How many threads the fleet test opens. The number on the front of the box.
 const FLEET: usize = 64;
 
-/// What the whole fleet may cost, resident, in one process.
+/// What the whole fleet may cost, resident, across the whole process tree.
 ///
-/// Measured at around 30 MB on an M4 in September 2026. The ceiling is
-/// deliberately far above that: it is not a target to creep towards but a trip
-/// wire for the day a thread starts costing megabytes, which would quietly
-/// turn sixty-four pads back into a dozen.
-const FLEET_CEILING_MB: f64 = 250.0;
+/// A trip wire rather than a target: the day a thread starts costing tens of
+/// megabytes, sixty-four pads quietly become a dozen again, and a number that
+/// only ever gets looked at by hand would not catch it.
+const FLEET_CEILING_MB: f64 = 2_500.0;
 
-/// What a process is holding, in megabytes.
+/// What a process and everything it started are holding, in megabytes.
+///
+/// The tree, not the process. `codex` on this machine is a small Node wrapper
+/// that spawns the real binary, so measuring the process PushOS started
+/// reports the wrapper and misses everything that matters — which is exactly
+/// the mistake the first version of this test made.
 fn resident_mb(pid: u32) -> f64 {
     let out = std::process::Command::new("ps")
-        .args(["-o", "rss=", "-p", &pid.to_string()])
+        .args(["-Ao", "pid=,ppid=,rss="])
         .output()
         .expect("ps runs");
-    String::from_utf8_lossy(&out.stdout)
-        .trim()
-        .parse::<f64>()
-        .unwrap_or(0.0)
-        / 1024.0
+    let listing = String::from_utf8_lossy(&out.stdout);
+
+    let rows: Vec<(u32, u32, f64)> = listing
+        .lines()
+        .filter_map(|line| {
+            let mut fields = line.split_whitespace();
+            let pid = fields.next()?.parse().ok()?;
+            let parent = fields.next()?.parse().ok()?;
+            let rss: f64 = fields.next()?.parse().ok()?;
+            Some((pid, parent, rss))
+        })
+        .collect();
+
+    // Walk down from the root, so a wrapper's children are counted whatever
+    // shape the installation happens to have.
+    let mut tree = vec![pid];
+    let mut held = 0.0;
+    while let Some(at) = tree.pop() {
+        for (child, parent, rss) in &rows {
+            if *parent == at {
+                tree.push(*child);
+            }
+            if *child == at {
+                held += rss / 1024.0;
+            }
+        }
+    }
+    held
 }
 
 /// Collects what the backend reported, so a test can look at it afterwards.
@@ -81,9 +108,17 @@ fn backend() -> CodexBackend {
 async fn sixty_four_threads_live_in_one_process() {
     let backend = backend();
 
+    // One thread first, so the fixed cost of the process can be told apart
+    // from what a thread actually costs. Quoting the total as though it were
+    // per-thread flatters the number by an order of magnitude.
+    let first = backend.start(wanted("first")).await.expect("one opens");
+    let pid = backend.pid().await.expect("the server is running");
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let alone = resident_mb(pid);
+
     let began = Instant::now();
-    let mut opened: Vec<SessionHandle> = Vec::with_capacity(FLEET);
-    for i in 0..FLEET {
+    let mut opened: Vec<SessionHandle> = vec![first];
+    for i in 1..FLEET {
         opened.push(
             backend
                 .start(wanted(&format!("worker-{i}")))
@@ -109,11 +144,13 @@ async fn sixty_four_threads_live_in_one_process() {
     assert_eq!(total, FLEET, "every thread should have opened");
     assert_eq!(threads.len(), FLEET, "every thread should be its own");
 
-    let pid = backend.pid().await.expect("the server is still running");
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     let held = resident_mb(pid);
+    let each = (held - alone) / f64::from(u32::try_from(FLEET - 1).unwrap_or(1));
 
     println!(
-        "opened {FLEET} threads in {:?} ({:.0} ms each), all in pid {pid} holding {held:.1} MB",
+        "one thread: {alone:.0} MB. {FLEET} threads: {held:.0} MB \
+         ({each:.1} MB each after the first), opened in {:?} ({:.0} ms each)",
         took,
         took.as_secs_f64() * 1000.0 / f64::from(u32::try_from(FLEET).unwrap_or(u32::MAX))
     );
@@ -217,5 +254,30 @@ async fn a_provider_whose_program_does_not_exist_reports_itself_unavailable() {
         ),
         "a missing program is the provider being unavailable, got {refused}"
     );
+    backend.shutdown().await;
+}
+
+#[tokio::test]
+#[ignore = "needs Codex installed"]
+async fn a_read_only_role_opens_a_thread_the_app_server_accepts() {
+    // The sandbox is sent when the thread opens. If the app-server did not
+    // recognise the mode, `thread/start` would refuse rather than quietly
+    // opening a thread with the run of the machine.
+    use pushos_domain::permissions::{Permission, PermissionSet};
+
+    let backend = backend();
+    let mut reader = PermissionSet::empty();
+    reader.grant(Permission::FilesystemRead);
+
+    let mut request = wanted("scout");
+    request.permissions = Some(reader);
+
+    let handle = backend
+        .start(request)
+        .await
+        .expect("a read-only thread opens");
+    assert!(handle.provider_session.is_some());
+
+    backend.stop(&handle).await.expect("it closes");
     backend.shutdown().await;
 }

@@ -3,9 +3,13 @@
 //! This is the whole point of the adapter. The Agent Client Protocol path
 //! starts one agent process per session, which is what a Claude Code session
 //! costs and why a dozen of them fill a laptop. Codex's app-server instead
-//! hosts many threads in a single process: measured on an M4, sixty-four idle
-//! threads live in about 30 MB of resident memory in one process, and a thread
-//! opens in roughly a tenth of a second.
+//! hosts many threads in a single process: measured on an M4, 192 MB with one
+//! thread and 23.5 MB for each after it, so sixty-four come to about 1.7 GB.
+//! A thread opens in roughly a tenth of a second.
+//!
+//! Measure the tree, not the process. `codex` is a small Node wrapper that
+//! spawns the real binary, so the child PushOS starts is not the child that
+//! holds the memory.
 //!
 //! The protocol is JSON-RPC in newline-delimited JSON over the child's stdio.
 //! Three kinds of message come back and each is handled differently:

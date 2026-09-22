@@ -22,7 +22,8 @@ use tokio::task::JoinHandle;
 use tracing::{debug, info, warn};
 
 use crate::error::CodexError;
-use crate::mapping::{self, Translated};
+use crate::mapping::{self, Narrator, Translated};
+use crate::sandbox::Sandbox;
 use crate::server::{AppServer, Incoming};
 use crate::turns::{AT_ONCE, TurnGate};
 
@@ -174,9 +175,10 @@ async fn listen(
     mut incoming: tokio::sync::mpsc::Receiver<Incoming>,
 ) {
     let mut unanswered: HashMap<ApprovalId, Value> = HashMap::new();
+    let mut narrator = Narrator::new();
 
     while let Some(message) = incoming.recv().await {
-        let Some(Translated { thread, event }) = mapping::translate(&message) else {
+        let Some(Translated { thread, event }) = narrator.read(&message) else {
             continue;
         };
 
@@ -185,6 +187,7 @@ async fn listen(
         // been waiting longer than this message took to arrive.
         if ends_a_turn(&event) {
             turns.finished(&thread).await;
+            narrator.forget(&thread);
         }
 
         // A question must be answerable later, so the id it has to quote is
@@ -290,12 +293,21 @@ impl AgentBackend for CodexBackend {
     }
 
     async fn start(&self, request: SessionRequest) -> Result<SessionHandle, AgentError> {
+        // The role's limits are applied here rather than checked later: an
+        // agent cannot use what it was never given, and a thread that has
+        // already started with the run of the machine cannot be narrowed.
+        let sandbox = Sandbox::for_role(request.permissions.as_ref());
+
         let started = self
             .call(
                 "thread/start",
                 json!({
                     "cwd": request.cwd.to_string_lossy(),
                     "developerInstructions": request.objective,
+                    "sandbox": sandbox.slug(),
+                    // Asking is what puts a question on the surface, which is
+                    // the whole reason an operator is watching the grid.
+                    "approvalPolicy": "on-request",
                 }),
             )
             .await?;
@@ -325,7 +337,13 @@ impl AgentBackend for CodexBackend {
             .await
             .insert(session.clone(), thread.clone());
 
-        info!(%session, thread, agent = %request.agent, "opened a Codex thread");
+        info!(
+            %session,
+            thread,
+            agent = %request.agent,
+            sandbox = sandbox.slug(),
+            "opened a Codex thread"
+        );
 
         Ok(SessionHandle {
             id: session,

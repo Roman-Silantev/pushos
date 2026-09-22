@@ -4,9 +4,11 @@
 # running, which are working, and which have stopped and are waiting on you.
 # You reach for the one that looks different; you never go looking for it.
 #
-# Why sixty-four is affordable. Codex hosts every thread in one process —
-# measured on an M4, sixty-four of them share about 30 MB, against roughly
-# 440 MB for a single Claude Code session. PushOS takes that path
+# Why sixty-four is affordable. Codex hosts every thread in one process.
+# Measured on an M4: 192 MB for the process with one thread, and 23.5 MB for
+# each thread after that, so sixty-four come to about 1.7 GB. The same
+# sixty-four as Claude Code sessions would be around 28 GB, because each of
+# those is a process of its own. PushOS takes the app-server path
 # automatically for a `codex` provider with no `program` of its own.
 #
 # Why they do not all talk at once. Both vendors refuse past two or three
