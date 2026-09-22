@@ -110,3 +110,68 @@ async fn a_working_agent_can_still_be_cancelled() {
     let stopped = tokio::time::timeout(Duration::from_secs(5), backend.stop(&handle)).await;
     assert!(stopped.is_ok(), "stop must come back too");
 }
+
+#[tokio::test]
+async fn an_agent_that_dies_while_idle_says_so() {
+    // The role is resolved to this session until something says otherwise, so
+    // a death nobody reports wedges that role: every later prompt goes to a
+    // process that is not there, and only stopping it by hand clears it.
+    let scratch = Scratch::holding("import sys\nsys.exit(0)\n");
+    let seen = Arc::new(Watching::default());
+    let backend = AcpBackend::new(
+        "stand-in",
+        AgentCommand::new("/usr/bin/python3", [scratch.script()]),
+        seen.clone(),
+    );
+
+    // Starting fails, because the agent is gone before it can answer — which
+    // is exactly the shape of one that dies a moment later.
+    let started = backend
+        .start(SessionRequest {
+            agent: AgentId::new("builder"),
+            workspace: None,
+            cwd: std::env::temp_dir(),
+            objective: String::new(),
+            permissions: None,
+        })
+        .await;
+    assert!(
+        started.is_err(),
+        "an agent that exits cannot open a session"
+    );
+
+    // What matters is that PushOS was told, rather than left believing in it.
+    for _ in 0..200 {
+        if seen.went_offline() {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("nothing reported the session offline; its role would stay wedged");
+}
+
+/// Remembers whether a session was ever reported offline.
+#[derive(Debug, Default)]
+struct Watching {
+    offline: std::sync::atomic::AtomicBool,
+}
+
+impl Watching {
+    fn went_offline(&self) -> bool {
+        self.offline.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+impl AgentObserver for Watching {
+    fn observe(&self, _session: &SessionId, event: AgentEvent) {
+        if matches!(
+            event,
+            AgentEvent::StateChanged {
+                state: pushos_domain::agent::AgentState::Offline
+            }
+        ) {
+            self.offline
+                .store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
+}

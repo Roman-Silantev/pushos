@@ -187,16 +187,33 @@ async fn run(
             },
             agent_client_protocol::on_receive_request!(),
         )
-        .connect_with(agent, move |connection: ConnectionTo<Agent>| {
-            let launch = launch.clone();
+        .connect_with(agent, {
             let observer = Arc::clone(&observer);
-            async move { serve(connection, launch, observer, &mut inbox, ready).await }
+            move |connection: ConnectionTo<Agent>| {
+                let launch = launch.clone();
+                let observer = Arc::clone(&observer);
+                async move { serve(connection, launch, observer, &mut inbox, ready).await }
+            }
         })
         .await;
 
     if let Err(error) = outcome {
-        warn!(%error, "the agent connection ended with an error");
+        warn!(%error, %session, "the agent connection ended with an error");
     }
+
+    // However it ended. `serve` reports this on its way out when it is the one
+    // that decided to stop, but an agent that dies while the session is idle
+    // leaves `serve` waiting on its inbox, and the future is dropped rather
+    // than run to the end: nothing was reported, the session stayed Sleeping,
+    // which counts as live, and every later prompt for that role went to a
+    // process that was not there. Reported twice is harmless; not at all
+    // wedges the role until the operator stops it by hand.
+    observer.observe(
+        &session,
+        AgentEvent::StateChanged {
+            state: AgentState::Offline,
+        },
+    );
 }
 
 /// Opens the session, then carries out commands until told to stop.
