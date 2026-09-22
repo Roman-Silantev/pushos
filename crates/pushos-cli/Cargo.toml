@@ -21,6 +21,7 @@ whisper = ["pushos-voice/whisper"]
 pushos-domain = { workspace = true }
 pushos-actions = { workspace = true }
 pushos-acp = { workspace = true }
+pushos-codex = { workspace = true }
 pushos-agents = { workspace = true }
 pushos-api = { workspace = true }
 pushos-bindings = { workspace = true }

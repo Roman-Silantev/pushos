@@ -21,6 +21,7 @@ pushos-push2 = { path = "crates/pushos-push2" }
 pushos-bindings = { path = "crates/pushos-bindings" }
 pushos-actions = { path = "crates/pushos-actions" }
 pushos-acp = { path = "crates/pushos-acp" }
+pushos-codex = { path = "crates/pushos-codex" }
 pushos-agents = { path = "crates/pushos-agents" }
 pushos-api = { path = "crates/pushos-api" }
 pushos-ui = { path = "crates/pushos-ui" }

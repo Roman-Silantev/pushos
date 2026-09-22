@@ -11,6 +11,7 @@ use pushos_actions::providers::{
     workflow, workspace,
 };
 use pushos_agents::{AgentRoster, AgentSupervisor};
+use pushos_codex::CodexBackend;
 use pushos_config::RuntimeConfig;
 use pushos_domain::ports::AttachedSessions as _;
 use pushos_domain::ports::{
@@ -80,6 +81,26 @@ pub(crate) fn agents(
     // because PushOS does not start a subprocess the operator never mentioned.
     let mut installed = 0;
     for entry in &config.providers {
+        // Codex hosts many threads in one process, which is what makes a fleet
+        // of sixty-four affordable: measured at 21 MB for all of them against
+        // around 440 MB for a single Claude Code session. Taken unless the
+        // operator named a program of their own, which means they want that
+        // program rather than this shortcut.
+        if fleet_capable(entry) {
+            info!(
+                provider = %entry.id,
+                "agent provider available, hosting its threads in one process"
+            );
+            roster.install(Arc::new(CodexBackend::new(
+                entry.id.as_str(),
+                "codex",
+                vec!["app-server".to_owned()],
+                Arc::clone(&observer),
+            )));
+            installed += 1;
+            continue;
+        }
+
         let Some(command) = command_for(entry) else {
             warn!(
                 provider = %entry.id,
@@ -303,6 +324,15 @@ pub(crate) fn voice(config: &RuntimeConfig) -> Option<Arc<voice::VoiceProvider>>
 }
 
 /// The command that starts a configured provider.
+/// Whether this provider should host its sessions in one process.
+///
+/// Only Codex can, and only when the operator has not named a program of their
+/// own: naming one is asking for that program, over the protocol every other
+/// agent speaks.
+fn fleet_capable(entry: &pushos_config::model::ProviderEntry) -> bool {
+    entry.id == "codex" && entry.program.is_none()
+}
+
 fn command_for(entry: &pushos_config::model::ProviderEntry) -> Option<AgentCommand> {
     let command = if let Some(program) = &entry.program {
         AgentCommand::new(program.as_str(), entry.args.clone())
