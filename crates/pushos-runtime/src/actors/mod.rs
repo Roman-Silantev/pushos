@@ -19,7 +19,7 @@ pub use agents::{AgentReporter, AgentTask};
 pub(crate) use attached::AttachedTask;
 pub(crate) use attached::lines_for as attached_lines;
 pub use input::{InputTask, SurfaceView};
-pub(crate) use progress::{Progress, RoleActivity};
+pub(crate) use progress::{Progress, RoleActivity, fleet_of};
 pub use render::RenderTask;
 pub(crate) use seats::SeatsTask;
 pub(crate) use sessions::SessionPublisher;

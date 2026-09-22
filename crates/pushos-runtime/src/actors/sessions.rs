@@ -106,6 +106,7 @@ impl SessionPublisher {
     /// What the display and the role pads should show right now.
     async fn progress(&self) -> super::Progress {
         let mut roles = Vec::new();
+        let mut fleet = Vec::new();
         let mut lines = Vec::new();
 
         if let Some(agents) = &self.agents {
@@ -113,11 +114,13 @@ impl SessionPublisher {
             let selected = agents.selected().await.map(|session| session.id);
             lines.extend(super::agent_lines(&sessions, selected.as_ref()));
             roles = super::RoleActivity::of(&sessions);
+            fleet = super::fleet_of(&sessions);
         }
 
         super::Progress {
             lines: self.lines(lines).await,
             roles,
+            fleet,
         }
     }
 

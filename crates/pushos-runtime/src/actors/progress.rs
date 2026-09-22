@@ -1,8 +1,9 @@
 //! What everything is doing, as one message to the surface.
 //!
-//! The display needs lines to draw, and the pads that start roles need to know
-//! what each role's agent is doing. Both come from the same look at the
-//! supervisors, so they travel together and can never disagree.
+//! The display needs lines to draw; the pads that start roles need to know what
+//! each role's agent is doing; and the pads that stand for places in the fleet
+//! need to know who is standing in each. All three come from the same look at
+//! the supervisors, so they travel together and can never disagree.
 
 use pushos_agents::Session;
 use pushos_domain::agent::AgentState;
@@ -16,6 +17,12 @@ pub(crate) struct Progress {
     pub(crate) lines: Vec<SessionLine>,
     /// What each role's most recent session is doing, most recent first.
     pub(crate) roles: Vec<RoleActivity>,
+    /// What the fleet is doing, in the order it opened.
+    ///
+    /// One entry per live agent session. Position is meaningful here in a way
+    /// it is not in the other two: the nth entry is what the pad bound to
+    /// `slot:n` stands for.
+    pub(crate) fleet: Vec<AgentState>,
 }
 
 /// What the most recent session of one role is doing.
@@ -27,6 +34,21 @@ pub(crate) struct RoleActivity {
     pub(crate) workspace: Option<WorkspaceId>,
     /// What it is doing.
     pub(crate) state: AgentState,
+}
+
+/// What each place in the fleet is doing, in the order the sessions opened.
+///
+/// Ordered by when a session opened rather than by what it is doing, so an
+/// agent never swaps pads with its neighbour while someone is reaching for it.
+/// Started-at alone can tie, so the id breaks it and the order is total.
+pub(crate) fn fleet_of(sessions: &[Session]) -> Vec<AgentState> {
+    let mut ordered: Vec<&Session> = sessions.iter().filter(|s| s.is_live()).collect();
+    ordered.sort_by(|left, right| {
+        left.started_at
+            .cmp(&right.started_at)
+            .then_with(|| left.id.as_str().cmp(right.id.as_str()))
+    });
+    ordered.into_iter().map(|session| session.state).collect()
 }
 
 impl RoleActivity {

@@ -135,6 +135,7 @@ pub struct InputTask {
     sessions: watch::Receiver<super::Progress>,
     /// What each role's agent is doing, as last published.
     roles: Vec<super::RoleActivity>,
+    fleet: Vec<pushos_domain::agent::AgentState>,
     /// The questions sessions are waiting on the operator to answer.
     questions: Option<watch::Receiver<Vec<pushos_domain::attached::SessionQuestion>>>,
     /// How many were waiting when last looked, so only a new one is announced.
@@ -201,6 +202,7 @@ impl InputTask {
             view,
             sessions,
             roles: Vec::new(),
+            fleet: Vec::new(),
             questions: None,
             questions_seen: 0,
             gestures: Vec::with_capacity(4),
@@ -293,6 +295,7 @@ impl InputTask {
         let progress = self.sessions.borrow_and_update().clone();
         self.surface.set_sessions(progress.lines);
         self.roles = progress.roles;
+        self.fleet = progress.fleet;
         self.publish();
         self.bus.publish(EventEnvelope::root(
             EventSource::Push,
@@ -348,6 +351,7 @@ impl InputTask {
                     let progress = self.sessions.borrow_and_update().clone();
                     self.surface.set_sessions(progress.lines);
                     self.roles = progress.roles;
+                    self.fleet = progress.fleet;
                     self.publish();
                 }
 
@@ -652,7 +656,7 @@ impl InputTask {
             .map(|held| held.borrow().clone())
             .unwrap_or_default();
         let from = self.bank.as_ref().map_or(0, |bank| *bank.borrow());
-        let mut view = build_view(&self.surface, &sessions, from, &self.roles);
+        let mut view = build_view(&self.surface, &sessions, from, &self.roles, &self.fleet);
 
         // Looked at here because this is where every change to the lights
         // passes. Something newly asking for a person wakes the surface in the
@@ -671,6 +675,7 @@ fn build_view(
     sessions: &[pushos_domain::attached::Attached],
     from: usize,
     roles: &[super::RoleActivity],
+    fleet: &[pushos_domain::agent::AgentState],
 ) -> SurfaceView {
     let context = surface.context(false);
     let rest = pushos_domain::rest::Rest::Awake;
@@ -682,6 +687,7 @@ fn build_view(
                 sessions,
                 from,
                 roles,
+                fleet,
             },
         )),
         snapshot: Arc::new(surface.snapshot()),

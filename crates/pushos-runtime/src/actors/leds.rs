@@ -45,6 +45,11 @@ pub(crate) struct Showing<'a> {
     pub(crate) from: usize,
     /// What each role's agent is doing, most recent session first.
     pub(crate) roles: &'a [RoleActivity],
+    /// What the fleet is doing, in the order it opened.
+    ///
+    /// Position is the meaning here: the nth entry is what the pad bound to
+    /// `slot:n` stands for.
+    pub(crate) fleet: &'a [AgentState],
 }
 
 /// Builds the light plan for the current surface.
@@ -82,6 +87,53 @@ enum StandsFor {
     Absent,
     /// It names a session that is open, doing this.
     Session(Activity),
+}
+
+/// What a control stands for, as far as the fleet goes.
+///
+/// Three answers rather than two, for the same reason a session's pad has
+/// three: a pad naming nobody and a pad naming a place the fleet has not grown
+/// into are different things, and only the second should be dark.
+enum Standing {
+    /// It does not name a place in the fleet.
+    Nowhere,
+    /// It names a place nobody is standing in yet.
+    Empty,
+    /// It names a place, and the agent there is doing this.
+    Agent(AgentState),
+}
+
+/// What the agent standing in a place in the fleet is doing.
+fn fleet_on(
+    config: &RuntimeConfig,
+    context: &SurfaceContext,
+    control: ControlId,
+    fleet: &[AgentState],
+) -> Standing {
+    let target: Option<AgentTarget> = ADVERTISED
+        .iter()
+        .flat_map(|gesture| {
+            config
+                .bindings
+                .candidates(BindingKey::new(control, *gesture))
+        })
+        .find(|binding| {
+            binding.scope.applies_to(context) && binding.action.selector.provider.as_str() == AGENTS
+        })
+        .and_then(|binding| binding.action.params.text("target"))
+        .and_then(|written| written.parse().ok());
+
+    let Some(AgentTarget::Slot(at)) = target else {
+        return Standing::Nowhere;
+    };
+    // Places are counted from one, so there is no zeroth pad to look up.
+    let Some(at) = usize::from(at).checked_sub(1) else {
+        return Standing::Nowhere;
+    };
+    fleet
+        .get(at)
+        .copied()
+        .map_or(Standing::Empty, Standing::Agent)
 }
 
 /// What a control stands for, when it stands for a session.
@@ -178,6 +230,21 @@ fn light_for(
         StandsFor::Session(activity) => return LedState::from_status(activity.status_color()),
         StandsFor::Absent => return LedState::OFF,
         StandsFor::Nothing => {}
+    }
+
+    // A place in the fleet shows whoever is standing in it, at rest or not,
+    // for the same reason a session's pad does: the operator has to be able to
+    // see how large the fleet is without pressing anything. An empty place
+    // stays dark, which is what makes the lit ones mean something.
+    match fleet_on(config, context, control, showing.fleet) {
+        Standing::Agent(state)
+            if state.is_busy() || state.needs_operator() || state == AgentState::Failed =>
+        {
+            return LedState::from_status(state.status_color());
+        }
+        Standing::Agent(_) => return LedState::from_status(StatusColor::Idle),
+        Standing::Empty => return LedState::OFF,
+        Standing::Nowhere => {}
     }
 
     // A role's pad lights for what is worth looking at: working, waiting on
@@ -413,6 +480,7 @@ mod tests {
                     sessions: &[doing(resting)],
                     from: 0,
                     roles: &[],
+                    fleet: &[],
                 },
             );
             assert_eq!(
@@ -435,6 +503,7 @@ mod tests {
                 sessions: &[],
                 from: 0,
                 roles: &[],
+                fleet: &[],
             },
         );
         assert_eq!(light(&plan, pad(56)), LedState::OFF);
@@ -455,6 +524,7 @@ mod tests {
                     sessions: &[doing(busy)],
                     from: 0,
                     roles: &[],
+                    fleet: &[],
                 },
             );
             assert_eq!(
@@ -476,6 +546,7 @@ mod tests {
                 sessions: &[doing(Activity::Working)],
                 from: 0,
                 roles: &[],
+                fleet: &[],
             },
         );
         assert_eq!(light(&plan, pad(57)), LedState::OFF);
@@ -596,5 +667,157 @@ mod tests {
             LedState::from_status(StatusColor::Idle),
             "the markets pad is not the analyst's"
         );
+    }
+
+    /// Four pads standing for the first four places in a fleet.
+    const FLEET_PADS: &str = r#"
+        [[pages]]
+        id = "fleet"
+        name = "Fleet"
+
+        [[providers]]
+        id = "codex"
+
+        [[agents]]
+        id = "worker"
+        name = "Worker"
+
+        [[bindings]]
+        control = "pad.0"
+        gesture = "tap"
+        action = "agent.select"
+        target = "slot:1"
+
+        [[bindings]]
+        control = "pad.1"
+        gesture = "tap"
+        action = "agent.select"
+        target = "slot:2"
+
+        [[bindings]]
+        control = "pad.2"
+        gesture = "tap"
+        action = "agent.select"
+        target = "slot:3"
+
+        [[bindings]]
+        control = "pad.3"
+        gesture = "tap"
+        action = "agent.select"
+        target = "slot:4"
+    "#;
+
+    /// What one control ended up as in a plan.
+    fn lit(plan: &LedPlan, control: ControlId) -> LedState {
+        plan.states()
+            .iter()
+            .find(|(at, _)| *at == control)
+            .map_or(LedState::OFF, |(_, state)| *state)
+    }
+
+    fn fleet_plan(fleet: &[AgentState]) -> LedPlan {
+        plan_showing(
+            &config(FLEET_PADS),
+            &SurfaceContext::empty(),
+            &Showing {
+                sessions: &[],
+                from: 0,
+                roles: &[],
+                fleet,
+            },
+        )
+    }
+
+    #[test]
+    fn a_place_the_fleet_has_not_grown_into_stays_dark() {
+        // Two agents, four pads. The empty two must not glow, or the grid
+        // would say the fleet is twice the size it is.
+        let plan = fleet_plan(&[AgentState::Working, AgentState::Working]);
+
+        assert_ne!(lit(&plan, pad(0)), LedState::OFF);
+        assert_ne!(lit(&plan, pad(1)), LedState::OFF);
+        assert_eq!(lit(&plan, pad(2)), LedState::OFF, "place three is empty");
+        assert_eq!(lit(&plan, pad(3)), LedState::OFF, "place four is empty");
+    }
+
+    #[test]
+    fn an_agent_waiting_on_the_operator_looks_different_from_one_working() {
+        // The whole point of the grid: finding the one that needs you without
+        // reading anything.
+        let plan = fleet_plan(&[
+            AgentState::Working,
+            AgentState::WaitingApproval,
+            AgentState::Completed,
+        ]);
+
+        let working = lit(&plan, pad(0));
+        let waiting = lit(&plan, pad(1));
+        let resting = lit(&plan, pad(2));
+
+        assert_ne!(
+            working, waiting,
+            "a stuck agent must stand out from a busy one"
+        );
+        assert_ne!(
+            waiting, resting,
+            "a stuck agent must stand out from a quiet one"
+        );
+        assert_ne!(working, LedState::OFF);
+        assert_ne!(
+            resting,
+            LedState::OFF,
+            "an agent at rest still holds its place"
+        );
+    }
+
+    #[test]
+    fn a_failed_agent_says_so_rather_than_resting_quietly() {
+        let plan = fleet_plan(&[AgentState::Failed, AgentState::Completed]);
+        assert_ne!(
+            lit(&plan, pad(0)),
+            lit(&plan, pad(1)),
+            "a failure must not look like a finish"
+        );
+    }
+
+    #[test]
+    fn the_fleet_is_read_by_position_not_by_what_it_is_doing() {
+        // Place two is the second agent that opened, whatever it is doing.
+        // If this ever sorted by activity, agents would swap pads under a
+        // finger reaching for one.
+        let plan = fleet_plan(&[
+            AgentState::Completed,
+            AgentState::WaitingApproval,
+            AgentState::Working,
+        ]);
+        let waiting = lit(&plan, pad(1));
+
+        let same = fleet_plan(&[
+            AgentState::Completed,
+            AgentState::WaitingApproval,
+            AgentState::Working,
+        ]);
+        assert_eq!(
+            waiting,
+            lit(&same, pad(1)),
+            "the same fleet lights the same"
+        );
+        assert_ne!(waiting, lit(&plan, pad(0)));
+        assert_ne!(waiting, lit(&plan, pad(2)));
+    }
+
+    #[test]
+    fn a_pad_that_names_no_place_is_unaffected_by_the_fleet() {
+        let plan = plan_showing(
+            &config(FLEET_PADS),
+            &SurfaceContext::empty(),
+            &Showing {
+                sessions: &[],
+                from: 0,
+                roles: &[],
+                fleet: &[AgentState::Working; 4],
+            },
+        );
+        assert_eq!(lit(&plan, pad(40)), LedState::OFF, "nothing is bound there");
     }
 }

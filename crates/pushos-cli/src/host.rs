@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use pushos_acp::{AcpBackend, AgentCommand};
 use pushos_actions::providers::{
-    agent, application, media, memory, page, sequence, session, shell, shortcut, terminal, voice,
-    workflow, workspace,
+    agent, application, fleet, media, memory, page, sequence, session, shell, shortcut, terminal,
+    voice, workflow, workspace,
 };
 use pushos_agents::{AgentRoster, AgentSupervisor};
 use pushos_codex::CodexBackend;
@@ -393,6 +393,9 @@ pub(crate) fn providers(
     // binding fails with "no provider" rather than "unknown verb".
     if let Some(supervisor) = agents {
         providers.push(Arc::new(agent::AgentProvider::new(Arc::clone(supervisor))));
+        // Operating one agent and operating sixty-four are different jobs, so
+        // they are different namespaces rather than flags on the same verbs.
+        providers.push(Arc::new(fleet::FleetProvider::new(Arc::clone(supervisor))));
     }
 
     // The same for workflows: a namespace that refuses every binding would

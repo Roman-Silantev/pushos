@@ -191,7 +191,22 @@ pub enum AgentTarget {
     Session(SessionId),
     /// Whichever session the operator most recently selected.
     Selected,
+    /// A place in the fleet, counted from one in the order sessions opened.
+    ///
+    /// What lets a grid of pads stand for a grid of agents. A role names one
+    /// job and a session id names one conversation; neither answers "the
+    /// nineteenth agent", which is the only thing a pad in the third row can
+    /// mean. Ordered by when each session opened rather than by what it is
+    /// doing, so an agent does not move under a finger reaching for it.
+    Slot(u8),
 }
+
+/// The highest place in the fleet a pad may name.
+///
+/// One per pad on a Push 2. A fleet larger than the surface would need banking
+/// like the sessions column has; the point of this one is that it does not,
+/// because the whole fleet being visible at once is what the grid is for.
+pub const FLEET_MAX: u8 = 64;
 
 impl AgentTarget {
     /// Aims at a role.
@@ -218,6 +233,15 @@ impl AgentTarget {
     pub const fn is_exact(&self) -> bool {
         matches!(self, Self::Session(_))
     }
+
+    /// Aims at a place in the fleet, if it is one the surface has.
+    pub const fn slot(at: u8) -> Option<Self> {
+        if at >= 1 && at <= FLEET_MAX {
+            Some(Self::Slot(at))
+        } else {
+            None
+        }
+    }
 }
 
 impl std::str::FromStr for AgentTarget {
@@ -229,12 +253,24 @@ impl std::str::FromStr for AgentTarget {
     /// role:builder
     /// workspace:sydclaw/role:builder
     /// session:abc123
+    /// slot:19
     /// selected
     /// ```
     fn from_str(text: &str) -> Result<Self, Self::Err> {
         let text = text.trim();
         if text.is_empty() || text == "selected" {
             return Ok(Self::Selected);
+        }
+
+        // A place in the fleet stands alone: combining it with a role would be
+        // naming the same agent two ways that could disagree.
+        if let Some(at) = text.strip_prefix("slot:") {
+            return at
+                .trim()
+                .parse::<u8>()
+                .ok()
+                .and_then(Self::slot)
+                .ok_or_else(|| MalformedTarget(text.to_owned()));
         }
 
         let mut agent = None;
@@ -273,7 +309,7 @@ impl std::str::FromStr for AgentTarget {
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 #[error(
     "`{0}` is not a target; write `role:builder`, `workspace:x/role:builder`, \
-     `session:abc` or `selected`"
+     `session:abc`, `slot:19` or `selected`"
 )]
 pub struct MalformedTarget(pub String);
 
@@ -293,6 +329,7 @@ impl fmt::Display for AgentTarget {
                 workspace: None,
             } => write!(f, "role:{agent}"),
             Self::Session(session) => write!(f, "session:{session}"),
+            Self::Slot(at) => write!(f, "slot:{at}"),
             Self::Selected => f.write_str("selected"),
         }
     }
@@ -301,6 +338,45 @@ impl fmt::Display for AgentTarget {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_place_in_the_fleet_round_trips() {
+        for at in [1, 8, 19, 64] {
+            let target = AgentTarget::Slot(at);
+            assert_eq!(target.to_string(), format!("slot:{at}"));
+            assert_eq!(
+                target.to_string().parse::<AgentTarget>(),
+                Ok(AgentTarget::Slot(at))
+            );
+        }
+    }
+
+    #[test]
+    fn a_place_the_surface_does_not_have_is_refused() {
+        // Zero because slots are counted from one, and past sixty-four because
+        // there is no sixty-fifth pad to press.
+        assert!("slot:0".parse::<AgentTarget>().is_err());
+        assert!("slot:65".parse::<AgentTarget>().is_err());
+        assert!("slot:".parse::<AgentTarget>().is_err());
+        assert!("slot:many".parse::<AgentTarget>().is_err());
+        assert_eq!(AgentTarget::slot(0), None);
+        assert_eq!(AgentTarget::slot(65), None);
+        assert_eq!(AgentTarget::slot(64), Some(AgentTarget::Slot(64)));
+    }
+
+    #[test]
+    fn a_place_in_the_fleet_cannot_also_name_a_role() {
+        // The two could disagree about which agent is meant, and a pad that is
+        // ambiguous is worse than a pad that is refused.
+        assert!("slot:3/role:builder".parse::<AgentTarget>().is_err());
+        assert!("role:builder/slot:3".parse::<AgentTarget>().is_err());
+    }
+
+    #[test]
+    fn a_place_in_the_fleet_is_not_an_exact_session() {
+        // It means whoever is nineteenth now, which is the opposite of exact.
+        assert!(!AgentTarget::Slot(19).is_exact());
+    }
 
     #[test]
     fn every_state_has_a_unique_name_that_round_trips() {

@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use pushos_domain::agent::{AgentState, AgentTarget};
-use pushos_domain::ids::SessionId;
+use pushos_domain::ids::{AgentId, ProviderName, SessionId, WorkspaceId};
 use pushos_domain::ports::{
     AgentError, AgentEvent, AgentObserver, SessionRequest, WorkspaceContext,
 };
@@ -132,7 +132,9 @@ impl AgentSupervisor {
                 ))
                 .await,
             ),
-            AgentTarget::Session(_) | AgentTarget::Selected => None,
+            // Nothing else starts a session, so nothing else needs the lock
+            // that serialises starting one.
+            AgentTarget::Session(_) | AgentTarget::Slot(_) | AgentTarget::Selected => None,
         };
         let _starting = match &queued {
             Some(lock) => Some(lock.lock().await),
@@ -148,7 +150,7 @@ impl AgentSupervisor {
                     .provider_for(workspace.as_ref(), agent)
                     .await
             }
-            AgentTarget::Session(_) | AgentTarget::Selected => None,
+            AgentTarget::Session(_) | AgentTarget::Slot(_) | AgentTarget::Selected => None,
         };
 
         let decision = {
@@ -214,6 +216,69 @@ impl AgentSupervisor {
                 Ok(session)
             }
         }
+    }
+
+    /// Opens one more session for a role, whatever is already filling it.
+    ///
+    /// [`Self::resolve`] deliberately will not do this: a role names one job,
+    /// and asking for the builder twice should find the builder rather than
+    /// make a second one. A fleet is the other case — sixty-four agents doing
+    /// the same kind of work on different things — so it is a different verb
+    /// rather than a flag on that one, and the surface can tell them apart.
+    pub async fn recruit(
+        &self,
+        agent: &AgentId,
+        workspace: Option<&WorkspaceId>,
+    ) -> Result<Session, AgentError> {
+        let definition = self
+            .roster
+            .definition(agent)
+            .ok_or_else(|| crate::router::RoutingError::UnknownRole {
+                agent: agent.clone(),
+            })?
+            .clone();
+
+        // The project decides which provider fills a role here, exactly as it
+        // does when a role is resolved; a fleet must not quietly run on a
+        // different agent from the one a pad would have started.
+        let preferred = self.workspaces.provider_for(workspace, agent).await;
+        let backend = preferred
+            .as_ref()
+            .and_then(|provider| self.roster.backend_named(provider))
+            .or_else(|| self.roster.backend_for(&definition))
+            .ok_or_else(|| AgentError::Unavailable {
+                provider: preferred.unwrap_or_else(|| ProviderName::new("none")),
+            })?
+            .clone();
+
+        let cwd = self
+            .workspaces
+            .claim(workspace, agent)
+            .await
+            .map_err(|error| AgentError::backend(error.to_string(), error.class(), error))?;
+
+        let handle = backend
+            .start(SessionRequest {
+                agent: agent.clone(),
+                workspace: workspace.cloned(),
+                cwd,
+                objective: definition.objective.clone(),
+                permissions: definition.permissions.clone(),
+            })
+            .await?;
+
+        let session = {
+            let mut sessions = self.sessions.lock().await;
+            sessions.opened(&handle, agent.clone(), workspace.cloned(), Instant::now())
+        };
+
+        self.observer.observe(
+            &session.id,
+            AgentEvent::StateChanged {
+                state: AgentState::Starting,
+            },
+        );
+        Ok(session)
     }
 
     /// Sends the operator's words to whichever session the target means.

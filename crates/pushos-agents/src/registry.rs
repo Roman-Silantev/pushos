@@ -162,6 +162,32 @@ impl SessionRegistry {
             .collect()
     }
 
+    /// Every session in the order it opened, which is the order of the fleet.
+    ///
+    /// Deliberately not the order [`Self::all`] uses. That one puts the most
+    /// recently active first, which is right for a list being read and wrong
+    /// for a grid being reached for: an agent that said something would swap
+    /// pads with its neighbour under the operator's finger.
+    pub fn fleet(&self) -> Vec<&Session> {
+        let mut sessions: Vec<_> = self.sessions.values().collect();
+        // Started-at alone can tie, because two sessions opened in the same
+        // instant are possible and `Instant` has whatever resolution the
+        // platform gives. The id breaks it, so the order is total and the same
+        // every time it is asked for.
+        sessions.sort_by(|left, right| {
+            left.started_at
+                .cmp(&right.started_at)
+                .then_with(|| left.id.as_str().cmp(right.id.as_str()))
+        });
+        sessions
+    }
+
+    /// The session holding one place in the fleet, counted from one.
+    pub fn at(&self, slot: u8) -> Option<&Session> {
+        let at = usize::from(slot).checked_sub(1)?;
+        self.fleet().into_iter().nth(at)
+    }
+
     /// How many sessions are held.
     pub fn len(&self) -> usize {
         self.sessions.len()

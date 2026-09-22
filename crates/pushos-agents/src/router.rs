@@ -137,6 +137,13 @@ pub enum RoutingError {
     /// The binding asked for the selected session and there is none.
     #[error("nothing is selected; choose a session first")]
     NothingSelected,
+
+    /// The pad names a place in the fleet nothing is standing in.
+    #[error("nothing is in place {slot} of the fleet yet")]
+    NothingInSlot {
+        /// The place that was named.
+        slot: u8,
+    },
 }
 
 impl From<RoutingError> for AgentError {
@@ -193,6 +200,15 @@ impl AgentRouter {
                 .selected()
                 .map(|session| Resolution::Existing(session.id.clone()))
                 .ok_or(RoutingError::NothingSelected),
+
+            // A place in the fleet answers for whoever is standing in it. It
+            // never starts anything: an empty pad means the fleet is not that
+            // large yet, and pressing it should say so rather than quietly
+            // making the fleet bigger.
+            AgentTarget::Slot(at) => sessions
+                .at(*at)
+                .map(|session| Resolution::Existing(session.id.clone()))
+                .ok_or(RoutingError::NothingInSlot { slot: *at }),
 
             AgentTarget::Role { agent, workspace } => {
                 Self::resolve_role(roster, sessions, agent, workspace.as_ref(), preferred)

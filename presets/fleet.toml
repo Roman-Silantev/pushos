@@ -1,0 +1,770 @@
+# PushOS: a fleet of sixty-four.
+#
+# Every pad is an agent. The grid is the fleet: one glance says how many are
+# running, which are working, and which have stopped and are waiting on you.
+# You reach for the one that looks different; you never go looking for it.
+#
+# Why sixty-four is affordable. Codex hosts every thread in one process —
+# measured on an M4, sixty-four of them share about 30 MB, against roughly
+# 440 MB for a single Claude Code session. PushOS takes that path
+# automatically for a `codex` provider with no `program` of its own.
+#
+# Why they do not all talk at once. Both vendors refuse past two or three
+# simultaneous streaming turns. PushOS queues the rest rather than collecting
+# failures, so an agent waiting its turn shows as queued rather than looking
+# like it has gone wrong. A fleet is mostly agents waiting, the way a mixing
+# desk is mostly channels nobody is touching.
+#
+# To use it:
+#
+#   1. Write your jobs, one a line, in ~/fleet-jobs.txt
+#   2. Press Upper 1 to hire twenty agents
+#   3. Press Upper 2 to give each of them the next job in the file
+#   4. Watch the grid. Press whichever pad is asking for you.
+#   5. Press Upper 8 to put them all away
+
+[runtime]
+home_page = "fleet"
+
+[gestures]
+hold_threshold_ms = 400
+double_tap_window_ms = 280
+
+[permissions]
+granted = ["shell.execute"]
+
+[sessions]
+# The `mine` page mirrors terminals PushOS did not start, and nothing tells it
+# when a window opens, so it asks. Three seconds is faster than you open
+# windows and slower than the display is redrawn.
+watch = true
+poll_ms = 3000
+
+[[pages]]
+id = "fleet"
+name = "Fleet"
+description = "Sixty-four agents, one grid"
+
+# The agents you are running yourself, in terminals PushOS did not start. A
+# fleet is for work you hand out; these are the ones you are sitting with.
+[[pages]]
+id = "mine"
+name = "Mine"
+description = "The coding sessions you opened yourself"
+
+[[providers]]
+id = "codex"
+
+[[agents]]
+id = "worker"
+name = "Worker"
+objective = "Do the job you are given. Run the tests. Say what you did in one line."
+preferred = ["codex"]
+permissions = ["filesystem.read", "filesystem.write", "shell.execute"]
+
+# --- Running the fleet --------------------------------------------------------
+# The eight buttons above the display operate the fleet as a whole, because
+# hiring twenty agents one pad at a time is twenty presses nobody wants to make.
+
+[[bindings]]
+control = "button.upper_1"
+gesture = "press"
+action = "fleet.hire"
+label = "Hire 20"
+params = { role = "worker", count = 20 }
+
+[[bindings]]
+control = "button.upper_2"
+gesture = "press"
+action = "fleet.brief"
+label = "Brief"
+params = { jobs = "~/fleet-jobs.txt" }
+
+[[bindings]]
+control = "button.upper_8"
+gesture = "press"
+action = "fleet.dismiss"
+label = "Dismiss"
+
+# Getting between the two pages. Global, so neither page can strand you on it.
+
+[[bindings]]
+control = "button.setup"
+gesture = "press"
+action = "page.show"
+target = "fleet"
+label = "Fleet"
+
+[[bindings]]
+control = "button.note"
+gesture = "press"
+action = "page.show"
+target = "mine"
+label = "Mine"
+
+# Answering whichever agent is asking. A binding with no target acts on the
+# selected one, so these four serve all sixty-four.
+
+[[bindings]]
+control = "button.lower_1"
+gesture = "press"
+action = "agent.approve"
+label = "Allow"
+
+[[bindings]]
+control = "button.lower_2"
+gesture = "press"
+action = "agent.reject"
+label = "Deny"
+
+[[bindings]]
+control = "button.stop"
+gesture = "press"
+action = "agent.cancel"
+label = "Interrupt"
+
+# --- The grid -----------------------------------------------------------------
+# One pad per place in the fleet, counted from one in the order the agents
+# opened. A place nobody is standing in stays dark, so the lit pads are the
+# fleet and the dark ones are the room it has left to grow.
+#
+# Tap a pad to select that agent: the display shows what it is doing, and the
+# Allow, Deny and Interrupt buttons then act on it. One tap to find out what an
+# agent wants, one button to answer it.
+
+[[bindings]]
+control = "pad.0"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:1"
+
+
+[[bindings]]
+control = "pad.1"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:2"
+
+
+[[bindings]]
+control = "pad.2"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:3"
+
+
+[[bindings]]
+control = "pad.3"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:4"
+
+
+[[bindings]]
+control = "pad.4"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:5"
+
+
+[[bindings]]
+control = "pad.5"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:6"
+
+
+[[bindings]]
+control = "pad.6"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:7"
+
+
+[[bindings]]
+control = "pad.7"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:8"
+
+
+[[bindings]]
+control = "pad.8"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:9"
+
+
+[[bindings]]
+control = "pad.9"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:10"
+
+
+[[bindings]]
+control = "pad.10"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:11"
+
+
+[[bindings]]
+control = "pad.11"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:12"
+
+
+[[bindings]]
+control = "pad.12"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:13"
+
+
+[[bindings]]
+control = "pad.13"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:14"
+
+
+[[bindings]]
+control = "pad.14"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:15"
+
+
+[[bindings]]
+control = "pad.15"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:16"
+
+
+[[bindings]]
+control = "pad.16"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:17"
+
+
+[[bindings]]
+control = "pad.17"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:18"
+
+
+[[bindings]]
+control = "pad.18"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:19"
+
+
+[[bindings]]
+control = "pad.19"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:20"
+
+
+[[bindings]]
+control = "pad.20"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:21"
+
+
+[[bindings]]
+control = "pad.21"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:22"
+
+
+[[bindings]]
+control = "pad.22"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:23"
+
+
+[[bindings]]
+control = "pad.23"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:24"
+
+
+[[bindings]]
+control = "pad.24"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:25"
+
+
+[[bindings]]
+control = "pad.25"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:26"
+
+
+[[bindings]]
+control = "pad.26"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:27"
+
+
+[[bindings]]
+control = "pad.27"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:28"
+
+
+[[bindings]]
+control = "pad.28"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:29"
+
+
+[[bindings]]
+control = "pad.29"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:30"
+
+
+[[bindings]]
+control = "pad.30"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:31"
+
+
+[[bindings]]
+control = "pad.31"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:32"
+
+
+[[bindings]]
+control = "pad.32"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:33"
+
+
+[[bindings]]
+control = "pad.33"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:34"
+
+
+[[bindings]]
+control = "pad.34"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:35"
+
+
+[[bindings]]
+control = "pad.35"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:36"
+
+
+[[bindings]]
+control = "pad.36"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:37"
+
+
+[[bindings]]
+control = "pad.37"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:38"
+
+
+[[bindings]]
+control = "pad.38"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:39"
+
+
+[[bindings]]
+control = "pad.39"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:40"
+
+
+[[bindings]]
+control = "pad.40"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:41"
+
+
+[[bindings]]
+control = "pad.41"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:42"
+
+
+[[bindings]]
+control = "pad.42"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:43"
+
+
+[[bindings]]
+control = "pad.43"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:44"
+
+
+[[bindings]]
+control = "pad.44"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:45"
+
+
+[[bindings]]
+control = "pad.45"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:46"
+
+
+[[bindings]]
+control = "pad.46"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:47"
+
+
+[[bindings]]
+control = "pad.47"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:48"
+
+
+[[bindings]]
+control = "pad.48"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:49"
+
+
+[[bindings]]
+control = "pad.49"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:50"
+
+
+[[bindings]]
+control = "pad.50"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:51"
+
+
+[[bindings]]
+control = "pad.51"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:52"
+
+
+[[bindings]]
+control = "pad.52"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:53"
+
+
+[[bindings]]
+control = "pad.53"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:54"
+
+
+[[bindings]]
+control = "pad.54"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:55"
+
+
+[[bindings]]
+control = "pad.55"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:56"
+
+
+[[bindings]]
+control = "pad.56"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:57"
+
+
+[[bindings]]
+control = "pad.57"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:58"
+
+
+[[bindings]]
+control = "pad.58"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:59"
+
+
+[[bindings]]
+control = "pad.59"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:60"
+
+
+[[bindings]]
+control = "pad.60"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:61"
+
+
+[[bindings]]
+control = "pad.61"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:62"
+
+
+[[bindings]]
+control = "pad.62"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:63"
+
+
+[[bindings]]
+control = "pad.63"
+gesture = "tap"
+page = "fleet"
+action = "agent.select"
+target = "slot:64"
+
+
+# --- Your own sessions --------------------------------------------------------
+# The bottom row of the `mine` page, one pad per coding session already open in
+# a terminal. Tap to read one on the display; hold to make it the one the
+# keyboard-style buttons act on.
+
+[[bindings]]
+control = "pad.56"
+gesture = "tap"
+page = "mine"
+action = "session.show"
+target = "slot:1"
+label = "Session 1"
+
+[[bindings]]
+control = "pad.56"
+gesture = "hold"
+page = "mine"
+action = "session.select"
+target = "slot:1"
+
+[[bindings]]
+control = "pad.57"
+gesture = "tap"
+page = "mine"
+action = "session.show"
+target = "slot:2"
+label = "Session 2"
+
+[[bindings]]
+control = "pad.57"
+gesture = "hold"
+page = "mine"
+action = "session.select"
+target = "slot:2"
+
+[[bindings]]
+control = "pad.58"
+gesture = "tap"
+page = "mine"
+action = "session.show"
+target = "slot:3"
+label = "Session 3"
+
+[[bindings]]
+control = "pad.58"
+gesture = "hold"
+page = "mine"
+action = "session.select"
+target = "slot:3"
+
+[[bindings]]
+control = "pad.59"
+gesture = "tap"
+page = "mine"
+action = "session.show"
+target = "slot:4"
+label = "Session 4"
+
+[[bindings]]
+control = "pad.59"
+gesture = "hold"
+page = "mine"
+action = "session.select"
+target = "slot:4"
+
+[[bindings]]
+control = "pad.60"
+gesture = "tap"
+page = "mine"
+action = "session.show"
+target = "slot:5"
+label = "Session 5"
+
+[[bindings]]
+control = "pad.60"
+gesture = "hold"
+page = "mine"
+action = "session.select"
+target = "slot:5"
+
+[[bindings]]
+control = "pad.61"
+gesture = "tap"
+page = "mine"
+action = "session.show"
+target = "slot:6"
+label = "Session 6"
+
+[[bindings]]
+control = "pad.61"
+gesture = "hold"
+page = "mine"
+action = "session.select"
+target = "slot:6"
+
+[[bindings]]
+control = "pad.62"
+gesture = "tap"
+page = "mine"
+action = "session.show"
+target = "slot:7"
+label = "Session 7"
+
+[[bindings]]
+control = "pad.62"
+gesture = "hold"
+page = "mine"
+action = "session.select"
+target = "slot:7"
+
+[[bindings]]
+control = "pad.63"
+gesture = "tap"
+page = "mine"
+action = "session.show"
+target = "slot:8"
+label = "Session 8"
+
+[[bindings]]
+control = "pad.63"
+gesture = "hold"
+page = "mine"
+action = "session.select"
+target = "slot:8"

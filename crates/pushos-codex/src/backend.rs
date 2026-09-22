@@ -24,6 +24,7 @@ use tracing::{debug, info, warn};
 use crate::error::CodexError;
 use crate::mapping::{self, Translated};
 use crate::server::{AppServer, Incoming};
+use crate::turns::{AT_ONCE, TurnGate};
 
 /// How many unanswered permission questions are kept.
 ///
@@ -44,6 +45,7 @@ pub struct CodexBackend {
     args: Vec<String>,
     observer: Arc<dyn AgentObserver>,
     threads: Arc<Mutex<HashMap<SessionId, String>>>,
+    turns: Arc<TurnGate>,
     running: Mutex<Option<Running>>,
 }
 
@@ -71,8 +73,21 @@ impl CodexBackend {
             args,
             observer,
             threads: Arc::new(Mutex::new(HashMap::new())),
+            turns: Arc::new(TurnGate::new(AT_ONCE)),
             running: Mutex::new(None),
         }
+    }
+
+    /// Builds a backend allowing `at_once` agents to be mid-turn together.
+    #[must_use]
+    pub fn talking_at_once(mut self, at_once: usize) -> Self {
+        self.turns = Arc::new(TurnGate::new(at_once));
+        self
+    }
+
+    /// How many agents are mid-turn.
+    pub async fn talking(&self) -> usize {
+        self.turns.running().await
     }
 
     /// The server, started if this is the first thing to want it.
@@ -89,6 +104,7 @@ impl CodexBackend {
         let listener = tokio::spawn(listen(
             Arc::clone(&server),
             Arc::clone(&self.threads),
+            Arc::clone(&self.turns),
             Arc::clone(&self.observer),
             incoming,
         ));
@@ -153,6 +169,7 @@ impl CodexBackend {
 async fn listen(
     server: Arc<AppServer>,
     threads: Arc<Mutex<HashMap<SessionId, String>>>,
+    turns: Arc<TurnGate>,
     observer: Arc<dyn AgentObserver>,
     mut incoming: tokio::sync::mpsc::Receiver<Incoming>,
 ) {
@@ -162,6 +179,13 @@ async fn listen(
         let Some(Translated { thread, event }) = mapping::translate(&message) else {
             continue;
         };
+
+        // A turn that has ended gives its place back, however it ended. Done
+        // before anything else, because the agent waiting for that place has
+        // been waiting longer than this message took to arrive.
+        if ends_a_turn(&event) {
+            turns.finished(&thread).await;
+        }
 
         // A question must be answerable later, so the id it has to quote is
         // kept before the operator is ever told about it.
@@ -196,6 +220,15 @@ async fn listen(
     }
 
     debug!("the app-server stopped talking");
+}
+
+/// Whether this is a turn ending, by any of the ways a turn can end.
+fn ends_a_turn(event: &AgentEvent) -> bool {
+    match event {
+        AgentEvent::StateChanged { state } => !state.is_busy(),
+        AgentEvent::Ended { .. } => true,
+        _ => false,
+    }
 }
 
 /// Refuses a question rather than leaving its thread stopped for ever.
@@ -320,22 +353,47 @@ impl AgentBackend for CodexBackend {
 
     async fn prompt(&self, handle: &SessionHandle, text: &str) -> Result<(), AgentError> {
         let thread = self.thread(&handle.id).await?;
-        self.call(
-            "turn/start",
-            json!({
-                "threadId": thread,
-                "input": [{"type": "text", "text": text}],
-            }),
-        )
-        .await
-        .map(drop)
+
+        // Said before waiting, so an agent with nowhere to go looks queued
+        // rather than looking like it has stalled. A fleet is mostly agents
+        // waiting; the surface has to be honest about which.
+        if self.turns.would_wait() {
+            debug!(session = %handle.id, "queued behind the turns already running");
+            self.observer.observe(
+                &handle.id,
+                AgentEvent::StateChanged {
+                    state: AgentState::Queued,
+                },
+            );
+        }
+        self.turns.take(&thread).await;
+
+        let started = self
+            .call(
+                "turn/start",
+                json!({
+                    "threadId": thread,
+                    "input": [{"type": "text", "text": text}],
+                }),
+            )
+            .await;
+
+        // A turn that never started is holding a place the next agent needs.
+        if started.is_err() {
+            self.turns.finished(&thread).await;
+        }
+        started.map(drop)
     }
 
     async fn cancel(&self, handle: &SessionHandle) -> Result<(), AgentError> {
         let thread = self.thread(&handle.id).await?;
-        self.call("turn/interrupt", json!({ "threadId": thread }))
-            .await
-            .map(drop)
+        let stopped = self
+            .call("turn/interrupt", json!({ "threadId": thread }))
+            .await;
+        // An interrupted turn frees its place whether or not the interrupt was
+        // acknowledged: nothing is going to finish it now.
+        self.turns.finished(&thread).await;
+        stopped.map(drop)
     }
 
     async fn answer(
@@ -374,6 +432,7 @@ impl AgentBackend for CodexBackend {
         let outcome = self
             .call("thread/unsubscribe", json!({ "threadId": thread }))
             .await;
+        self.turns.finished(&thread).await;
         self.threads.lock().await.remove(&handle.id);
         outcome.map(drop)
     }
