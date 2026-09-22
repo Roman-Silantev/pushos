@@ -81,6 +81,13 @@ pub enum ButtonId {
     Lower7,
     /// `button.lower_8`
     Lower8,
+    // The column of eight down the right-hand side of the pads. Ableton's note
+    // repeat divisions are printed on them, and they are printed from the
+    // finest down to the coarsest, so this run is in the order an operator
+    // sees it: `div_1_32t` is the top button of the column and `div_1_4` is
+    // the bottom one. Anything that walks the column for the surface should
+    // walk it this way round; checked on a Push 2 on 2026-09-22, after binding
+    // it the other way and being told.
     /// `button.div_1_32t`
     Div1_32T,
     /// `button.div_1_32`
