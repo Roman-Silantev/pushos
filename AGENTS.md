@@ -779,6 +779,27 @@ FakePush
 
 Do not build around assumptions that have not been tested on the real Push 2.
 
+`pushos selftest` is how that is checked: every light one at a time and then
+all together, the display, and every control the operator works. It needs the
+device and a person watching it, and it takes the device exclusively, so stop
+PushOS first.
+
+Verified on a Push 2 on 2026-09-22, the first time one was attached:
+
+```text
+lights      129 of 129, individually and all at once
+display     full 960 by 160 pattern, no failed presentation
+controls    input proven for the pads in ordinary use; full sweep of all
+            141 not yet run
+disconnect  fixed, not yet proven by unplugging the device
+```
+
+What that first connection found, in minutes, after months of green tests:
+an ad-hoc signature carrying the hardened runtime, which made the kernel kill
+the app as soon as Push code was first executed; and a device plugged in after
+startup being invisible for the life of the process. Both are in the commit
+history. Neither was reachable from a stand-in surface.
+
 ---
 
 # 45. Avoid overengineering
