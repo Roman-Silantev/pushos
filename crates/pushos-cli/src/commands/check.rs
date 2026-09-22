@@ -9,6 +9,16 @@ use super::paths;
 /// Validates the configuration and reports what it describes.
 pub(crate) fn execute(requested: Option<&Path>) -> Result<(), String> {
     let root = paths::config_root(requested)?;
+    // An empty directory parses as a valid configuration of nothing at all,
+    // which is true and useless: a mistyped path or a moved directory would be
+    // reported as a healthy surface that does nothing.
+    if pushos_config::paths::files_for(&root).is_empty() {
+        return Err(format!(
+            "{}: no configuration here. `pushos init` writes a starting one, \
+             or pass --config with the directory yours is in",
+            root.display()
+        ));
+    }
     let file = pushos_config::load(&root).map_err(|error| describe(&error))?;
     let config = RuntimeConfig::build(&file).map_err(|error| describe(&error))?;
 

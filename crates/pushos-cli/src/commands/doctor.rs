@@ -11,7 +11,6 @@ use pushos_config::RuntimeConfig;
 use pushos_domain::ports::ProcessRunner;
 use pushos_macos::SystemProcessRunner;
 use pushos_push2::{PortRole, Push2Device};
-use pushos_storage::StorageWriter;
 
 use super::paths;
 
@@ -86,6 +85,22 @@ pub(crate) async fn execute(requested: Option<&Path>) -> Result<(), String> {
 }
 
 fn check_configuration(root: &Path) -> Finding {
+    // A directory with nothing in it reads as a valid configuration of no
+    // pages and no bindings, which is true and useless: a mistyped `--config`
+    // or a moved directory gives a surface that does nothing, and every other
+    // check here would go on to call it healthy.
+    if pushos_config::paths::files_for(root).is_empty() {
+        return Finding::new(
+            Verdict::Blocking,
+            "configuration",
+            format!(
+                "{}: no configuration here. `pushos init` writes a starting one, \
+                 or pass --config with the directory yours is in",
+                root.display()
+            ),
+        );
+    }
+
     match pushos_config::load(root).and_then(|file| RuntimeConfig::build(&file)) {
         Ok(config) => Finding::new(
             Verdict::Good,
@@ -113,8 +128,16 @@ fn check_database() -> Finding {
             "nowhere to keep runtime state",
         );
     };
-    match StorageWriter::open(&path) {
-        Ok(_) => Finding::new(Verdict::Good, "database", path.display().to_string()),
+    // Read-only on purpose: opening it the way PushOS does would make this a
+    // second writer against the database a running PushOS owns, and would trim
+    // and vacuum the operator's own audit trail for the sake of looking at it.
+    match pushos_storage::readable(&path) {
+        Ok(true) => Finding::new(Verdict::Good, "database", path.display().to_string()),
+        Ok(false) => Finding::new(
+            Verdict::Good,
+            "database",
+            format!("{} (made when PushOS first runs)", path.display()),
+        ),
         Err(error) => Finding::new(
             Verdict::Blocking,
             "database",
@@ -447,10 +470,19 @@ mod tests {
 
     #[test]
     fn a_missing_configuration_is_reported_as_blocking() {
+        // It loads as empty and is therefore valid, which is true and useless.
+        // A mistyped `--config` or a directory that has been moved gives a
+        // surface that does nothing, and a diagnostic that called that healthy
+        // would leave nowhere to look. Starting is unaffected: `run` and
+        // `app install` read the configuration themselves, and a machine with
+        // none still starts with nothing bound.
         let finding = check_configuration(Path::new("/nowhere/at/all"));
-        // A missing root loads as empty and is valid, so this is a good result:
-        // PushOS starts with nothing bound rather than refusing to start.
-        assert_eq!(finding.verdict, Verdict::Good);
+        assert_eq!(finding.verdict, Verdict::Blocking);
+        assert!(
+            finding.detail.contains("pushos init"),
+            "and says what to do about it: {}",
+            finding.detail
+        );
     }
 
     #[test]
