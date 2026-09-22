@@ -4,6 +4,7 @@
 //! here, so the registry has a single writer and two pads pressed together
 //! cannot race each other into two sessions for one role.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -23,10 +24,20 @@ use crate::session::Session;
 #[derive(Debug)]
 pub struct AgentSupervisor {
     roster: Arc<AgentRoster>,
-    /// Held across an await deliberately: starting a session is the operation
-    /// that must not interleave, or two pads pressed together open two builders.
-    /// Every other operation is short.
+    /// Every operation on it is short: nothing is awaited while it is held.
     sessions: Mutex<SessionRegistry>,
+    /// One lock per role, held while that role's session is being started.
+    ///
+    /// Starting is the operation that must not interleave: deciding to start
+    /// and recording what started are two separate turns under `sessions`, and
+    /// between them lies the start itself, which takes as long as an agent
+    /// takes to come up. Two pads pressed together — or a workflow and a pad —
+    /// would otherwise both find nothing, both claim a working tree and both
+    /// launch a process for one role.
+    ///
+    /// Per role rather than one lock over all of them, so starting the builder
+    /// never delays starting the reviewer. Bounded by the roles that exist.
+    starting: Mutex<HashMap<String, Arc<Mutex<()>>>>,
     observer: Arc<dyn AgentObserver>,
     /// Which project is in effect, and where its work happens.
     workspaces: Arc<dyn WorkspaceContext>,
@@ -42,6 +53,7 @@ impl AgentSupervisor {
         Self {
             roster,
             sessions: Mutex::new(SessionRegistry::new()),
+            starting: Mutex::new(HashMap::new()),
             observer,
             workspaces,
         }
@@ -96,8 +108,37 @@ impl AgentSupervisor {
         Some(updated)
     }
 
+    /// The lock that serialises starting one role.
+    async fn starting_lock(&self, key: &str) -> Arc<Mutex<()>> {
+        Arc::clone(
+            self.starting
+                .lock()
+                .await
+                .entry(key.to_owned())
+                .or_insert_with(|| Arc::new(Mutex::new(()))),
+        )
+    }
+
     /// Finds the session a target means, opening one if the role has none.
     pub async fn resolve(&self, target: &AgentTarget) -> Result<Session, AgentError> {
+        // Held for the whole decide-and-start, so a role asked for twice at
+        // once is started once and the second caller finds the first's work.
+        let queued = match target {
+            AgentTarget::Role { agent, workspace } => Some(
+                self.starting_lock(&format!(
+                    "{}/{}",
+                    workspace.as_ref().map_or("", |id| id.as_str()),
+                    agent.as_str()
+                ))
+                .await,
+            ),
+            AgentTarget::Session(_) | AgentTarget::Selected => None,
+        };
+        let _starting = match &queued {
+            Some(lock) => Some(lock.lock().await),
+            None => None,
+        };
+
         // Asked before the registry is locked: the project decides which
         // provider fills a role here, and finding that out talks to nothing
         // the registry owns.

@@ -63,9 +63,19 @@ pub struct FakeAgent {
     observer: Arc<Mutex<Option<Arc<dyn AgentObserver>>>>,
     fail_with: Arc<Mutex<Option<ErrorClass>>>,
     next_session: Arc<Mutex<u64>>,
+    /// How long starting takes, for proving what happens when two callers ask
+    /// for one role while the first is still coming up.
+    slow_to_start: Arc<Mutex<Option<std::time::Duration>>>,
 }
 
 impl FakeAgent {
+    /// Makes starting take this long, so two callers can overlap in it.
+    pub fn taking_to_start(&self, how_long: std::time::Duration) {
+        if let Ok(mut slowly) = self.slow_to_start.lock() {
+            *slowly = Some(how_long);
+        }
+    }
+
     /// Builds a provider that can do everything.
     pub fn new(provider: impl Into<ProviderName>) -> Self {
         Self {
@@ -81,6 +91,7 @@ impl FakeAgent {
             calls: Arc::new(Mutex::new(Vec::new())),
             observer: Arc::new(Mutex::new(None)),
             fail_with: Arc::new(Mutex::new(None)),
+            slow_to_start: Arc::new(Mutex::new(None)),
             next_session: Arc::new(Mutex::new(0)),
         }
     }
@@ -204,6 +215,13 @@ impl AgentBackend for FakeAgent {
         self.record(AgentCall::Started {
             agent: request.agent.to_string(),
         })?;
+
+        // Recorded first, then the wait: a second caller arriving now is
+        // exactly the interleaving worth testing.
+        let slowly = self.slow_to_start.lock().ok().and_then(|guard| *guard);
+        if let Some(how_long) = slowly {
+            tokio::time::sleep(how_long).await;
+        }
 
         let ordinal = {
             let mut next = self

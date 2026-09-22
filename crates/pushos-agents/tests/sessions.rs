@@ -474,3 +474,34 @@ async fn every_state_change_pushos_makes_is_reported() {
         "the prompt was reported"
     );
 }
+
+#[tokio::test]
+async fn one_role_asked_for_twice_at_once_opens_one_session() {
+    // Deciding to start and recording what started are two turns under the
+    // registry, and the start itself sits between them. Without something
+    // holding the role for that whole time, two pads pressed together — or a
+    // workflow and a pad — both find nothing, both claim a working tree, and
+    // both launch a process for one role.
+    let (supervisor, agent, _) = supervise(&["builder"]);
+    // An agent takes a moment to come up. That moment is the whole bug.
+    agent.taking_to_start(std::time::Duration::from_millis(200));
+
+    let first = Arc::clone(&supervisor);
+    let second = Arc::clone(&supervisor);
+    let (one, two) = tokio::join!(
+        tokio::spawn(async move { first.resolve(&AgentTarget::role("builder")).await }),
+        tokio::spawn(async move { second.resolve(&AgentTarget::role("builder")).await }),
+    );
+
+    let one = one.expect("the task ran").expect("resolved");
+    let two = two.expect("the task ran").expect("resolved");
+    assert_eq!(one.id, two.id, "both pads are working in the same session");
+
+    let started = agent
+        .calls()
+        .into_iter()
+        .filter(|call| matches!(call, AgentCall::Started { .. }))
+        .count();
+    assert_eq!(started, 1, "and only one process was ever launched");
+    assert_eq!(supervisor.sessions().await.len(), 1);
+}
