@@ -234,31 +234,34 @@ fn assemble(layout: &AppLayout) -> Result<(), String> {
     )
 }
 
-/// Signs the app with the hardened runtime and its entitlements.
+/// Signs the app with its entitlements, and the hardened runtime when it can.
 ///
 /// With a named identity when there is one, so the signature is the same from
 /// one build to the next. Without one, signed for this build only: macOS still
 /// runs it, and asks for its permissions again after the next install.
+///
+/// The hardened runtime goes on only with a real identity. Asking for it on an
+/// ad-hoc signature is what macOS kills the process for: the runtime promises
+/// every executable page is covered by a signature it can keep checking, an
+/// ad-hoc signature cannot make that promise, and the kernel finds out at the
+/// moment a page of lazily-loaded code is first run. For PushOS that moment is
+/// connecting to the Push 2 — so the app ran perfectly until the hardware was
+/// plugged in, then died with `Code Signature Invalid` every ten seconds for
+/// as long as launchd kept restarting it.
 fn sign(layout: &AppLayout, identity: Option<&str>) -> Result<(), String> {
     let entitlements =
         std::env::temp_dir().join(format!("pushos-{}.entitlements", std::process::id()));
     std::fs::write(&entitlements, app::entitlements())
         .map_err(|error| format!("could not write the entitlements: {error}"))?;
 
-    let signed = run(
-        "/usr/bin/codesign",
-        &[
-            "--force",
-            "--options",
-            "runtime",
-            "--timestamp=none",
-            "--entitlements",
-            &entitlements.to_string_lossy(),
-            "--sign",
-            identity.unwrap_or("-"),
-            &layout.root().to_string_lossy(),
-        ],
+    let arguments = signing_arguments(
+        identity,
+        &entitlements.to_string_lossy(),
+        &layout.root().to_string_lossy(),
     );
+    let borrowed: Vec<&str> = arguments.iter().map(String::as_str).collect();
+
+    let signed = run("/usr/bin/codesign", &borrowed);
     std::fs::remove_file(&entitlements).ok();
     signed?;
 
@@ -268,6 +271,27 @@ fn sign(layout: &AppLayout, identity: Option<&str>) -> Result<(), String> {
     )
     .map(|_| ())
     .map_err(|error| format!("the app was signed but does not verify: {error}"))
+}
+
+/// What `codesign` is asked to do.
+///
+/// A function of its own so the one rule that matters can be tested without
+/// signing anything: the hardened runtime goes on only with a real identity.
+fn signing_arguments(identity: Option<&str>, entitlements: &str, app: &str) -> Vec<String> {
+    let mut arguments = vec!["--force".to_owned()];
+    if identity.is_some() {
+        arguments.push("--options".to_owned());
+        arguments.push("runtime".to_owned());
+    }
+    arguments.extend([
+        "--timestamp=none".to_owned(),
+        "--entitlements".to_owned(),
+        entitlements.to_owned(),
+        "--sign".to_owned(),
+        identity.unwrap_or("-").to_owned(),
+        app.to_owned(),
+    ]);
+    arguments
 }
 
 /// The name of a code signing certificate on this Mac, if one has it.
@@ -416,4 +440,49 @@ fn same_file(a: &Path, b: &Path) -> bool {
 fn home() -> Result<PathBuf, String> {
     pushos_config::paths::home_directory()
         .ok_or_else(|| "could not work out your home directory; set HOME".to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_hardened_runtime_is_only_asked_for_with_a_real_identity() {
+        // Asking for it on an ad-hoc signature is what macOS kills the process
+        // for, and it only finds out when a page of lazily-loaded code first
+        // runs. For PushOS that page is the Push 2 adapter, so the app worked
+        // perfectly until the hardware was plugged in and then died with
+        // `Code Signature Invalid` every ten seconds for as long as launchd
+        // kept restarting it.
+        let adhoc = signing_arguments(None, "/tmp/e.entitlements", "/tmp/PushOS.app");
+        assert!(
+            !adhoc.iter().any(|argument| argument == "runtime"),
+            "an ad-hoc signature cannot carry the hardened runtime: {adhoc:?}"
+        );
+        assert!(adhoc.iter().any(|argument| argument == "-"), "{adhoc:?}");
+
+        let named = signing_arguments(
+            Some("PushOS Local"),
+            "/tmp/e.entitlements",
+            "/tmp/PushOS.app",
+        );
+        assert!(
+            named.iter().any(|argument| argument == "runtime"),
+            "a real identity can, and should: {named:?}"
+        );
+        assert!(
+            named.iter().any(|argument| argument == "PushOS Local"),
+            "{named:?}"
+        );
+    }
+
+    #[test]
+    fn the_entitlements_and_the_app_are_always_passed() {
+        for identity in [None, Some("PushOS Local")] {
+            let arguments = signing_arguments(identity, "/tmp/e.entitlements", "/tmp/PushOS.app");
+            assert!(arguments.iter().any(|held| held == "/tmp/e.entitlements"));
+            assert!(arguments.iter().any(|held| held == "/tmp/PushOS.app"));
+            assert!(arguments.iter().any(|held| held == "--force"));
+        }
+    }
 }
