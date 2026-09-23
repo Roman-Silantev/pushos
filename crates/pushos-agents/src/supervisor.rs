@@ -218,6 +218,41 @@ impl AgentSupervisor {
         }
     }
 
+    /// Moves the selection one place along the fleet, and returns where it got to.
+    ///
+    /// The same order the grid is in — when each session opened — so turning a
+    /// knob walks the pads left to right rather than jumping about by whichever
+    /// agent last said something. Stops at the ends rather than wrapping: a
+    /// fleet is a row of things in an order, and coming back round to the first
+    /// one loses the operator's place in it.
+    pub async fn step(&self, forward: bool) -> Option<Session> {
+        let sessions = self.sessions.lock().await;
+        let fleet = sessions.fleet();
+        if fleet.is_empty() {
+            return None;
+        }
+
+        let at = sessions
+            .selected()
+            .and_then(|chosen| fleet.iter().position(|open| open.id == chosen.id));
+
+        let moved = match (at, forward) {
+            // Nothing chosen yet: a turn either way starts at the near end.
+            (None, true) => 0,
+            (None, false) => fleet.len() - 1,
+            (Some(at), true) => (at + 1).min(fleet.len() - 1),
+            (Some(at), false) => at.saturating_sub(1),
+        };
+
+        let session = fleet.get(moved).map(|open| (*open).clone());
+        drop(sessions);
+
+        if let Some(session) = &session {
+            self.select(&session.id).await;
+        }
+        session
+    }
+
     /// Opens one more session for a role, whatever is already filling it.
     ///
     /// [`Self::resolve`] deliberately will not do this: a role names one job,

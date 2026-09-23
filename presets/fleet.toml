@@ -125,6 +125,40 @@ gesture = "press"
 action = "agent.cancel"
 label = "Interrupt"
 
+# --- The two knobs in the top left corner -------------------------------------
+# Tempo walks the fleet, in the order the pads are in, so a turn moves to the
+# agent on the pad next door rather than jumping to whichever last spoke. It
+# stops at the ends rather than wrapping: the row has an order and coming back
+# round to the first loses your place in it.
+#
+# Push 2's knobs turn and feel a finger on them; they do not click. Touch is
+# how you look — rest a finger on Tempo and the agent it is on fills the
+# display.
+
+[[bindings]]
+control = "encoder.tempo"
+gesture = "turn_right"
+action = "agent.next"
+label = "Next agent"
+
+[[bindings]]
+control = "encoder.tempo"
+gesture = "turn_left"
+action = "agent.previous"
+label = "Previous"
+
+[[bindings]]
+control = "encoder.swing"
+gesture = "turn_right"
+action = "workspace.next"
+label = "Next project"
+
+[[bindings]]
+control = "encoder.swing"
+gesture = "turn_left"
+action = "workspace.previous"
+label = "Previous"
+
 # --- The grid -----------------------------------------------------------------
 # One pad per place in the fleet, counted from one in the order the agents
 # opened. A place nobody is standing in stays dark, so the lit pads are the

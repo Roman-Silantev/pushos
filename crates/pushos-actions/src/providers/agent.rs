@@ -69,7 +69,8 @@ impl ActionProvider for AgentProvider {
     fn capabilities(&self) -> ProviderCapabilities {
         ProviderCapabilities::new(
             [
-                "start", "prompt", "cancel", "approve", "reject", "select", "stop",
+                "start", "prompt", "cancel", "approve", "reject", "select", "stop", "next",
+                "previous",
             ]
             .map(ActionVerb::new),
         )
@@ -93,6 +94,20 @@ impl ActionProvider for AgentProvider {
             "approve" => self.supervisor.answer(&target, true).await,
             "reject" => self.supervisor.answer(&target, false).await,
             "stop" => self.supervisor.stop(&target).await,
+            // Walking the fleet, which is what a knob does. The grid's own
+            // order, so a turn moves to the pad next door.
+            "next" | "previous" => {
+                let forward = context.definition.selector.verb.as_str() == "next";
+                match self.supervisor.step(forward).await {
+                    Some(session) => Ok(session),
+                    None => Err(pushos_domain::ports::AgentError::backend(
+                        "no agent is open to move to",
+                        pushos_domain::error::ErrorClass::Validation,
+                        std::io::Error::other("no agent is open to move to"),
+                    )),
+                }
+            }
+
             "select" => {
                 let session = self.supervisor.resolve(&target).await;
                 if let Ok(session) = &session {
@@ -416,5 +431,109 @@ mod tests {
             provider.capabilities().required_permissions(),
             [Permission::ShellExecute]
         );
+    }
+
+    #[tokio::test]
+    async fn a_knob_walks_the_fleet_in_the_order_the_pads_are_in() {
+        let agent = FakeAgent::new("codex");
+        let supervisor = supervisor(&agent);
+        for _ in 0..3 {
+            supervisor
+                .recruit(&"builder".into(), None)
+                .await
+                .expect("hires");
+        }
+        let fleet: Vec<String> = {
+            let opened = supervisor.sessions().await;
+            let mut ordered: Vec<_> = opened.iter().collect();
+            ordered.sort_by(|left, right| {
+                left.started_at
+                    .cmp(&right.started_at)
+                    .then_with(|| left.id.as_str().cmp(right.id.as_str()))
+            });
+            ordered.into_iter().map(|s| s.id.to_string()).collect()
+        };
+
+        // Opening a session chooses it, so the fleet starts on its last
+        // member. Walk back to the first and then forwards from there.
+        run(
+            &supervisor,
+            "select",
+            targeting(&format!("session:{}", fleet[0])),
+        )
+        .await
+        .expect("chooses the first");
+        assert_eq!(
+            supervisor
+                .selected()
+                .await
+                .expect("something is chosen")
+                .id
+                .as_str(),
+            fleet[0]
+        );
+
+        run(&supervisor, "next", Params::new())
+            .await
+            .expect("moves");
+        assert_eq!(
+            supervisor.selected().await.expect("chosen").id.as_str(),
+            fleet[1]
+        );
+
+        run(&supervisor, "previous", Params::new())
+            .await
+            .expect("moves");
+        assert_eq!(
+            supervisor.selected().await.expect("chosen").id.as_str(),
+            fleet[0]
+        );
+    }
+
+    #[tokio::test]
+    async fn walking_past_the_end_of_the_fleet_stays_at_the_end() {
+        // Rather than wrapping. A fleet is a row in an order, and coming back
+        // round to the first agent loses the operator's place in it.
+        let agent = FakeAgent::new("codex");
+        let supervisor = supervisor(&agent);
+        for _ in 0..2 {
+            supervisor
+                .recruit(&"builder".into(), None)
+                .await
+                .expect("hires");
+        }
+
+        for _ in 0..6 {
+            run(&supervisor, "next", Params::new())
+                .await
+                .expect("moves");
+        }
+        let at_end = supervisor.selected().await.expect("chosen").id.clone();
+        run(&supervisor, "next", Params::new())
+            .await
+            .expect("stays");
+        assert_eq!(supervisor.selected().await.expect("chosen").id, at_end);
+
+        for _ in 0..6 {
+            run(&supervisor, "previous", Params::new())
+                .await
+                .expect("moves");
+        }
+        let at_start = supervisor.selected().await.expect("chosen").id.clone();
+        run(&supervisor, "previous", Params::new())
+            .await
+            .expect("stays");
+        assert_eq!(supervisor.selected().await.expect("chosen").id, at_start);
+        assert_ne!(at_start, at_end);
+    }
+
+    #[tokio::test]
+    async fn walking_an_empty_fleet_says_so_rather_than_pretending() {
+        let agent = FakeAgent::new("codex");
+        let supervisor = supervisor(&agent);
+        let refused = run(&supervisor, "next", Params::new())
+            .await
+            .expect_err("there is no fleet");
+        assert!(refused.to_string().contains("no agent is open"));
     }
 }
