@@ -83,12 +83,35 @@ impl ScriptRunner {
         arguments: &[String],
         bytes: usize,
     ) -> Result<String, ActionError> {
+        self.run_within(script, arguments, bytes, ProcessSpec::DEFAULT_TIMEOUT)
+            .await
+    }
+
+    /// Runs a script that must answer within `patience`, or not at all.
+    ///
+    /// For anything asked of another application. An application can stop
+    /// answering Apple events while still running — a Terminal with a modal
+    /// window, or one simply wedged — and the default budget is two minutes,
+    /// which is not a wait, it is a hang. Everything behind it on the surface
+    /// stops for that long, which is how one unresponsive application took the
+    /// whole of PushOS down with it.
+    pub async fn run_within(
+        &self,
+        script: &str,
+        arguments: &[String],
+        bytes: usize,
+        patience: std::time::Duration,
+    ) -> Result<String, ActionError> {
         let mut args = vec!["-e".to_owned(), script.to_owned()];
         args.extend(arguments.iter().cloned());
 
         let outcome = self
             .processes
-            .run(&ProcessSpec::new(OSASCRIPT, args).capturing(bytes))
+            .run(
+                &ProcessSpec::new(OSASCRIPT, args)
+                    .capturing(bytes)
+                    .within(patience),
+            )
             .await?;
         Self::interpret(&outcome)
     }

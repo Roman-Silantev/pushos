@@ -92,6 +92,17 @@ const DISCOVER: &str = concat!(
 end run"#
 );
 
+/// How long Terminal is given to answer before PushOS gives up on it.
+///
+/// Reading what is on a screen is microseconds of work, so anything past a
+/// couple of seconds is an application that has stopped answering rather than
+/// a slow one. The default budget for a subprocess is two minutes, and a
+/// Terminal wedged for two minutes at a time makes every control on the
+/// surface that touches a session unusable — which is exactly what happened:
+/// `session.next`, `session.bank` and the rest all sat waiting on an
+/// application that was never going to reply.
+const PATIENCE: std::time::Duration = std::time::Duration::from_secs(4);
+
 /// How much of each screen to read while looking at what is open.
 ///
 /// Enough to hold the prompt and a question above it, and no more. This is
@@ -235,9 +246,19 @@ impl TerminalApp {
     }
 
     /// Runs one of the fixed scripts, classifying a refusal.
+    ///
+    /// Every one of them is given the same short patience. Reading a screen,
+    /// pressing a key and opening a window are all fast when Terminal is
+    /// answering, and none of them is worth waiting two minutes for when it is
+    /// not: a control the operator pressed has to come back and say so.
     async fn ask(&self, script: &str, arguments: &[String]) -> Result<String, AttachError> {
         self.scripts
-            .run(script, arguments)
+            .run_within(
+                script,
+                arguments,
+                pushos_domain::ports::ProcessSpec::DEFAULT_CAPTURE,
+                PATIENCE,
+            )
             .await
             .map_err(into_attach_error)
     }
@@ -246,7 +267,7 @@ impl TerminalApp {
     pub(super) async fn tabs(&self) -> Result<Vec<Tab>, AttachError> {
         let reply = self
             .scripts
-            .run_capturing(DISCOVER, &[GLANCE.to_string()], LISTING)
+            .run_within(DISCOVER, &[GLANCE.to_string()], LISTING, PATIENCE)
             .await
             .map_err(into_attach_error)?;
 
@@ -716,5 +737,43 @@ mod tests {
             .expect_err("permission was refused");
         assert!(matches!(error, AttachError::NotPermitted { .. }));
         assert!(error.to_string().contains("Automation"), "{error}");
+    }
+
+    #[test]
+    fn terminal_is_never_given_more_than_a_few_seconds_to_answer() {
+        // An application can stop answering Apple events while still running,
+        // and the default budget for a subprocess is two minutes. A Terminal
+        // wedged for two minutes at a time made every control that touches a
+        // session unusable — the knobs, the arrows and the pads all sat
+        // waiting on an application that was never going to reply.
+        assert!(
+            PATIENCE <= std::time::Duration::from_secs(5),
+            "reading a screen is microseconds of work; {PATIENCE:?} is a hang, not a wait"
+        );
+        assert!(
+            PATIENCE < pushos_domain::ports::ProcessSpec::DEFAULT_TIMEOUT,
+            "the whole point is to be shorter than the default"
+        );
+    }
+
+    #[test]
+    fn nothing_asks_terminal_without_a_deadline() {
+        // Both routes to Terminal go through `run_within`. A new script added
+        // with `run` would inherit two minutes of patience and put the fault
+        // back, so the source says so rather than a person having to remember.
+        let source = include_str!("terminal_app.rs");
+        let body = source
+            .split("#[cfg(test)]")
+            .next()
+            .expect("there is code before the tests");
+        assert!(
+            !body.contains(".run(script, arguments)"),
+            "a Terminal script is being run without a deadline"
+        );
+        assert_eq!(
+            body.matches("run_within").count(),
+            2,
+            "both the listing and the shared helper should carry a deadline"
+        );
     }
 }
