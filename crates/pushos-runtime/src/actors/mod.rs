@@ -12,6 +12,7 @@ mod sessions;
 pub(crate) mod slots;
 mod surface;
 mod terminals;
+pub(crate) mod tree;
 mod workflows;
 
 pub(crate) use agents::lines_for as agent_lines;

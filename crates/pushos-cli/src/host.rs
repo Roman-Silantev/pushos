@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use pushos_acp::{AcpBackend, AgentCommand};
 use pushos_actions::providers::{
-    agent, application, fleet, media, memory, page, sequence, session, shell, shortcut, terminal,
-    voice, workflow, workspace,
+    agent, application, browse, fleet, media, memory, page, sequence, session, shell, shortcut,
+    terminal, voice, workflow, workspace,
 };
 use pushos_agents::{AgentRoster, AgentSupervisor};
 use pushos_codex::CodexBackend;
@@ -377,6 +377,9 @@ pub(crate) fn providers(
 
     let mut providers: Vec<Arc<dyn ActionProvider>> = vec![
         Arc::new(page::PageProvider::new()),
+        // Reaching what is not on a pad. It needs no permission: it moves a
+        // cursor, and what a chosen row runs is checked when it runs.
+        Arc::new(browse::BrowseProvider::new()),
         Arc::new(workspace::WorkspaceProvider::new(
             Arc::clone(workspaces),
             Arc::clone(&launcher),

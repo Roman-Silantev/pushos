@@ -112,6 +112,7 @@ fn page() -> UiSnapshot {
         )),
         overlay: None,
         focus: None,
+        browser: None,
         splash: None,
         sessions: Vec::new(),
         listening: Listening::Recording,
@@ -144,6 +145,7 @@ fn sessions() -> UiSnapshot {
 /// The waiting screen, part way through its animation.
 fn splash() -> UiSnapshot {
     UiSnapshot {
+        browser: None,
         splash: Some(Splash::new("PushOS", 34).with_detail("waiting for Push 2")),
         ..page()
     }

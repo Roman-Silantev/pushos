@@ -321,6 +321,13 @@ pub enum DisplayIntent {
     },
     /// Move to a page.
     Page(crate::page::PageTarget),
+    /// Open, move or close the browser.
+    ///
+    /// The control says which way to move; whatever owns the tree works out
+    /// what is there and what choosing it does. Deliberately separate from
+    /// [`DisplayIntent::Focus`]: the browser is how a thing is found, and
+    /// focus is how it is read, and neither should change the other's rules.
+    Browse(crate::browse::BrowseMove),
     /// Offer the operator a choice. Never steals focus on its own.
     /// Stop looking closely at one thing, and show the eight again.
     ///

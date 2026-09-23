@@ -280,6 +280,44 @@ impl InputTask {
         self.questions_seen = waiting.len();
     }
 
+    /// Runs an action nothing pressed a control for.
+    ///
+    /// Off this task, like every other action, so the surface keeps answering
+    /// while it happens.
+    fn run_now(&self, action: pushos_domain::action::ActionDefinition, correlation: CorrelationId) {
+        let selector = action.selector.clone();
+        let context = self.surface.context(self.recognizer.shift_held());
+        let dispatcher = Arc::clone(&self.dispatcher);
+        let back = self.finished.0.clone();
+        let began = Instant::now();
+        // Nothing was pressed, so there is no binding to name; the key is the
+        // one control that cannot be bound, which keeps the report honest.
+        let key = BindingKey::new(
+            pushos_domain::controls::ControlId::Button(pushos_domain::controls::ButtonId::Shift),
+            pushos_domain::gesture::Gesture::Press,
+        );
+
+        debug!(%selector, "acting on a row chosen in the browser");
+        let running = async move {
+            let outcome = dispatcher.dispatch(action, context, correlation).await;
+            let _ = back
+                .send(Finished {
+                    began,
+                    selector,
+                    correlation,
+                    outcome,
+                    key,
+                })
+                .await;
+        };
+        // Owned, like every other action: a task nothing is waiting on is a
+        // task nothing can stop at shutdown.
+        match &self.owner {
+            Some(owner) => drop(owner.spawn(running)),
+            None => drop(tokio::spawn(running)),
+        }
+    }
+
     /// Runs until the surface goes away or shutdown begins.
     pub async fn run(mut self, shutdown: Shutdown) {
         // So an action still running when PushOS stops is cancelled with
@@ -617,6 +655,14 @@ impl InputTask {
                 correlation,
                 DomainEvent::PageChanged { page },
             ));
+        }
+
+        // Choosing a row in the browser is picking an action off a list rather
+        // than pressing a control bound to one, so it arrives here instead of
+        // through the resolver. It runs exactly as any other action does, with
+        // the same permissions asked of it.
+        if let Some(chosen) = self.surface.taken() {
+            self.run_now(chosen, correlation);
         }
 
         if result.status == ActionStatus::Failed

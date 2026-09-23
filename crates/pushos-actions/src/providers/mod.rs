@@ -6,6 +6,7 @@
 
 pub mod agent;
 pub mod application;
+pub mod browse;
 pub mod fleet;
 pub mod media;
 pub mod memory;

@@ -25,7 +25,7 @@ pub use canvas::{Area, Canvas};
 pub use mascot::{MASCOT, Mascot};
 pub use renderer::{PushRenderer, RendererUnavailable};
 pub use snapshot::{
-    Focus, LedPlan, Notice, Overlay, PageView, SLOT_COUNT, SessionLine, Slot, Splash,
+    Browser, Focus, LedPlan, Notice, Overlay, PageView, SLOT_COUNT, SessionLine, Slot, Splash,
     SurfacePresence, Tone, UiSnapshot,
 };
 pub use text::{Align, FontUnavailable, TextRenderer, TextStyle};

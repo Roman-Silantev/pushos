@@ -144,6 +144,10 @@ impl Harness {
                 pushos_actions::providers::page::PageProvider::new(),
             ))
             .expect("the namespace is free")
+            .with_provider(Arc::new(
+                pushos_actions::providers::browse::BrowseProvider::new(),
+            ))
+            .expect("the namespace is free")
             .with_provider(Arc::clone(&sequences) as Arc<dyn pushos_domain::ports::ActionProvider>)
             .expect("the namespace is free")
             .with_sequences(sequences);
@@ -186,6 +190,26 @@ impl Harness {
                 at,
             ))
             .await;
+    }
+
+    /// Every page change the bus carries in a short while.
+    ///
+    /// Waited for rather than polled: a page that moved would arrive within a
+    /// frame or two, and an empty answer after waiting is the claim being made.
+    async fn pages_moved(&mut self) -> Vec<String> {
+        let mut moved = Vec::new();
+        let listening = tokio::time::timeout(Duration::from_millis(400), async {
+            loop {
+                let Some(envelope) = self.events.recv().await else {
+                    return;
+                };
+                if let DomainEvent::PageChanged { page } = &envelope.payload {
+                    moved.push(page.to_string());
+                }
+            }
+        });
+        drop(listening.await);
+        moved
     }
 
     /// Waits for the provider to have been called `count` times.
@@ -740,6 +764,99 @@ async fn the_surface_keeps_answering_while_an_action_runs() {
     tokio::time::timeout(Duration::from_secs(5), harness.wait_for_calls(2))
         .await
         .expect("and carried it out while the first was still going");
+
+    harness.stop().await;
+}
+
+/// Browsing, driven the way a finger drives it.
+///
+/// The socket's `test` request cannot prove any of this: it dispatches an
+/// action and reports what came back, throwing the display instruction away
+/// before the surface ever sees it. Only the whole pipeline shows that turning
+/// a knob moves a cursor and that choosing a row runs what is behind it.
+const BROWSING: &str = r#"
+[runtime]
+home_page = "home"
+
+[[pages]]
+id = "home"
+name = "Home"
+
+[[pages]]
+id = "music"
+name = "Music"
+
+[[bindings]]
+control = "button.browse"
+gesture = "press"
+action = "browse.open"
+
+[[bindings]]
+control = "button.up"
+gesture = "press"
+action = "browse.previous"
+
+[[bindings]]
+control = "button.down"
+gesture = "press"
+action = "browse.next"
+
+[[bindings]]
+control = "button.right"
+gesture = "press"
+action = "browse.enter"
+
+[[bindings]]
+control = "button.left"
+gesture = "press"
+action = "browse.leave"
+"#;
+
+#[tokio::test]
+async fn a_row_chosen_in_the_browser_runs_what_is_behind_it() {
+    // The claim the whole feature rests on: the browser is not a picture of a
+    // list, it is a way of reaching things. Walk to Pages, go in, choose the
+    // second page, and the surface should be on it.
+    let mut harness = Harness::start(BROWSING);
+
+    harness.press_button(ButtonId::Browse).await;
+    // Projects, Sessions, Pages: two steps down to Pages, then in.
+    harness.press_button(ButtonId::Down).await;
+    harness.press_button(ButtonId::Down).await;
+    harness.press_button(ButtonId::Right).await;
+    // Home, Music: one step down to Music, then choose it.
+    harness.press_button(ButtonId::Down).await;
+    harness.press_button(ButtonId::Right).await;
+
+    let moved = harness
+        .wait_for_event(|event| matches!(event, DomainEvent::PageChanged { .. }))
+        .await;
+    match moved {
+        DomainEvent::PageChanged { page } => assert_eq!(page.as_str(), "music"),
+        other => panic!("expected the page to have moved, got {other:?}"),
+    }
+
+    harness.stop().await;
+}
+
+#[tokio::test]
+async fn walking_the_browser_runs_nothing_until_a_row_is_chosen() {
+    // A knob turned past a row must not do what that row does. Opening,
+    // walking and going in and out are all moves, and none of them acts.
+    let mut harness = Harness::start(BROWSING);
+
+    harness.press_button(ButtonId::Browse).await;
+    for _ in 0..3 {
+        harness.press_button(ButtonId::Down).await;
+    }
+    harness.press_button(ButtonId::Up).await;
+    harness.press_button(ButtonId::Right).await;
+    harness.press_button(ButtonId::Left).await;
+
+    assert!(
+        harness.pages_moved().await.is_empty(),
+        "walking the browser should have changed nothing"
+    );
 
     harness.stop().await;
 }

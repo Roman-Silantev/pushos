@@ -37,6 +37,12 @@ pub struct UiSnapshot {
     /// doing is reading, and a panel that reverted underneath them after six
     /// seconds would be a panel they could not use.
     pub focus: Option<Focus>,
+    /// The browser, while the operator is looking through it.
+    ///
+    /// Its own field rather than an overlay or a focus: it is how a thing is
+    /// found, and those are how a thing is said and read. Drawn over a focus
+    /// and under a question, and it touches no light on the surface.
+    pub browser: Option<Browser>,
     /// The waiting screen, which takes over everything and animates.
     pub splash: Option<Splash>,
     /// The agent sessions worth showing, most recently active first.
@@ -339,6 +345,22 @@ impl Focus {
 /// Not `Eq`, because progress is a fraction. Comparison is exact and that is
 /// what the dirty check wants: a progress value that has not been recomputed
 /// compares equal and does not force a redraw.
+/// What the browser is showing right now.
+///
+/// Its own type rather than an overlay or a focus: the browser is how a thing
+/// is found, and those are how a thing is said and read.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Browser {
+    /// Where in the tree this is, as a line across the top.
+    pub trail: String,
+    /// The rows at this level, in order.
+    pub rows: Vec<pushos_domain::browse::Twig>,
+    /// Which row the cursor is on.
+    pub at: usize,
+    /// What to say when the level has nothing in it.
+    pub empty: String,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Overlay {
     /// A short label above the headline, such as the source of the information.

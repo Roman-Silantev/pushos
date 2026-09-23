@@ -13,7 +13,8 @@ use crate::snapshot::UiSnapshot;
 use crate::text::{FontUnavailable, TextRenderer};
 use crate::theme::Theme;
 use crate::widgets::{
-    Layout, draw_focus, draw_footer, draw_overlay, draw_slots, draw_splash, draw_status,
+    Layout, draw_browser, draw_focus, draw_footer, draw_overlay, draw_slots, draw_splash,
+    draw_status,
 };
 
 /// Draws the Push 2 display.
@@ -96,6 +97,15 @@ impl PushRenderer {
 
         if let Some(overlay) = &snapshot.overlay {
             draw_overlay(&mut self.canvas, &mut self.text, &self.theme, overlay);
+            return;
+        }
+
+        // Under a question, which must be answered, and over a focus: the
+        // browser is what an operator opened a moment ago to go somewhere, and
+        // whatever they were reading before that is still there when they
+        // close it.
+        if let Some(browser) = &snapshot.browser {
+            draw_browser(&mut self.canvas, &mut self.text, &self.theme, browser);
             return;
         }
 
@@ -252,6 +262,7 @@ mod tests {
             notice: None,
             overlay: None,
             focus: None,
+            browser: None,
             splash: None,
             sessions: Vec::new(),
             listening: pushos_domain::voice::Listening::Idle,
