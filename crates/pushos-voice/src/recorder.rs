@@ -191,8 +191,8 @@ pub fn input_device_works() -> Result<String, VoiceError> {
 struct Session {
     stream: cpal::Stream,
     heard: Arc<Mutex<Vec<f32>>>,
-    /// How many device samples make one of ours.
-    every: usize,
+    /// What the device is actually running at.
+    rate: u32,
     channels: usize,
 }
 
@@ -209,11 +209,6 @@ impl Session {
 
         let rate = config.sample_rate();
         let channels = config.channels() as usize;
-        // Devices run at 44100 or 48000; speech recognition wants 16000. Whole
-        // numbers divide cleanly enough that averaging groups is both a
-        // decimator and a crude low pass, which is what stops the high
-        // frequencies folding back down as noise.
-        let every = (rate as usize / SAMPLE_RATE as usize).max(1);
 
         let most = (rate as usize)
             .saturating_mul(channels)
@@ -242,7 +237,7 @@ impl Session {
         Ok(Self {
             stream,
             heard,
-            every,
+            rate,
             channels,
         })
     }
@@ -256,7 +251,7 @@ impl Session {
             .map(|kept| kept.clone())
             .unwrap_or_default();
 
-        resample(&raw, self.channels, self.every)
+        resample(&raw, self.channels, self.rate)
     }
 }
 
@@ -269,13 +264,22 @@ fn keep(kept: &mut Vec<f32>, samples: &[f32], most: usize) {
     kept.extend_from_slice(&samples[..samples.len().min(room)]);
 }
 
-/// Mixes to mono and brings the rate down to [`SAMPLE_RATE`].
+/// Mixes to mono and brings the rate to [`SAMPLE_RATE`].
 ///
-/// Averaging rather than picking every nth sample: dropping samples folds
-/// everything above the new limit back down as noise, and noise is exactly what
-/// a speech model is worst at.
-fn resample(raw: &[f32], channels: usize, every: usize) -> Vec<f32> {
-    if raw.is_empty() || channels == 0 {
+/// By ratio, not by taking every nth sample. Dividing the rates as whole
+/// numbers is only right when one is a multiple of the other, and the rates
+/// microphones actually run at are mostly not: 44100 over 16000 rounds down to
+/// two, which hands the recogniser audio a third too fast, and a headset at
+/// 24000 rounds down to one, which makes it half again too fast. Neither
+/// reports an error. The transcript is simply wrong, which is the worst way for
+/// this to fail.
+///
+/// Each output sample is the average of the input window it covers, which is
+/// both a decimator and a crude low pass — dropping samples instead would fold
+/// everything above the new limit back down as noise, and noise is what a
+/// speech model is worst at.
+fn resample(raw: &[f32], channels: usize, rate: u32) -> Vec<f32> {
+    if raw.is_empty() || channels == 0 || rate == 0 {
         return Vec::new();
     }
 
@@ -288,18 +292,30 @@ fn resample(raw: &[f32], channels: usize, every: usize) -> Vec<f32> {
         mono.push(sum / f32::from(count));
     }
 
-    if every <= 1 {
+    if rate == SAMPLE_RATE {
         return mono;
     }
 
-    mono.chunks(every)
-        .map(|group| {
-            // A group is at most a handful of samples, so the count is exact
-            // as a float however wide the platform's usize is.
-            let count = u16::try_from(group.len()).unwrap_or(u16::MAX);
-            group.iter().sum::<f32>() / f32::from(count)
-        })
-        .collect()
+    // How many samples the same span of time is at the rate everything else
+    // works in. Worked out in `u128` because a minute of 96 kHz audio times a
+    // sample rate overflows a `u64` on nothing like a large machine.
+    let ours = u128::from(SAMPLE_RATE);
+    let theirs = u128::from(rate);
+    let wanted = usize::try_from(frames as u128 * ours / theirs).unwrap_or(usize::MAX);
+    let mut out = Vec::with_capacity(wanted);
+
+    for at in 0..wanted {
+        let from = usize::try_from(at as u128 * theirs / ours).unwrap_or(frames);
+        let to = usize::try_from((at as u128 + 1) * theirs / ours)
+            .unwrap_or(frames)
+            .max(from + 1)
+            .min(frames);
+        let window = &mono[from..to];
+        let count = u16::try_from(window.len()).unwrap_or(u16::MAX).max(1);
+        out.push(window.iter().sum::<f32>() / f32::from(count));
+    }
+
+    out
 }
 
 /// Tells a refused microphone apart from an unusable one.
@@ -361,33 +377,92 @@ mod tests {
     fn two_channels_become_one_by_averaging_them() {
         // Picking one channel loses whatever was said into the other.
         let stereo = [1.0, 0.0, 0.5, 0.5, -1.0, 1.0];
-        assert_eq!(resample(&stereo, 2, 1), [0.5, 0.5, 0.0]);
+        assert_eq!(resample(&stereo, 2, SAMPLE_RATE), [0.5, 0.5, 0.0]);
     }
 
     #[test]
     fn bringing_the_rate_down_averages_rather_than_dropping_samples() {
+        // Three device samples to one of ours: 48 kHz, the common case.
         // Dropping folds everything above the new limit back down as noise.
         let samples = [1.0, 3.0, 2.0, 4.0, 0.0, 6.0];
-        assert_eq!(resample(&samples, 1, 3), [2.0, 10.0 / 3.0]);
+        assert_eq!(resample(&samples, 1, SAMPLE_RATE * 3), [2.0, 10.0 / 3.0]);
     }
 
     #[test]
     fn a_rate_that_needs_no_change_is_left_alone() {
         let samples = [0.1, 0.2, 0.3];
-        assert_eq!(resample(&samples, 1, 1), samples);
+        assert_eq!(resample(&samples, 1, SAMPLE_RATE), samples);
     }
 
     #[test]
-    fn a_trailing_group_that_is_short_is_still_kept() {
+    fn a_tail_too_short_to_be_a_whole_sample_is_dropped() {
         // The last fraction of a second is often the end of the word.
         let samples = [1.0, 1.0, 1.0, 2.0];
-        assert_eq!(resample(&samples, 1, 3), [1.0, 2.0]);
+        // Four device samples at three to one is one of ours and a third.
+        // The third is dropped rather than promoted to a whole sample: a
+        // recording's length is worked out from how many samples it has, so
+        // rounding up would say it lasted longer than it did. A third of a
+        // sample at 16 kHz is twenty microseconds.
+        assert_eq!(resample(&samples, 1, SAMPLE_RATE * 3), [1.0]);
     }
 
     #[test]
     fn nothing_in_produces_nothing_out() {
-        assert!(resample(&[], 2, 3).is_empty());
-        assert!(resample(&[1.0], 0, 3).is_empty());
+        assert!(resample(&[], 2, 48_000).is_empty());
+        assert!(resample(&[1.0], 0, 48_000).is_empty());
+        assert!(resample(&[1.0], 1, 0).is_empty());
+    }
+
+    /// How long, in samples of our own, a span of device audio comes back as.
+    fn lengths_for(rate: u32, seconds: usize) -> usize {
+        let raw = vec![0.5f32; rate as usize * seconds];
+        resample(&raw, 1, rate).len()
+    }
+
+    #[test]
+    fn every_rate_a_microphone_runs_at_comes_back_the_right_length() {
+        // The bug this replaced divided the rates as whole numbers, so only a
+        // multiple of 16 kHz came out right. Everything else was handed to the
+        // recogniser too fast, with no error anywhere: 44.1 kHz a third too
+        // fast, a Bluetooth headset at 24 kHz half again too fast. A wrong
+        // transcript is the worst way for this to fail, because nothing looks
+        // broken.
+        for rate in [
+            8_000, 16_000, 22_050, 24_000, 32_000, 44_100, 48_000, 96_000,
+        ] {
+            let got = lengths_for(rate, 2);
+            let wanted = SAMPLE_RATE as usize * 2;
+            let out_by = got.abs_diff(wanted);
+            assert!(
+                out_by <= 1,
+                "{rate} Hz came back as {got} samples where {wanted} was wanted, \
+                 which is speech {}% off the right speed",
+                out_by * 100 / wanted.max(1)
+            );
+        }
+    }
+
+    #[test]
+    fn a_rate_below_ours_is_stretched_rather_than_silently_mislabelled() {
+        // A headset at 8 kHz used to come back unchanged and be treated as
+        // 16 kHz, which is half speed.
+        let raw = vec![1.0f32; 8_000];
+        let out = resample(&raw, 1, 8_000);
+        assert_eq!(out.len(), 16_000, "half a second at 8 kHz is half a second");
+        assert!(out.iter().all(|sample| (sample - 1.0).abs() < f32::EPSILON));
+    }
+
+    #[test]
+    fn a_ramp_keeps_its_shape_through_the_rate_change() {
+        // Not just the right length: the audio has to still be the audio.
+        let raw: Vec<f32> = (0..48_000u16).map(|i| f32::from(i) / 48_000.0).collect();
+        let out = resample(&raw, 1, 48_000);
+        assert_eq!(out.len(), 16_000);
+        assert!(out[0] < 0.01, "it should still start low");
+        assert!(out[out.len() - 1] > 0.99, "and still end high");
+        for pair in out.windows(2) {
+            assert!(pair[1] >= pair[0], "a ramp should not go backwards");
+        }
     }
 
     #[test]
