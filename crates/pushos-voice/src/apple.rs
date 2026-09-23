@@ -334,38 +334,42 @@ pub(crate) fn ask_to_record() -> Result<(), VoiceError> {
     );
 
     match standing {
-        RecordPermission::Granted => return Ok(()),
+        RecordPermission::Granted => Ok(()),
         RecordPermission::Denied => {
             warn!(
                 "macOS has the microphone down as refused for PushOS itself; \
                  `doctor` reads it as whatever started `doctor`, which is why the two disagree"
             );
-            return Err(VoiceError::NotPermitted {
-                what: "the microphone".to_owned(),
-            });
-        }
-        // Unknown is a value this build of macOS did not teach us. Asking is
-        // harmless and answers the question.
-        RecordPermission::Unasked | RecordPermission::Unknown => {}
-    }
-
-    let (answered, answer) = mpsc::channel();
-    let handler = RcBlock::new(move |granted: objc2::runtime::Bool| {
-        let _ = answered.send(granted.as_bool());
-    });
-    unsafe { AVAudioApplication::requestRecordPermissionWithCompletionHandler(&handler) };
-
-    match answer.recv_timeout(PATIENCE) {
-        Ok(true) => Ok(()),
-        Ok(false) => {
-            warn!("macOS refused the microphone without asking the operator");
             Err(VoiceError::NotPermitted {
                 what: "the microphone".to_owned(),
             })
         }
-        Err(_) => Err(VoiceError::Unavailable {
-            context: "macOS did not answer the request to use the microphone".to_owned(),
-        }),
+        // Never asked, or a value this build of macOS did not teach us. Ask,
+        // and come straight back.
+        //
+        // Deliberately not waiting for the answer. The answer is a person
+        // reading a dialog and deciding, which takes as long as it takes, and
+        // a control held for that long is a surface that has stopped
+        // responding — which is exactly how this failed the first time, with
+        // the operator holding a button that never came back. Asking is enough:
+        // macOS shows the dialog, and the next press finds the answer.
+        RecordPermission::Unasked | RecordPermission::Unknown => {
+            let handler = RcBlock::new(|granted: objc2::runtime::Bool| {
+                debug!(
+                    granted = granted.as_bool(),
+                    "macOS answered about the microphone"
+                );
+            });
+            unsafe { AVAudioApplication::requestRecordPermissionWithCompletionHandler(&handler) };
+
+            Err(VoiceError::Unavailable {
+                context: concat!(
+                    "macOS is asking whether PushOS may use the microphone. ",
+                    "Allow it, then hold the control again"
+                )
+                .to_owned(),
+            })
+        }
     }
 }
 
@@ -461,5 +465,34 @@ mod tests {
         // `doctor` must work before anything has been allowed.
         let found = AppleSpeech::readiness();
         assert!(!found.explain().is_empty());
+    }
+
+    #[test]
+    fn asking_for_the_microphone_never_holds_the_control() {
+        // The first time this was written it waited for the answer, and the
+        // answer is a person reading a dialog and deciding. A control held for
+        // thirty seconds is a surface that has stopped responding, which is
+        // how an operator came to be holding a button that never came back.
+        //
+        // The source says so: the request is fired and the function returns.
+        let source = include_str!("apple.rs");
+        let asking = source
+            .split("pub(crate) fn ask_to_record")
+            .nth(1)
+            .and_then(|rest| rest.split("\n}\n").next())
+            .expect("the function is there");
+
+        assert!(
+            asking.contains("requestRecordPermissionWithCompletionHandler"),
+            "it still has to ask, or macOS never shows the dialog"
+        );
+        assert!(
+            !asking.contains("recv_timeout"),
+            "asking must not wait for the operator to answer"
+        );
+        assert!(
+            !asking.contains("PATIENCE"),
+            "there is nothing here worth being patient about"
+        );
     }
 }
