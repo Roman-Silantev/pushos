@@ -6,7 +6,8 @@
 //! or hold its configuration open.
 
 use pushos_api::protocol::{
-    BindingList, EditReport, PackList, PackReview, Request, Response, SessionList, SettingsReport, StatusReport, TestReport, Vocabulary, WorkspaceList,
+    BindingList, EditReport, PackList, PackReview, Request, Response, SessionList, SettingsReport,
+    StatusReport, TestReport, Vocabulary, WorkspaceList,
 };
 use pushos_api::{ClientError, ControlClient};
 use pushos_config::{BindingAddress, BindingSpec, PageSpec, Settings};

@@ -852,6 +852,19 @@ cargo test
 
 plus relevant integration tests.
 
+Studio is not in the workspace, so none of those three reach it. Run them
+there as well when anything it touches has changed:
+
+```text
+cd studio/src-tauri && cargo fmt --check && cargo clippy --all-targets
+cd studio && npm run check && npm run build
+```
+
+Skipping this is silent. A long import line in `studio/src-tauri/src/lib.rs`
+sat unformatted through nine days and forty-eight commits, because
+`cargo fmt --all` at the root cannot see a crate the workspace excludes, and
+CI is the only thing that looks.
+
 Integration tests live in one binary per crate: `tests/it/main.rs`, with a
 module per area beside it. A new file directly under `tests/` is a new binary,
 which links the crate and everything beneath it all over again, on disk and at
