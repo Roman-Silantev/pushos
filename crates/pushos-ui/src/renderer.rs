@@ -353,6 +353,50 @@ mod tests {
     }
 
     #[test]
+    fn the_browser_draws_the_line_that_says_how_to_work_it() {
+        // The reason it exists: an operator with no hint on screen reaches for
+        // whatever looks like it should work, which cost an hour of pressing
+        // arrow buttons that were never bound to it.
+        let mut renderer = renderer();
+
+        let bare = UiSnapshot {
+            browser: Some(crate::snapshot::Browser {
+                trail: "Browse".to_owned(),
+                rows: vec![pushos_domain::browse::Twig::branch("Projects")],
+                at: 0,
+                empty: String::new(),
+                enter: None,
+                leave: None,
+            }),
+            ..populated()
+        };
+        let mut frame = DisplayFrame::blank();
+        renderer.invalidate();
+        renderer.render(&bare, &mut frame);
+        let without = frame.pixels().to_vec();
+
+        let hinted = UiSnapshot {
+            browser: bare
+                .browser
+                .clone()
+                .map(|browser| crate::snapshot::Browser {
+                    enter: Some("SELECT".to_owned()),
+                    leave: Some("UNDO".to_owned()),
+                    ..browser
+                }),
+            ..populated()
+        };
+        renderer.invalidate();
+        renderer.render(&hinted, &mut frame);
+
+        assert_ne!(
+            without,
+            frame.pixels().to_vec(),
+            "the keys line should have been drawn"
+        );
+    }
+
+    #[test]
     fn an_overlay_asking_a_question_draws_its_choices() {
         let mut renderer = renderer();
         let mut plain = DisplayFrame::blank();

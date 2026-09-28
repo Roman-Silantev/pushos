@@ -150,6 +150,31 @@ impl SurfaceState {
             .map(|binding| name_of(binding.control))
     }
 
+    /// The control bound to one of the browser's own moves, named as it is
+    /// printed on the hardware.
+    ///
+    /// Read from the bindings rather than written down, for the same reason the
+    /// way out of a focus is: an operator who rebinds it should find the panel
+    /// telling them the truth, not what somebody assumed when they wrote the
+    /// widget. Only `press` and `tap`, because a hint naming a gesture the
+    /// hardware will not deliver is worse than no hint — which is how this
+    /// came up.
+    fn browse_key(&self, verb: &str) -> Option<String> {
+        use pushos_domain::gesture::Gesture;
+
+        let context = self.context(false);
+        self.config
+            .bindings
+            .iter()
+            .filter(|binding| binding.scope.applies_to(&context))
+            .filter(|binding| matches!(binding.gesture, Gesture::Press | Gesture::Tap))
+            .find(|binding| {
+                let selector = &binding.action.selector;
+                selector.provider.as_str() == "browse" && selector.verb.as_str() == verb
+            })
+            .map(|binding| name_of(binding.control))
+    }
+
     /// Records whether the microphone is on.
     pub fn set_listening(&mut self, listening: pushos_domain::voice::Listening) {
         self.listening = listening;
@@ -243,6 +268,11 @@ impl SurfaceState {
             at: browsing.at(rows.len()),
             rows,
             empty,
+            // A panel that takes over the display and stays has to say how to
+            // work it, because nothing else on screen will. Without this an
+            // operator reaches for the arrows, which is exactly what happened.
+            enter: self.browse_key("enter"),
+            leave: self.browse_key("leave"),
         })
     }
 
@@ -526,6 +556,35 @@ mod tests {
 
     use super::*;
 
+    /// A surface with the browser worked by Select and Undo.
+    ///
+    /// The names come back as the hardware prints them, which is in capitals.
+    const WORKED: &str = r#"
+        [[pages]]
+        id = "home"
+        name = "Home"
+
+        [[bindings]]
+        control = "button.browse"
+        gesture = "press"
+        action = "browse.open"
+
+        [[bindings]]
+        control = "button.select"
+        gesture = "press"
+        action = "browse.enter"
+
+        [[bindings]]
+        control = "button.undo"
+        gesture = "press"
+        action = "browse.leave"
+    "#;
+
+    fn worked() -> SurfaceState {
+        let parsed: ConfigFile = toml::from_str(WORKED).expect("well-formed");
+        SurfaceState::new(Arc::new(RuntimeConfig::build(&parsed).expect("valid")))
+    }
+
     const SOME: &str = r#"
         [[pages]]
         id = "home"
@@ -668,6 +727,45 @@ mod tests {
         // Leaving the top is how one control both goes back and gets out.
         browse(&mut state, BrowseMove::Leave);
         assert!(state.snapshot().browser.is_none());
+    }
+
+    #[test]
+    fn the_panel_says_which_controls_work_it() {
+        // A view that takes over the display and stays has to say how to work
+        // it, because nothing else on screen will. Without this an operator
+        // reaches for the arrows — which is what happened, and cost an hour.
+        let mut state = worked();
+        browse(&mut state, BrowseMove::Open);
+
+        let shown = showing(&state);
+        assert_eq!(shown.enter.as_deref(), Some("SELECT"));
+        assert_eq!(shown.leave.as_deref(), Some("UNDO"));
+    }
+
+    #[test]
+    fn the_hint_names_whatever_is_actually_bound() {
+        // Read from the bindings rather than written down, so an operator who
+        // rebinds the browser finds the panel telling them the truth.
+        let moved = WORKED
+            .replace(r#"control = "button.select""#, r#"control = "button.note""#)
+            .replace(r#"control = "button.undo""#, r#"control = "button.delete""#);
+        let parsed: ConfigFile = toml::from_str(&moved).expect("well-formed");
+        let mut state = SurfaceState::new(Arc::new(RuntimeConfig::build(&parsed).expect("valid")));
+
+        browse(&mut state, BrowseMove::Open);
+        let shown = showing(&state);
+        assert_eq!(shown.enter.as_deref(), Some("NOTE"));
+        assert_eq!(shown.leave.as_deref(), Some("DELETE"));
+    }
+
+    #[test]
+    fn a_browser_nothing_is_bound_to_promises_nothing() {
+        // A hint pointing at a control that does not exist is worse than none.
+        let mut state = surface();
+        browse(&mut state, BrowseMove::Open);
+        let shown = showing(&state);
+        assert!(shown.enter.is_none());
+        assert!(shown.leave.is_none());
     }
 
     #[test]

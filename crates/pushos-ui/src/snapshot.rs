@@ -359,6 +359,14 @@ pub struct Browser {
     pub at: usize,
     /// What to say when the level has nothing in it.
     pub empty: String,
+    /// The control that goes into a row, named as the hardware prints it.
+    ///
+    /// Shown along the foot of the panel. A view that takes over the display
+    /// and stays has to say how to work it: nothing else on screen will, and
+    /// an operator with no hint reaches for whatever looks like it should work.
+    pub enter: Option<String>,
+    /// The control that goes back out.
+    pub leave: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
